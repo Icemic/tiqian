@@ -1,12 +1,18 @@
-// ProseHostStateMachine — the hierarchical state machine of one prose host
+// EnhancementStateMachine — the hierarchical state machine of one enhanced
 // element (ADR 0053 wc-s4a). It owns the outer mount lifecycle
-// (ProseHostMountState), the inner pipeline facets and work record that
-// derive ProsePipelineStage, the orthogonal InvalidationReason mask, and
-// the transaction context holding the revision counters.
+// (EnhancementMountState), the inner pipeline facets and work record that
+// derive EnhancementPipelineStage, the orthogonal InvalidationReason mask,
+// and the transaction context holding the revision counters.
 //
-// The machine is the single source of state for its host element: it reads
-// no DOM and dispatches no events; the element supplies DOM-derived inputs
-// and performs every side effect around the machine calls.
+// Renamed from prose-host-state-machine.ts in the core-neutral wave:
+// ProseHostStateMachine -> EnhancementStateMachine,
+// createProseHostStateMachine -> createEnhancementStateMachine,
+// ProseHostTransaction -> EnhancementTransaction,
+// ProseHostTransitionRow -> EnhancementTransitionRow.
+//
+// The machine is the single source of state for its enhanced element: it
+// reads no DOM and dispatches no events; the context supplies DOM-derived
+// inputs and performs every side effect around the machine calls.
 //
 // Explainability: every recorded transition appends one row to a bounded
 // in-memory transition log exposed as `transitions`. The log is the
@@ -14,19 +20,19 @@
 
 import {
   InvalidationReason,
-  deriveProsePipelineStage,
-} from "./prose-host-state.js";
+  deriveEnhancementPipelineStage,
+} from "./state.js";
 import type {
-  ProseHostMountState,
-  ProseLayoutWorkInputs,
-  ProseLayoutWorkRecord,
-  ProsePipelineStage,
-} from "./prose-host-state.js";
+  EnhancementMountState,
+  LayoutWorkInputs,
+  LayoutWorkRecord,
+  EnhancementPipelineStage,
+} from "./state.js";
 
 // Transaction context: the token and revision counters one connection
-// generation accumulates. wc-s4b wires the AbortController into the engine
-// abort surface; the skeleton keeps the slot permanently null.
-export interface ProseHostTransaction {
+// generation accumulates. The lifecycle wires the AbortController into the
+// engine abort surface through this slot.
+export interface EnhancementTransaction {
   layoutOperation: number;
   layoutWorkRevision: number;
   enhanceRequest: number;
@@ -34,11 +40,11 @@ export interface ProseHostTransaction {
   abortController: AbortController | null;
 }
 
-export interface ProseHostTransitionRow {
+export interface EnhancementTransitionRow {
   readonly sequence: number;
   readonly transition: string;
-  readonly hostState: ProseHostMountState;
-  readonly pipelineStage: ProsePipelineStage;
+  readonly hostState: EnhancementMountState;
+  readonly pipelineStage: EnhancementPipelineStage;
   readonly invalidation: number;
 }
 
@@ -47,8 +53,8 @@ const TRANSITION_LOG_CAPACITY = 256;
 function freshLayoutWorkRecord(
   operation: number,
   revision: number,
-  inputs: ProseLayoutWorkInputs,
-): ProseLayoutWorkRecord {
+  inputs: LayoutWorkInputs,
+): LayoutWorkRecord {
   return {
     operation,
     kind: "Enhance",
@@ -63,8 +69,8 @@ function freshLayoutWorkRecord(
   };
 }
 
-export class ProseHostStateMachine {
-  #hostState: ProseHostMountState = "disconnected";
+export class EnhancementStateMachine {
+  #hostState: EnhancementMountState = "disconnected";
   #runtimeActive = false;
   #snapshotAdopted = false;
   #dispatched = false;
@@ -72,7 +78,7 @@ export class ProseHostStateMachine {
   #workerAttached = false;
   #inViewport = true;
   #workInFlight = false;
-  #work: ProseLayoutWorkRecord = freshLayoutWorkRecord(0, 0, {
+  #work: LayoutWorkRecord = freshLayoutWorkRecord(0, 0, {
     usesCapturedMeasure: false,
     signaturesCaptured: false,
     geometrySignature: "",
@@ -82,10 +88,10 @@ export class ProseHostStateMachine {
     viewportTypographyEntries: [],
   });
   #invalidation: number = InvalidationReason.None;
-  #log: ProseHostTransitionRow[] = [];
+  #log: EnhancementTransitionRow[] = [];
   #sequence = 0;
 
-  readonly transaction: ProseHostTransaction = {
+  readonly transaction: EnhancementTransaction = {
     layoutOperation: 0,
     layoutWorkRevision: 0,
     enhanceRequest: 0,
@@ -97,11 +103,11 @@ export class ProseHostStateMachine {
   // mount lifecycle
   // ---------------------------------------------------------------------
 
-  get hostState(): ProseHostMountState {
+  get hostState(): EnhancementMountState {
     return this.#hostState;
   }
 
-  /** True while the host element lives in the document lifecycle. */
+  /** True while the enhanced element lives in the document lifecycle. */
   get connected(): boolean {
     return this.#hostState === "connected" || this.#hostState === "disabled";
   }
@@ -210,8 +216,8 @@ export class ProseHostStateMachine {
     this.#record("setInViewport");
   }
 
-  get pipelineStage(): ProsePipelineStage {
-    return deriveProsePipelineStage({
+  get pipelineStage(): EnhancementPipelineStage {
+    return deriveEnhancementPipelineStage({
       workInFlight: this.#workInFlight,
       workKind: this.#work.kind,
       dispatched: this.#dispatched,
@@ -227,11 +233,11 @@ export class ProseHostStateMachine {
   }
 
   /** The persistent record of the latest layout work round. */
-  get work(): ProseLayoutWorkRecord {
+  get work(): LayoutWorkRecord {
     return this.#work;
   }
 
-  beginLayoutWork(inputs: ProseLayoutWorkInputs): number {
+  beginLayoutWork(inputs: LayoutWorkInputs): number {
     this.transaction.layoutOperation += 1;
     this.transaction.layoutWorkRevision = this.transaction.geometryRevision;
     this.#workInFlight = true;
@@ -330,7 +336,7 @@ export class ProseHostStateMachine {
   // debug channel
   // ---------------------------------------------------------------------
 
-  get transitions(): readonly ProseHostTransitionRow[] {
+  get transitions(): readonly EnhancementTransitionRow[] {
     return this.#log;
   }
 
@@ -349,6 +355,6 @@ export class ProseHostStateMachine {
   }
 }
 
-export function createProseHostStateMachine(): ProseHostStateMachine {
-  return new ProseHostStateMachine();
+export function createEnhancementStateMachine(): EnhancementStateMachine {
+  return new EnhancementStateMachine();
 }

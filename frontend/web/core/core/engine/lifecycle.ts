@@ -10,10 +10,9 @@
 import type { CjkDashCapability } from "./canvas-shaping.js";
 import { elementContentWidth, effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { releasePreparedValueStyleRoot } from "../sampler/snapshot/prepared-dom.js";
-import type { RootStateApi } from "./root-state.js";
+import { globalServices } from "../services/global-services.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import { rawDomRestoreParagraph } from "./raw-dom.js";
-import type { LayoutJobPool } from "./layout-job-pool.js";
 
 // Constants copied from the Kotlin sources: DEFAULT_EMPHASIS_DOT_GAP_EM in
 // core TextModel.kt, DEFAULT_FONT_SIZE and the default families in
@@ -331,25 +330,32 @@ function observableSnapshotCount(root: HTMLElement): number {
 }
 
 // Root teardown (dissolves the former engine-instance facade destroy method,
-// R10; aligns WebEnhancer.kt 167-194): cancels the root's job, deletes the
-// runtime state, restores every committed paragraph, clears capability
-// markers, and rewrites the observable enhancement attributes.
-export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPool, rawDomContext: EnhancedElementContext, root: HTMLElement): void {
-  layoutJobPool.cancelJob(root);
-  const state = rootState.getState(root);
-  rootState.deleteState(root);
-  if (state != null) {
+// R10; aligns WebEnhancer.kt 167-194): cancels the root's job, drops the
+// runtime-established flag, restores every committed paragraph, clears
+// capability markers, and rewrites the observable enhancement attributes.
+// Context-first signature of the root-state dissolution: the registry
+// presence test becomes the ContextState runtimeEstablished flag, and the
+// paragraph and issue records live on the context parts.
+export function destroyRoot(context: EnhancedElementContext, root: HTMLElement): void {
+  globalServices().coordination.layoutJobPool.cancelJob(root);
+  const established = context.contextState.runtimeEstablished;
+  context.contextState.setRuntimeEstablished(false);
+  if (established) {
     let j: number;
-    for (j = 0; j < state.paragraphs.length; j += 1) {
-      rawDomRestoreParagraph(rawDomContext, state.paragraphs[j].source);
+    const paragraphs = context.contextState.paragraphs;
+    for (j = 0; j < paragraphs.length; j += 1) {
+      rawDomRestoreParagraph(context, paragraphs[j].source);
     }
-    for (j = 0; j < state.issues.length; j += 1) {
-      clearIssue(state.issues[j]);
+    paragraphs.length = 0;
+    const issues = context.diagnosis.issues;
+    for (j = 0; j < issues.length; j += 1) {
+      clearIssue(issues[j]);
     }
+    context.diagnosis.clearIssues();
     // SnapshotCompactValueCSS: a precomputed snapshot may be live without a
     // runtime state while list-only enhancement starts. Its compact value
     // CSS belongs to the snapshot owner and must survive that no-op destroy.
-    releasePreparedRootDomStyles(root, rawDomContext);
+    releasePreparedRootDomStyles(root, context);
   }
   const snapshotCount = observableSnapshotCount(root);
   if (snapshotCount > 0) {
@@ -366,10 +372,10 @@ export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPoo
 
 // Detach (dissolves the former engine-instance facade detach method, R10).
 // DetachedRootWeakOwnership: cancel the job and release document-scoped
-// styles; weak table state stays for reconnection on the same node. The
-// suspend verb stays distinct from destroy teardown.
-export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement, context: EnhancedElementContext): void {
-  layoutJobPool.cancelJob(root);
+// styles; the context-held backing stays for reconnection on the same
+// node. The suspend verb stays distinct from destroy teardown.
+export function detachRoot(context: EnhancedElementContext, root: HTMLElement): void {
+  globalServices().coordination.layoutJobPool.cancelJob(root);
   releasePreparedRootDomStyles(root, context);
 }
 

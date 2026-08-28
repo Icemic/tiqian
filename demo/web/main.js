@@ -1,6 +1,6 @@
 import '@tiqian/prose/auto';
 import { registerTiqianProse } from '@tiqian/prose/element';
-import { createProseHostSession } from '@tiqian/core/core/engine/prose-host-session.js';
+import { createEnhanceContext } from '@tiqian/core/core/engine/context/enhance-context.js';
 
 // One-shot replay entry for the demo/web tests: parcel bundles module
 // instances so the page cannot re-import them by URL, and the retired document
@@ -8,7 +8,7 @@ import { createProseHostSession } from '@tiqian/core/core/engine/prose-host-sess
 // root options through this public surface. Replaces the retired enhance() verb
 // (wc-s6 scope 9): options apply through the factory, and mount returns the
 // completion promise covering the one-time work, runtime loading included.
-globalThis.__tiqianOneShot = (root, options) => createProseHostSession(root, options).mount();
+globalThis.__tiqianOneShot = (root, options) => createEnhanceContext(root, options).mount();
 
 // Explicit registration entry point for programmatic hosts. The /auto entry
 // already registers <tiqian-prose> with default options on import, but tests

@@ -1,7 +1,20 @@
+// Part-level coverage for the behavior the dissolved root-state.ts carried
+// (core-neutral wave). The WeakMap registry (getState/setState/deleteState
+// per root) no longer exists by design: one context per element, so where
+// the old file asked "does this root carry runtime state" these tests
+// observe context.contextState.runtimeEstablished. The preparedDomEnabled
+// flag, the activeTsOptions view and the engineState identity cross-section
+// were dissolved with it. Subjects: OptionsLedger engine-option resolution
+// (bag first-parse vs canonical re-entry), DomWriteLayer.publishState
+// attribute projection, EffectSync.strandedSourceParagraphs,
+// ContextState.paragraphCandidates, and the TypographyManager capability
+// and browser-fallback descriptors.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRootState } from "../core/engine/root-state.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { activeSnapshotSessionDescriptor } from "../core/engine/enhance/snapshot-adoption.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
 
@@ -44,11 +57,6 @@ function withComputedStyle(fn) {
   }
 }
 
-function makeRootState() {
-  const rs = createRootState();
-  return { rs };
-}
-
 class FakeElement {
   constructor(overrides = {}) {
     this.tagName = overrides.tagName ?? "P";
@@ -89,50 +97,56 @@ class FakeElement {
   }
 }
 
-test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRootDefaults; full field set", () => {
+test("1. resolveEngineOptions: bag -> optionsFromJs -> snapshot gate -> withRootDefaults; context parts start empty", () => {
   withComputedStyle(() => {
-    const { rs } = makeRootState();
-
     const root = new FakeElement({ attributes: { "data-tiqian-snapshot-layout-fallback": "stale" } });
+    const context = createEnhanceContext(root);
+
+    // Context construction leaves the fallback marker untouched and writes
+    // no attributes of its own.
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "stale");
+    assert.equal(
+      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
+      0
+    );
+    assert.equal(context.element, root);
+    assert.deepEqual(context.contextState.paragraphs, []);
+    assert.deepEqual(context.diagnosis.issues, []);
 
     // fontSize bag: the snapshot gate routes through withoutSnapshotFontSession.
-    const state = rs.createRootState(root, { fontSize: 19 });
+    const resolved = context.optionsLedger.resolveEngineOptions(root, { fontSize: 19 });
+    assert.equal(resolved.fontSize, 19);
+    assert.equal(resolved.snapshotFontSession, null);
+    assert.equal(resolved.fontFamilies.cjk, DEFAULT_CJK_FONT_FAMILY);
+    assert.equal(resolved.fontFamilies.latin, DEFAULT_LATIN_FONT_FAMILY);
+    assert.equal(resolved.fontFamilies.monospace, DEFAULT_MONOSPACE_FONT_FAMILY);
+    assert.equal(resolved.fontFamilies.cjkSerif, DEFAULT_CJK_SERIF_FONT_FAMILY);
+    assert.equal(resolved.fontFamilies.latinSerif, DEFAULT_LATIN_SERIF_FONT_FAMILY);
 
-    // Creation leaves the fallback marker untouched; destroyRoot owns that
-    // cleanup now.
-    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "stale");
-    assert.equal(state.root, root);
-    assert.equal(state.options.fontSize, 19);
-    assert.equal(state.options.snapshotFontSession, null);
-    assert.equal(state.options.fontFamilies.cjk, DEFAULT_CJK_FONT_FAMILY);
-    assert.equal(state.options.fontFamilies.latin, DEFAULT_LATIN_FONT_FAMILY);
-    assert.equal(state.options.fontFamilies.monospace, DEFAULT_MONOSPACE_FONT_FAMILY);
-    assert.equal(state.options.fontFamilies.cjkSerif, DEFAULT_CJK_SERIF_FONT_FAMILY);
-    assert.equal(state.options.fontFamilies.latinSerif, DEFAULT_LATIN_SERIF_FONT_FAMILY);
-    assert.deepEqual(state.paragraphs, []);
-    assert.deepEqual(state.issues, []);
-    assert.equal(state.preparedDomEnabled, true);
-    assert.deepEqual(state.cjkDashCapability, { status: "not-needed", detail: null });
-    assert.ok(state.browserFallback.bridge);
-    assert.equal(typeof state.browserFallback.bridge.shapeJson, "function");
-    assert.equal(typeof state.browserFallback.bridge.metricsJson, "function");
+    // Runtime establishment computes the dash capability evidence and builds
+    // the browser fallback bridge (both dissolved from root-state onto the
+    // typography part).
+    context.typography.establishRuntime(root, resolved);
+    assert.deepEqual(context.typography.cjkDashCapability, { status: "not-needed", detail: null });
+    assert.ok(context.typography.browserFallback.bridge);
+    assert.equal(typeof context.typography.browserFallback.bridge.shapeJson, "function");
+    assert.equal(typeof context.typography.browserFallback.bridge.metricsJson, "function");
 
     // All-default bag: the snapshot gate passes straight through, so the
     // withoutSnapshotFontSession path is never taken.
-    const allDefault = rs.createRootState(root, {});
-    assert.equal(allDefault.options.snapshotFontSession, null);
+    const allDefault = context.optionsLedger.resolveEngineOptions(root, {});
+    assert.equal(allDefault.snapshotFontSession, null);
 
     // null bag also works.
-    const nullBag = rs.createRootState(root, null);
-    assert.equal(nullBag.options.fontSize, null);
+    const nullBag = context.optionsLedger.resolveEngineOptions(root, null);
+    assert.equal(nullBag.fontSize, null);
   });
 });
 
-test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate but runs withRootDefaults", () => {
+test("2. resolveEngineOptionsFromCanonical skips optionsFromJs and the snapshot gate but runs withRootDefaults", () => {
   withComputedStyle(() => {
-    const { rs } = makeRootState();
-
     const root = new FakeElement();
+    const context = createEnhanceContext(root);
     const canonical = {
       fontFamilies: { cjk: "CJK", latin: "Latin", monospace: "Mono", cjkSerif: "Serif", latinSerif: "LatinSerif" },
       fontSize: 19,
@@ -146,38 +160,37 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
       requireSnapshotLayoutWorker: false,
     };
 
-    const state = rs.createRootStateFromCanonical(root, canonical);
+    const resolved = context.optionsLedger.resolveEngineOptionsFromCanonical(root, canonical);
 
-    assert.equal(state.root, root);
-    // Explicit families pass through unchanged; the snapshot gate is skipped.
-    assert.equal(state.options.fontFamilies.cjk, "CJK");
-    assert.equal(state.options.snapshotFontSession.sessionId, "canonical-session");
-    assert.deepEqual(state.paragraphs, []);
-    assert.deepEqual(state.issues, []);
-    assert.equal(state.preparedDomEnabled, true);
-    assert.deepEqual(state.cjkDashCapability, { status: "not-needed", detail: null });
+    assert.equal(context.element, root);
+    // Explicit families pass through unchanged; the snapshot gate is
+    // skipped, so the conforming session survives despite the fontSize.
+    assert.equal(resolved.fontFamilies.cjk, "CJK");
+    assert.equal(resolved.snapshotFontSession.sessionId, "canonical-session");
+    assert.deepEqual(context.contextState.paragraphs, []);
+    assert.deepEqual(context.diagnosis.issues, []);
+
+    context.typography.establishRuntime(root, resolved);
+    assert.deepEqual(context.typography.cjkDashCapability, { status: "not-needed", detail: null });
   });
 });
 
-test("3. preparedDom enabled path: active options, snapshot session descriptor, no fallback attribute", () => {
+test("3. snapshot session descriptor: resolved from the canonical options, no fallback attribute", () => {
   withComputedStyle(() => {
-    const { rs } = makeRootState();
-
     const root = new FakeElement();
-    const state = rs.createRootState(root, {
+    const context = createEnhanceContext(root);
+    const resolved = context.optionsLedger.resolveEngineOptions(root, {
       snapshotFontSession: { status: "conforming", sessionId: "sess-1" },
     });
 
-    // While prepared DOM is enabled the active options are state.options and
-    // the descriptor resolves the session id into the callback pair ffi takes
+    // The descriptor resolves the session id into the callback pair ffi takes
     // as call parameters; an unregistered id only fails at call time.
-    assert.equal(rs.activeTsOptions(state), state.options);
-    const descriptor = rs.activeSnapshotSessionDescriptor(state);
+    const descriptor = activeSnapshotSessionDescriptor(resolved);
     assert.equal(typeof descriptor.shapeJson, "function");
     assert.equal(typeof descriptor.metricsJson, "function");
 
     // The former disable toggle and its fallback attribute were dissolved;
-    // creation must not write the fallback marker at all.
+    // construction must not write the fallback marker at all.
     assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
     assert.equal(
       root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
@@ -186,63 +199,64 @@ test("3. preparedDom enabled path: active options, snapshot session descriptor, 
   });
 });
 
-test("4. engineState cross-section: live arrays, callback wiring", () => {
+test("4. context cross-section: live arrays, reference push paths", () => {
   withComputedStyle(() => {
-    const { rs } = makeRootState();
-
     const root = new FakeElement();
-    const state = rs.createRootState(root, {
+    const context = createEnhanceContext(root);
+    const resolved = context.optionsLedger.resolveEngineOptions(root, {
       snapshotFontSession: { status: "conforming", sessionId: "sess-1" },
     });
-    const engine = rs.engineState(state);
+    context.typography.establishRuntime(root, resolved);
 
-    assert.equal(engine.options, state.options);
-    assert.equal(engine.preparedDomEnabled, true);
-    assert.equal(typeof engine.snapshotSession.shapeJson, "function");
-    assert.equal(typeof engine.snapshotSession.metricsJson, "function");
-    assert.equal(engine.browserFallback, state.browserFallback);
-    assert.equal(engine.paragraphs, state.paragraphs);
-    assert.equal(engine.issues, state.issues);
+    assert.ok(context.typography.browserFallback);
+    assert.equal(typeof context.typography.browserFallback.bridge.shapeJson, "function");
+    assert.equal(typeof context.typography.browserFallback.bridge.metricsJson, "function");
 
+    // Capability issue records accumulate by reference on the diagnosis
+    // manager's live array (the former engineState onIssue callback).
     const issue = { name: "MissingSharedRuntimeStyles" };
-    engine.onIssue(issue);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0], issue);
+    context.diagnosis.issues.push(issue);
+    assert.equal(context.diagnosis.issues.length, 1);
+    assert.equal(context.diagnosis.issues[0], issue);
 
+    // Tracked paragraphs accumulate through pushParagraph on the context
+    // state's live array (the former onParagraphCommitted callback).
     const item = { source: root, lowered: null, lastMeasure: null };
-    engine.onParagraphCommitted(item);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.paragraphs[0], item);
+    context.contextState.pushParagraph(item);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.contextState.paragraphs[0], item);
   });
 });
 
 test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot count participation", () => {
   withComputedStyle(() => {
-    const { rs } = makeRootState();
-
-    // Work branch: attributes written, WeakMap retains the state, and the
-    // observable snapshot count participates in the enhanced count.
+    // Work branch: attributes written, the runtime-established flag replaces
+    // the former WeakMap presence check, and the observable snapshot count
+    // participates in the enhanced count.
     const rootWork = new FakeElement();
-    const stateWork = rs.createRootState(rootWork, {});
-    stateWork.paragraphs.push({ source: rootWork, lowered: null, lastMeasure: null });
+    const contextWork = createEnhanceContext(rootWork);
+    contextWork.contextState.pushParagraph({ source: rootWork, lowered: null, lastMeasure: null });
     rootWork.setAttribute("data-tiqian-snapshot-count", "3");
-    rs.publishState(stateWork);
+    contextWork.domWriteLayer.publishState(
+      contextWork.contextState.paragraphs.length,
+      contextWork.diagnosis.issues.length
+    );
     assert.equal(rootWork.getAttribute("data-tiqian-enhanced"), "true");
     assert.equal(rootWork.getAttribute("data-tiqian-enhanced-count"), "4");
     assert.equal(rootWork.getAttribute("data-tiqian-issue-count"), null);
-    assert.equal(rs.getState(rootWork), stateWork);
+    assert.equal(contextWork.contextState.runtimeEstablished, true);
 
-    // keepEmpty: no work but the state is retained and attributes still write.
+    // keepEmpty: no work but the flag is retained and attributes still write.
     const rootKeep = new FakeElement();
-    const stateKeep = rs.createRootState(rootKeep, {});
-    rs.publishState(stateKeep, true);
-    assert.equal(rs.getState(rootKeep), stateKeep);
+    const contextKeep = createEnhanceContext(rootKeep);
+    contextKeep.domWriteLayer.publishState(0, 0, true);
+    assert.equal(contextKeep.contextState.runtimeEstablished, true);
     assert.equal(rootKeep.getAttribute("data-tiqian-enhanced"), "true");
     assert.equal(rootKeep.getAttribute("data-tiqian-enhanced-count"), "0");
     assert.equal(rootKeep.getAttribute("data-tiqian-issue-count"), null);
 
-    // delete branch: no work and not keepEmpty -> state deleted and the three
-    // attributes are removed.
+    // delete branch: no work and not keepEmpty -> the flag drops and the
+    // three attributes are removed.
     const rootDelete = new FakeElement({
       attributes: {
         "data-tiqian-enhanced": "true",
@@ -250,44 +264,46 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
         "data-tiqian-issue-count": "1",
       },
     });
-    const stateDelete = rs.createRootState(rootDelete, {});
-    rs.setState(rootDelete, stateDelete);
-    rs.publishState(stateDelete);
-    assert.equal(rs.getState(rootDelete), undefined);
+    const contextDelete = createEnhanceContext(rootDelete);
+    contextDelete.contextState.setRuntimeEstablished(true);
+    contextDelete.domWriteLayer.publishState(0, 0);
+    assert.equal(contextDelete.contextState.runtimeEstablished, false);
     assert.equal(rootDelete.getAttribute("data-tiqian-enhanced"), null);
     assert.equal(rootDelete.getAttribute("data-tiqian-enhanced-count"), null);
     assert.equal(rootDelete.getAttribute("data-tiqian-issue-count"), null);
 
     // Issue count branch: issues present -> issue-count written.
     const rootIssue = new FakeElement();
-    const stateIssue = rs.createRootState(rootIssue, {});
-    stateIssue.issues.push({ name: "MissingSharedRuntimeStyles" });
-    rs.publishState(stateIssue);
+    const contextIssue = createEnhanceContext(rootIssue);
+    contextIssue.diagnosis.issues.push({ name: "MissingSharedRuntimeStyles" });
+    contextIssue.domWriteLayer.publishState(
+      contextIssue.contextState.paragraphs.length,
+      contextIssue.diagnosis.issues.length
+    );
     assert.equal(rootIssue.getAttribute("data-tiqian-issue-count"), "1");
   });
 });
 
 test("6. strandedSourceParagraphs: empty paragraphs returns all candidates; rendered sources subtracted", () => {
-  const { rs } = makeRootState();
+  withComputedStyle(() => {
+    const c0 = new FakeElement();
+    const c1 = new FakeElement();
+    const c2 = new FakeElement();
+    const root = new FakeElement({ children: [c0, c1, c2] });
+    const context = createEnhanceContext(root);
+    context.contextState.setRuntimeOptions(context.optionsLedger.resolveEngineOptions(root, {}));
 
-  const c0 = new FakeElement();
-  const c1 = new FakeElement();
-  const c2 = new FakeElement();
-  const root = new FakeElement({ children: [c0, c1, c2] });
+    assert.deepEqual(context.effectSync.strandedSourceParagraphs(), [c0, c1, c2]);
 
-  const stateEmpty = { options: { paragraphSelector: "p, li" }, paragraphs: [] };
-  assert.deepEqual(rs.strandedSourceParagraphs(root, stateEmpty), [c0, c1, c2]);
-
-  const stateRendered = {
-    options: { paragraphSelector: "p, li" },
-    paragraphs: [{ source: c0 }, { source: c2 }],
-  };
-  assert.deepEqual(rs.strandedSourceParagraphs(root, stateRendered), [c1]);
+    context.contextState.pushParagraph({ source: c0, lowered: null, lastMeasure: null });
+    context.contextState.pushParagraph({ source: c2, lowered: null, lastMeasure: null });
+    assert.deepEqual(context.effectSync.strandedSourceParagraphs(), [c1]);
+  });
 });
 
 test("7. paragraphCandidates: root-scope and real eligibility filtering", () => {
-  const { rs } = makeRootState();
   const root = new FakeElement();
+  const context = createEnhanceContext(root);
   const innerEl = new FakeElement({ parent: root });
   const outsideEl = new FakeElement();
   // closest answers the root-scope owner for the root selector and stays null
@@ -309,7 +325,7 @@ test("7. paragraphCandidates: root-scope and real eligibility filtering", () => 
   const p6 = new FakeElement({ parent: root, attributes: { "data-tiqian-skip": "" } });
   root.querySelectorAllResult = [p1, p2, p3, p4, p5, p6];
 
-  const candidates = rs.paragraphCandidates(root, "p, li");
+  const candidates = context.contextState.paragraphCandidates(root, "p, li");
   assert.deepEqual(candidates, [p1, p2, p3, p5]);
   // p4 is rejected by the root-scope gate (its scope owner is a nested
   // element inside the root); p6 by the real eligibility predicate

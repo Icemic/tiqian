@@ -47,6 +47,24 @@ export type DiagnosisUnsubscribe = () => void;
 /** String map shaped like an HTMLElement dataset entry set. */
 export type DiagnosisDatasetRecord = { [key: string]: string | undefined };
 
+// One capability issue record reported through the lifecycle
+// reportIssue/clearIssue markers and accumulated per root. Absorbed from the
+// dissolved root-state.ts issues array in the core-neutral wave (renamed
+// from RootStateIssueRecord; the RootState prefix object no longer exists).
+// The lifecycle marker functions mutate the markerCaptured bookkeeping
+// fields onto the same record.
+export type DiagnosisIssueRecord = {
+  kind?: string;
+  name?: string;
+  detail?: string;
+  element?: Element;
+  measure?: number;
+  reportToConsole?: boolean;
+  markerCaptured?: boolean;
+  originalNameAttribute?: string | null;
+  originalDetailAttribute?: string | null;
+};
+
 // Minimal dataset surface: the real host is an HTMLElement whose dataset is a
 // DOMStringMap, and the Node test shims supply a plain object. Read live on
 // every write because test drives may replace element.dataset after the
@@ -60,6 +78,8 @@ interface DiagnosisDatasetHost {
 export interface DiagnosisManager {
   /** Number of DiagnosisEvent objects constructed since creation. */
   readonly eventBroadcastCount: number;
+  /** Live per-root capability issue records; drivers push by reference. */
+  readonly issues: DiagnosisIssueRecord[];
   set(key: DiagnosisKey, value: string): void;
   clear(key: DiagnosisKey): void;
   /** Event-only broadcast for demoted internal signals; no dataset write. */
@@ -68,11 +88,14 @@ export interface DiagnosisManager {
   subscribe(listener: DiagnosisListener): DiagnosisUnsubscribe;
   /** Drops every listener; the dataset write path stays functional. */
   dispose(): void;
+  /** Empties the issue records after their markers were cleared. */
+  clearIssues(): void;
 }
 
 function createDiagnosisManager(host: DiagnosisDatasetHost): DiagnosisManager {
   let listeners: DiagnosisListener[] | null = null;
   let eventBroadcastCount = 0;
+  const issues: DiagnosisIssueRecord[] = [];
 
   function broadcast(kind: "set" | "clear", key: DiagnosisKey, value: string | null): void {
     if (!listeners) return;
@@ -118,11 +141,15 @@ function createDiagnosisManager(host: DiagnosisDatasetHost): DiagnosisManager {
     get eventBroadcastCount() {
       return eventBroadcastCount;
     },
+    issues,
     set,
     clear,
     signal,
     subscribe,
     dispose,
+    clearIssues() {
+      issues.length = 0;
+    },
   };
 }
 

@@ -8,18 +8,20 @@ import { createEnhanceContext } from "../core/engine/context/enhance-context.js"
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
 import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
-
 
 const ENV_GLOBALS = ["window", "document", "getComputedStyle", "Node"];
 
 // The named engine functions (progressive-drivers, lifecycle destroy/detach,
-// content-reconcile) run here against fake root-state/layout-job-pool
-// collaborators; their third parameter is the per-element
-// EnhancedElementContext. The process-paragraph, commit and raw-DOM helpers
-// are direct imports, so specs that drive them run the real pipeline and
-// observe the context's raw-DOM records and the live element consequences.
+// content-reconcile) take the per-element EnhancedElementContext as their
+// first parameter; the layout job pool comes from
+// globalServices().coordination.layoutJobPool, which withEnv swaps for a fake
+// per test. Tests that observe the driver collaborations wrap the context's
+// option resolvers, candidate/stranded enumeration and publishState
+// projection; specs that drive processParagraph, commit and the raw-DOM
+// helpers run the real pipeline and observe the context's raw-DOM records,
+// the live paragraph/issue arrays and the live element consequences.
 
 function makeElement(initialAttributes, options = {}) {
   const attrs = new Map(Object.entries(initialAttributes || {}));
@@ -27,7 +29,7 @@ function makeElement(initialAttributes, options = {}) {
   const removedAttributes = [];
   const styleProps = new Map();
   const text = options.text ?? "hello world";
-  const rect = { top: 0, bottom: 100, width: 300 };
+  const rect = { top: 0, bottom: 100, width: options.width ?? 300 };
   return {
     nodeType: 1,
     tagName: options.tagName ?? "P",
@@ -80,6 +82,11 @@ function makeElement(initialAttributes, options = {}) {
     parentElement: null,
     parentNode: null,
     insertBefore: function () {},
+    dispatchEvent: function (event) {
+      this.events.push(event);
+      return true;
+    },
+    events: [],
     attributes: attrs,
     setAttributes,
     removedAttributes,
@@ -101,9 +108,43 @@ function restoreEnv(entries) {
   }
 }
 
+function makeFakeLayoutJobPool(overrides = {}) {
+  const startJobCalls = [];
+  const cancelJobCalls = [];
+  return {
+    _calls: { startJob: startJobCalls, cancelJob: cancelJobCalls },
+    startJob: function (spec) {
+      startJobCalls.push(spec);
+      if (overrides.startJob) overrides.startJob(spec);
+    },
+    cancelJob: function (root) {
+      cancelJobCalls.push(root);
+      if (overrides.cancelJob) overrides.cancelJob(root);
+    },
+    jobKind: function (root) {
+      return overrides.jobKind ? overrides.jobKind(root) : null;
+    },
+    isAttached: function () {
+      return false;
+    },
+  };
+}
+
+// The drivers reach the pool through the coordination service, so the fake
+// pool is installed there for the duration of one test.
+function installFakePool(pool) {
+  const coordination = globalServices().coordination;
+  const previous = coordination.layoutJobPool;
+  coordination.layoutJobPool = pool;
+  return function () {
+    coordination.layoutJobPool = previous;
+  };
+}
+
 function withEnv(fn, overrides = {}) {
   const saved = saveEnv();
-  const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
+  const pool = overrides.layoutJobPool ?? makeFakeLayoutJobPool(overrides);
+  const restorePool = installFakePool(pool);
   try {
     const computed = (el, pseudo) => {
       const props = {
@@ -133,20 +174,11 @@ function withEnv(fn, overrides = {}) {
       },
     };
     if (overrides.node) globalThis.Node = overrides.node;
-    // Tests now use the real prepared-dom renderer directly.
-    // Validator injection removed per spec.
-    return fn();
+    return fn(pool);
   } finally {
-    if (backend) backend.uninstall();
+    restorePool();
     restoreEnv(saved);
   }
-}
-
-// The snapshot-session descriptor carries the shaping callbacks ffi takes as
-// call parameters; the fixture backend supplies a working pair.
-function fixtureSnapshotSession() {
-  const backend = installFixtureFontBackend();
-  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
 
 // Paragraph host on the fixture fake-DOM base for specs that drive the real
@@ -187,150 +219,88 @@ function registerParagraph(context, source) {
   rawDomCommit(context, source, null);
 }
 
-function makeStateWithCallbacks(overrides = {}) {
-  const state = {
-    root: overrides.root ?? null,
-    options: overrides.options ?? { paragraphSelector: "p", fontSize: 19 },
-    paragraphs: overrides.paragraphs ?? [],
-    issues: overrides.issues ?? [],
-    preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    snapshotSession: overrides.snapshotSession ?? fixtureSnapshotSession(),
-    browserFallback: overrides.browserFallback ?? null,
-  };
-  state.onIssue = overrides.onIssue ?? function (issue) { state.issues.push(issue); };
-  state.onParagraphCommitted = overrides.onParagraphCommitted ?? function (item) { state.paragraphs.push(item); };
-  state.onDisableSnapshotPreparedDom = overrides.onDisableSnapshotPreparedDom ?? function () {};
-  return state;
-}
-
-function makeFakeRootState(opts) {
-  opts = opts || {};
+// A real EnhancedElementContext whose driver-observable part surface is
+// wrapped with recording spies: the two option resolvers dissolved from
+// root-state's createRootState/createRootStateFromCanonical, the candidate
+// and stranded enumerations, and the publishState projection. The wrappers
+// delegate to the real implementations; overrides.candidates and
+// overrides.stranded substitute fixed enumerations for the seeded steady
+// states.
+function makeTestContext(root, overrides = {}) {
+  const context = createEnhanceContext(root);
   const calls = {
-    createRootState: [],
-    createRootStateFromCanonical: [],
-    getState: [],
-    setState: [],
-    deleteState: [],
-    publishState: [],
+    resolveEngineOptions: [],
+    resolveEngineOptionsFromCanonical: [],
     paragraphCandidates: [],
     strandedSourceParagraphs: [],
-    processParagraphArgument: [],
+    publishState: [],
   };
-  return {
-    _calls: calls,
-    createRootState: function (root, bag) {
-      calls.createRootState.push({ root: root, bag: bag });
-      if (opts.state) {
-        // The real createRootState records the enhanced root on the state.
-        opts.state.root = root;
-        return opts.state;
-      }
-      return makeStateWithCallbacks({
-        root: root,
-        options: opts.stateOptions || { paragraphSelector: "p" },
-        paragraphs: opts.paragraphs || [],
-        issues: opts.issues || [],
-      });
-    },
-    createRootStateFromCanonical: function (root, options) {
-      calls.createRootStateFromCanonical.push({ root: root, options: options });
-      return opts.canonicalState || makeStateWithCallbacks({
-        root: root,
-        options: options,
-        paragraphs: opts.paragraphs || [],
-        issues: opts.issues || [],
-      });
-    },
-    getState: function (root) {
-      calls.getState.push(root);
-      return opts.getStateValue !== undefined ? opts.getStateValue : null;
-    },
-    setState: function (root, state) {
-      calls.setState.push({ root: root, state: state });
-    },
-    deleteState: function (root) {
-      calls.deleteState.push(root);
-    },
-    publishState: function (state, keepEmpty) {
-      calls.publishState.push({ state: state, keepEmpty: keepEmpty });
-    },
-    paragraphCandidates: function (root, selector) {
-      calls.paragraphCandidates.push({ root: root, selector: selector });
-      return opts.candidates || [];
-    },
-    strandedSourceParagraphs: function (root, state) {
-      calls.strandedSourceParagraphs.push({ root: root, state: state });
-      return opts.stranded || [];
-    },
-    processParagraphArgument: function (state, paragraph) {
-      calls.processParagraphArgument.push({ state: state, paragraph: paragraph });
-      return { paragraph: paragraph, state: state };
-    },
+
+  const ledger = context.optionsLedger;
+  const realResolve = ledger.resolveEngineOptions;
+  const realResolveCanonical = ledger.resolveEngineOptionsFromCanonical;
+  ledger.resolveEngineOptions = function (rootElement, optionsBag) {
+    calls.resolveEngineOptions.push({ root: rootElement, optionsBag: optionsBag });
+    return realResolve(rootElement, optionsBag);
   };
+  ledger.resolveEngineOptionsFromCanonical = function (rootElement, options) {
+    calls.resolveEngineOptionsFromCanonical.push({ root: rootElement, options: options });
+    return realResolveCanonical(rootElement, options);
+  };
+
+  const state = context.contextState;
+  const realCandidates = state.paragraphCandidates;
+  state.paragraphCandidates = function (rootElement, selector) {
+    calls.paragraphCandidates.push({ root: rootElement, selector: selector });
+    return overrides.candidates ?? realCandidates(rootElement, selector);
+  };
+
+  const sync = context.effectSync;
+  const realStranded = sync.strandedSourceParagraphs;
+  sync.strandedSourceParagraphs = function () {
+    calls.strandedSourceParagraphs.push({});
+    return overrides.stranded ?? realStranded();
+  };
+
+  const write = context.domWriteLayer;
+  const realPublish = write.publishState;
+  write.publishState = function (paragraphCount, issueCount, keepEmpty) {
+    calls.publishState.push({
+      paragraphCount: paragraphCount,
+      issueCount: issueCount,
+      keepEmpty: keepEmpty,
+    });
+    return realPublish(paragraphCount, issueCount, keepEmpty);
+  };
+
+  return { context: context, calls: calls, realResolve: realResolve };
 }
 
-function makeFakeJob() {
-  const calls = { cancelJob: [], startJob: [] };
-  return {
-    _calls: calls,
-    cancelJob: function (root) { calls.cancelJob.push(root); },
-    startJob: function (spec) { calls.startJob.push(spec); },
-    isAttached: function () { return false; },
-    attach: function (root) { return "attached-" + root; },
-    detach: function (root) { return "detached-" + root; },
-    hasJob: function (root) { return "hasJob-" + root; },
-    jobGeneration: function (root) { return 42; },
-    runSlice: function (ctrl, tier) { return "ran"; },
-    pendingInTier: function (root, tier) { return 7; },
-    paragraphCount: function (root) { return 3; },
-    paragraphAt: function (root, index) { return "p-" + index; },
-    setParagraphTier: function (root, index, tier) { return "set"; },
-  };
+// Seeds the enhanced steady state the former getState(root) branch read: the
+// resolved runtime options on the context state, an established typography
+// runtime, and the runtime-established flag. Uses the unwrapped resolver so
+// seeding never pollutes the recorded calls.
+function seedEstablishedRuntime(observed, root, optionsBag) {
+  const resolved = observed.realResolve(root, optionsBag);
+  observed.context.contextState.setRuntimeOptions(resolved);
+  observed.context.typography.establishRuntime(root, resolved);
+  observed.context.contextState.setRuntimeEstablished(true);
+  return resolved;
 }
 
-function makeFakeRawDom(overrides = {}) {
-  const calls = {
-    restoreParagraph: [],
-    restoreShell: [],
-    stampRendered: [],
-    renderedMatches: [],
-    rawDomMatches: [],
-    begin: [],
-    take: [],
-    commit: [],
-    suspendEngineWrites: [],
-  };
-  return {
-    _calls: calls,
-    restoreParagraph: function (el) { calls.restoreParagraph.push(el); },
-    restoreShell: function (el) { calls.restoreShell.push(el); },
-    stampRendered: function (el) { calls.stampRendered.push(el); },
-    suspendEngineWrites: function (el, action) {
-      calls.suspendEngineWrites.push(el);
-      return action();
+// The fixture font backend's synchronous callbacks are the shaping bridge the
+// prepare step consumes through the typography browser-fallback descriptor.
+// The descriptor lives behind a getter on the typography part, so the fixture
+// override redefines the accessor.
+function installFixtureBrowserFallback(context) {
+  const backend = installFixtureFontBackend();
+  Object.defineProperty(context.typography, "browserFallback", {
+    configurable: true,
+    get: function () {
+      return { bridge: backend };
     },
-    renderedMatches: function (el) {
-      calls.renderedMatches.push(el);
-      return overrides.renderedMatches ? overrides.renderedMatches(el) : true;
-    },
-    rawDomMatches: function (el) {
-      calls.rawDomMatches.push(el);
-      return overrides.rawDomMatches ? overrides.rawDomMatches(el) : true;
-    },
-    begin: function (...args) { calls.begin.push(args); },
-    take: function () {},
-    commit: function () {},
-  };
-}
-
-function makeGraph(opts) {
-  opts = opts || {};
-  const layoutJobPool = opts.job || makeFakeJob();
-  const rawDom = opts.rawDom || makeFakeRawDom();
-  return {
-    layoutJobPool: layoutJobPool,
-    rawDom: rawDom,
-  };
+  });
+  return backend;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,24 +310,23 @@ function makeGraph(opts) {
 test("1. enhance: processes each candidate via the real processParagraph, returns paragraphs.length, calls publishState", function () {
   const c1 = makeFixtureParagraphElement();
   const c2 = makeFixtureParagraphElement();
-  const fakeState = makeStateWithCallbacks({ root: null });
-  const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2] });
   withEnv(() => {
-    const job = makeFakeJob();
     const root = makeElement();
-    const context = createEnhanceContext(root);
-    const result = enhance(rs, job, context, root, { fontSize: 20 });
-    assert.equal(rs._calls.createRootState.length, 1);
-    assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
+    const observed = makeTestContext(root, { candidates: [c1, c2] });
+    installFixtureBrowserFallback(observed.context);
+    const result = enhance(observed.context, root, { fontSize: 20 });
+    assert.equal(observed.calls.resolveEngineOptions.length, 1);
+    assert.equal(observed.calls.resolveEngineOptions[0].optionsBag.fontSize, 20);
     // The real processParagraph ran once per candidate, observable through
     // the raw-DOM records registered on the enhance context.
-    const record1 = context.rawDomParagraphs.get(c1);
-    const record2 = context.rawDomParagraphs.get(c2);
+    const record1 = observed.context.rawDomParagraphs.get(c1);
+    const record2 = observed.context.rawDomParagraphs.get(c2);
     assert.ok(record1);
     assert.ok(record2);
     assert.equal(record1.originalContent.textContent, "hello world");
     assert.equal(record2.originalContent.textContent, "hello world");
-    assert.equal(rs._calls.publishState.length, 1);
+    assert.equal(observed.calls.publishState.length, 1);
+    assert.equal(observed.calls.publishState[0].paragraphCount, 2);
     assert.equal(result, 2);
   }, { document: makePipelineDocument(), node: FakeNode });
 });
@@ -367,66 +336,55 @@ test("1. enhance: processes each candidate via the real processParagraph, return
 // ---------------------------------------------------------------------------
 
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
-  const rs = makeFakeRootState({ candidates: [makeElement()] });
   withEnv(() => {
-    const graph = makeGraph({});
-    const result = enhance(rs, graph.layoutJobPool, graph.rawDom, makeElement(), {});
+    const root = makeElement();
+    const observed = makeTestContext(root, { candidates: [makeElement()] });
+    const result = enhance(observed.context, root, {});
     assert.equal(result, 0);
-    assert.equal(graph.rawDom._calls.begin.length, 0);
+    assert.equal(observed.context.rawDomParagraphs.size, 0);
+    assert.equal(observed.context.diagnosis.issues.length, 1);
+    assert.equal(observed.context.diagnosis.issues[0].name, "MissingSharedRuntimeStyles");
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });
 
 // ---------------------------------------------------------------------------
-// 3. enhance destroy-first: destroyRoot runs before createRootState
+// 3. enhance destroy-first: destroyRoot runs before the options resolution
 // ---------------------------------------------------------------------------
 
-test("3. enhance: destroyRoot runs before createRootState (call order)", function () {
+test("3. enhance: destroyRoot runs before resolveEngineOptions (call order)", function () {
   const callOrder = [];
-  const fakeJob = makeFakeJob();
-  const origCancel = fakeJob.cancelJob;
-  fakeJob.cancelJob = function (root) {
-    callOrder.push("destroy");
-    origCancel(root);
-  };
-  const rs = makeFakeRootState({
-    candidates: [],
-    state: makeStateWithCallbacks({ root: null }),
-  });
-  const origCreate = rs.createRootState;
-  rs.createRootState = function (root, bag) {
-    callOrder.push("createRootState");
-    return origCreate(root, bag);
-  };
-  withEnv(() => {
-    const graph = makeGraph({ job: fakeJob });
-    enhance(rs, graph.layoutJobPool, graph.rawDom, makeElement(), {});
-    assert.deepEqual(callOrder, ["destroy", "createRootState"]);
-  });
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeTestContext(root, { candidates: [] });
+    const wrappedResolve = observed.context.optionsLedger.resolveEngineOptions;
+    observed.context.optionsLedger.resolveEngineOptions = function (rootElement, bag) {
+      callOrder.push("ledger.resolveEngineOptions");
+      return wrappedResolve(rootElement, bag);
+    };
+    enhance(observed.context, root, {});
+    assert.deepEqual(callOrder, ["pool.cancelJob", "ledger.resolveEngineOptions"]);
+    assert.equal(pool._calls.cancelJob.length, 1);
+  }, { cancelJob: () => callOrder.push("pool.cancelJob") });
 });
 
 // ---------------------------------------------------------------------------
-// 4. enhanceProgressively: copy handler, destroy, rebuild, one Enhance job
+// 4. enhanceProgressively: destroy, rebuild, one Enhance job
 // ---------------------------------------------------------------------------
 
-test("4. enhanceProgressively installs the copy handler, destroys, rebuilds state and starts one Enhance job", function () {
-  const job = makeFakeJob();
-  const rs = makeFakeRootState({
-    state: makeStateWithCallbacks({ root: null }),
-    candidates: [],
-  });
-  withEnv(() => {
-    const graph = makeGraph({ job: job });
+test("4. enhanceProgressively destroys, rebuilds the runtime options and starts one Enhance job", function () {
+  withEnv((pool) => {
     const root = makeElement();
+    const observed = makeTestContext(root, { candidates: [] });
     const bag = { fontSize: 20 };
-    enhanceProgressively(rs, graph.layoutJobPool, graph.rawDom, root, bag);
-    // The drivers core cancels the job before rebuilding state.
-    assert.equal(job._calls.cancelJob.length, 1);
-    assert.equal(job._calls.cancelJob[0], root);
-    assert.equal(rs._calls.createRootState.length, 1);
-    assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
+    enhanceProgressively(observed.context, root, bag);
+    // The drivers core cancels the job before rebuilding the runtime.
+    assert.equal(pool._calls.cancelJob.length, 1);
+    assert.equal(pool._calls.cancelJob[0], root);
+    assert.equal(observed.calls.resolveEngineOptions.length, 1);
+    assert.equal(observed.calls.resolveEngineOptions[0].optionsBag, bag);
     // The real startLayoutJob starts one Enhance job.
-    assert.equal(job._calls.startJob.length, 1);
-    assert.equal(job._calls.startJob[0].kind, "Enhance");
+    assert.equal(pool._calls.startJob.length, 1);
+    assert.equal(pool._calls.startJob[0].kind, "Enhance");
   });
 });
 
@@ -452,24 +410,27 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
     originalNameAttribute: "orig-name-2",
     originalDetailAttribute: "orig-detail-2",
   };
-  const state = {
-    root: null,
-    options: {},
-    paragraphs: [{ source: src1 }, { source: src2 }],
-    issues: [issue1, issue2],
-  };
-  const rs = makeFakeRootState({ getStateValue: state });
-  withEnv(() => {
-    const job = makeFakeJob();
+  withEnv((pool) => {
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-snapshot-layout-fallback": "fb" });
     const context = createEnhanceContext(root);
+    context.contextState.setRuntimeEstablished(true);
+    context.contextState.paragraphs.push({ source: src1 }, { source: src2 });
+    context.diagnosis.issues.push(issue1, issue2);
     // Enhanced steady state: both paragraphs carry raw-DOM records and their
     // live hosts show rendered output.
     registerParagraph(context, src1);
     registerParagraph(context, src2);
     src1.innerHTML = "rendered one";
     src2.innerHTML = "rendered two";
-    destroyRoot(rs, job, context, root);
+    destroyRoot(context, root);
+    // The registry dissolution observes the teardown through the context:
+    // cancelJob ran, the runtime-established flag reset, and both live arrays
+    // were cleared.
+    assert.equal(pool._calls.cancelJob.length, 1);
+    assert.equal(pool._calls.cancelJob[0], root);
+    assert.equal(context.contextState.runtimeEstablished, false);
+    assert.equal(context.contextState.paragraphs.length, 0);
+    assert.equal(context.diagnosis.issues.length, 0);
     // restoreParagraph handed the captured original content back to the hosts.
     assert.equal(src1.textContent, "hello world");
     assert.equal(src2.textContent, "hello world");
@@ -490,57 +451,67 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
 // 6. destroyRoot no state: still cancelJob + attribute cleanup, no throw
 // ---------------------------------------------------------------------------
 
-test("6. destroyRoot: no state => still cancelJob + attribute cleanup, no throw", function () {
-  const rawDom = makeFakeRawDom();
-  const rs = makeFakeRootState({ getStateValue: null });
-  withEnv(() => {
-    const graph = makeGraph({ rawDom: rawDom });
+test("6. destroyRoot: no established runtime => still cancelJob + attribute cleanup, no throw", function () {
+  withEnv((pool) => {
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
-    destroyRoot(rs, graph.layoutJobPool, graph.rawDom, root);
-    assert.equal(rawDom._calls.restoreParagraph.length, 0);
+    const context = createEnhanceContext(root);
+    destroyRoot(context, root);
+    assert.equal(pool._calls.cancelJob.length, 1);
+    assert.equal(context.rawDomParagraphs.size, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 7. detachRoot: minimal surface -- cancelJob + releaseRoot, no state touch
+// 7. detachRoot: minimal surface -- cancelJob only, context state untouched
 // ---------------------------------------------------------------------------
 
-test("7. detachRoot: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
-  const rs = makeFakeRootState();
-  withEnv(() => {
-    const job = makeFakeJob();
+test("7. detachRoot: cancelJob only, does not touch the context state", function () {
+  withEnv((pool) => {
     const root = makeElement();
-    detachRoot(job, root, createEnhanceContext(root));
-    assert.equal(rs._calls.getState.length, 0);
-    assert.equal(rs._calls.deleteState.length, 0);
-    assert.equal(job._calls.cancelJob.length, 1);
-    assert.equal(job._calls.cancelJob[0], root);
+    const observed = makeTestContext(root);
+    const runtimeOptions = seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    const paragraph = { source: makeFixtureParagraphElement(), lowered: {}, lastMeasure: null };
+    observed.context.contextState.paragraphs.push(paragraph);
+
+    detachRoot(observed.context, root);
+
+    assert.equal(pool._calls.cancelJob.length, 1);
+    assert.equal(pool._calls.cancelJob[0], root);
+    // The former getState/deleteState registry assertions dissolve into the
+    // surviving context state: established flag, options and paragraphs stay.
+    assert.equal(observed.context.contextState.runtimeEstablished, true);
+    assert.equal(observed.context.contextState.runtimeOptions, runtimeOptions);
+    assert.equal(observed.context.contextState.paragraphs.length, 1);
+    assert.equal(observed.context.contextState.paragraphs[0], paragraph);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 8. probeRootContentDrift: no state => unknown result; with state => sources
-//    to the real probe, which reads the fake detached-fragment backup ledger
+// 8. probeRootContentDrift: not established => unknown result; established =>
+//    the context's tracked sources classify through the real probe, which
+//    reads the fake detached-fragment backup ledger
 // ---------------------------------------------------------------------------
 
-test("8. probeRootContentDrift: no state returns the unknown result; with state passes sources to the real probe", function () {
-  const rsNoState = makeFakeRootState({ getStateValue: null });
+test("8. probeRootContentDrift: not established returns the unknown result; established classifies the context's sources", function () {
   withEnv(() => {
-    const result = probeRootContentDrift(createEnhanceContext(makeElement()), rsNoState, makeElement());
+    const root = makeElement();
+    const observed = makeTestContext(root);
+    const result = probeRootContentDrift(observed.context, root);
     assert.deepEqual(result, { unknown: 1, drifted: 0, dead: 0, rawDom: 0 });
   });
 
   const src1 = makeFixtureParagraphElement();
   const src2 = makeFixtureParagraphElement();
-  const state = { root: null, options: {}, paragraphs: [{ source: src1 }, { source: src2 }], issues: [] };
-  const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const context = createEnhanceContext(makeElement());
-    registerParagraph(context, src1);
-    registerParagraph(context, src2);
-    const result2 = probeRootContentDrift(context, rs, makeElement());
+    const root = makeElement();
+    const observed = makeTestContext(root);
+    seedEstablishedRuntime(observed, root, {});
+    observed.context.contextState.paragraphs.push({ source: src1 }, { source: src2 });
+    registerParagraph(observed.context, src1);
+    registerParagraph(observed.context, src2);
+    const result2 = probeRootContentDrift(observed.context, root);
     // The real probe classified both registered sources through the
     // context's raw-DOM records: their rendered and backup identities match,
     // so nothing drifted, died or fell out of the raw-DOM backup.
@@ -549,31 +520,30 @@ test("8. probeRootContentDrift: no state returns the unknown result; with state 
 });
 
 // ---------------------------------------------------------------------------
-// 9. reconcileRoot: no state => null; with state + idle => result, no job;
-//    with work verdict => actions per category + job
+// 9. reconcileRoot: not established => null; established + idle => result, no
+//    job; with work verdict => actions per category + job
 // ---------------------------------------------------------------------------
 
-test("9a. reconcileRoot: no state returns null", function () {
-  const rs = makeFakeRootState({ getStateValue: null });
+test("9a. reconcileRoot: not established returns null", function () {
   withEnv(() => {
-    const graph = makeGraph({});
-    const result = reconcileRoot(graph.rawDom, rs, graph.layoutJobPool, makeElement(), []);
+    const root = makeElement();
+    const observed = makeTestContext(root);
+    const result = reconcileRoot(observed.context, root, []);
     assert.equal(result, null);
   });
 });
 
-test("9b. reconcileRoot: state + idle verdict => returns the result, no startLayoutJob", function () {
+test("9b. reconcileRoot: established + idle verdict => returns the result, no startLayoutJob", function () {
   const source = makeFixtureParagraphElement();
-  const state = { root: null, options: {}, paragraphs: [{ source: source }], issues: [] };
-  const rs = makeFakeRootState({ getStateValue: state, candidates: [] });
-  withEnv(() => {
-    const job = makeFakeJob();
+  withEnv((pool) => {
     const root = makeElement();
-    const context = createEnhanceContext(root);
-    registerParagraph(context, source);
-    const result = reconcileRoot(context, rs, job, root, []);
+    const observed = makeTestContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, {});
+    observed.context.contextState.paragraphs.push({ source: source });
+    registerParagraph(observed.context, source);
+    const result = reconcileRoot(observed.context, root, []);
     assert.deepEqual(result, { outcome: "idle", drifted: 0, rawDom: 0, tainted: 0, stranded: 0, dead: 0 });
-    assert.equal(job._calls.startJob.length, 0);
+    assert.equal(pool._calls.startJob.length, 0);
   }, { document: makePipelineDocument(), node: FakeNode });
 });
 
@@ -589,21 +559,21 @@ test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + Dea
   const strandedEl = makeFixtureParagraphElement();
   // Engine scaffolding the stranded action must strip before re-lowering.
   strandedEl.setAttribute("data-tq-snapshot-prepared-dom", "true");
-  const root = makeElement();
-  const state = makeStateWithCallbacks({
-    root: root,
-    options: {},
-    paragraphs: [
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeTestContext(root, {
+      candidates: [],
+      stranded: [strandedEl],
+    });
+    seedEstablishedRuntime(observed, root, {});
+    installFixtureBrowserFallback(observed.context);
+    const context = observed.context;
+    context.contextState.paragraphs.push(
       { source: deadEl },
       { source: driftedEl },
       { source: rawDomEl },
       { source: taintedEl },
-    ],
-  });
-  const rs = makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] });
-  withEnv(() => {
-    const job = makeFakeJob();
-    const context = createEnhanceContext(root);
+    );
     registerParagraph(context, deadEl);
     registerParagraph(context, driftedEl);
     registerParagraph(context, rawDomEl);
@@ -614,17 +584,17 @@ test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + Dea
     driftedEl.innerHTML = "edited live";
     context.rawDomParagraphs.get(rawDomEl).originalContent.appendChild(new FakeText(" host edit"));
 
-    const result = reconcileRoot(context, rs, job, root, [taintedEl]);
-    // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs.
-    assert.equal(state.paragraphs.length, 3);
-    assert.equal(state.paragraphs[0].source, driftedEl);
-    assert.equal(state.paragraphs[1].source, rawDomEl);
-    assert.equal(state.paragraphs[2].source, taintedEl);
+    const result = reconcileRoot(context, root, [taintedEl]);
+    // DeadTrackedParagraphDrop: deadEl removed from the context's paragraphs.
+    assert.equal(context.contextState.paragraphs.length, 3);
+    assert.equal(context.contextState.paragraphs[0].source, driftedEl);
+    assert.equal(context.contextState.paragraphs[1].source, rawDomEl);
+    assert.equal(context.contextState.paragraphs[2].source, taintedEl);
     // The real classifyReconcile produced the expected verdict.
     assert.deepEqual(result, { outcome: "work", drifted: 1, rawDom: 1, tainted: 1, stranded: 1, dead: 1 });
     // startLayoutJob called with kind Relayout and 4 actions.
-    assert.equal(job._calls.startJob.length, 1);
-    const call = job._calls.startJob[0];
+    assert.equal(pool._calls.startJob.length, 1);
+    const call = pool._calls.startJob[0];
     assert.equal(call.kind, "Relayout");
     assert.equal(call.itemCount, 4);
     // Execute processItem callbacks to verify action effects.
@@ -632,13 +602,14 @@ test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + Dea
       call.processItem(i);
     }
     // Every action re-processed its paragraph through the real pipeline, so
-    // all four end up committed back into state.paragraphs in tier order.
-    assert.equal(state.paragraphs.length, 4);
+    // all four end up committed back into the context's paragraphs in tier
+    // order.
+    assert.equal(context.contextState.paragraphs.length, 4);
     assert.deepEqual(
-      state.paragraphs.map(function (item) { return item.source; }),
+      context.contextState.paragraphs.map(function (item) { return item.source; }),
       [driftedEl, rawDomEl, taintedEl, strandedEl],
     );
-    for (const item of state.paragraphs) {
+    for (const item of context.contextState.paragraphs) {
       assert.equal(typeof item.lastMeasure, "number");
       assert.ok(context.rawDomParagraphs.get(item.source));
     }
@@ -658,25 +629,21 @@ test("9d. reconcileRoot: itemTierIndex sorted by (distance, index), stale closur
   el1.top = -200;
   el1.height = 100;
   const el2 = makeFixtureParagraphElement();
-  const root = makeElement();
-  root._rect = { top: 0, bottom: 100, width: 300 };
-  const state = {
-    root: root, options: {},
-    paragraphs: [{ source: el1 }, { source: el2 }],
-    issues: [],
-  };
-  const rs = makeFakeRootState({ getStateValue: state, candidates: [] });
-  withEnv(() => {
-    const job = makeFakeJob();
-    const context = createEnhanceContext(root);
+  withEnv((pool) => {
+    const root = makeElement();
+    root._rect = { top: 0, bottom: 100, width: 300 };
+    const observed = makeTestContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, {});
+    const context = observed.context;
+    context.contextState.paragraphs.push({ source: el1 }, { source: el2 });
     registerParagraph(context, el1);
     registerParagraph(context, el2);
     // Both paragraphs drift: the host replaced their rendered children.
     el1.innerHTML = "edited one";
     el2.innerHTML = "edited two";
-    reconcileRoot(context, rs, job, root, []);
-    assert.equal(job._calls.startJob.length, 1);
-    const call = job._calls.startJob[0];
+    reconcileRoot(context, root, []);
+    assert.equal(pool._calls.startJob.length, 1);
+    const call = pool._calls.startJob[0];
     // el2 visible (distance 0) first, then el1 above viewport (distance 100).
     assert.deepEqual(call.itemTierIndex, [1, 0]);
     // stale closure: root width matches initially.

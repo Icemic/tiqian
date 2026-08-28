@@ -1,32 +1,39 @@
-// Prose host state model (ADR 0053 wc-s4a): the mount states, pipeline
-// stages, invalidation reasons and the layout-work record that the prose
-// host element and its hierarchical state machine share.
+// Enhancement state model (ADR 0053 wc-s4a): the mount states, pipeline
+// stages, invalidation reasons and the layout-work record that the enhanced
+// element context and its hierarchical state machine share.
+//
+// Renamed from prose-host-state.ts in the core-neutral wave:
+// ProseHostMountState -> EnhancementMountState,
+// ProsePipelineStage -> EnhancementPipelineStage,
+// ProsePipelineStageInputs -> EnhancementPipelineStageInputs,
+// ProseLayoutWorkKind/Record/Inputs -> LayoutWorkKind/Record/Inputs.
+// InvalidationReason keeps its name.
 //
 // Pure model module: no DOM access, no side effects. The derivation helpers
 // are total functions over their inputs, so tests can assert the state
 // matrix without constructing a machine.
 //
 // The two levels:
-// - ProseHostMountState tracks the host element's mount lifecycle
+// - EnhancementMountState tracks the enhanced element's mount lifecycle
 //   (connection, the deferred raw-DOM-move teardown window, the disabled
 //   opt-out).
-// - ProsePipelineStage tracks the layout pipeline of one connected root
-//   (source, enhancement, relayout, settled output).
+// - EnhancementPipelineStage tracks the layout pipeline of one connected
+//   root (source, enhancement, relayout, settled output).
 // The two are orthogonal: a disconnected root keeps its weak pipeline
 // backing, and a connected root can sit in any pipeline stage.
 //
 // InvalidationReason is a bitmask orthogonal to both levels: each bit marks
 // one pending dirty reason the commit paths must consume.
 
-import type { TypographyViewportEntry } from "../sampler/signatures.js";
+import type { TypographyViewportEntry } from "../../sampler/signatures.js";
 
-export type ProseHostMountState =
+export type EnhancementMountState =
   | "connected"
   | "disabled"
   | "deferred-teardown"
   | "disconnected";
 
-export type ProsePipelineStage =
+export type EnhancementPipelineStage =
   | "idle"
   | "enhancing"
   | "relayouting"
@@ -34,7 +41,7 @@ export type ProsePipelineStage =
 
 // The job kind labels mirror the layout job pool's per-root kind strings so
 // the pipeline stage derivation and the pool's coordination counters agree.
-export type ProseLayoutWorkKind = "Enhance" | "Relayout";
+export type LayoutWorkKind = "Enhance" | "Relayout";
 
 // Pending invalidation reasons. Each bit replaces one former private
 // boolean flag on the host element:
@@ -84,9 +91,9 @@ export function invalidationReasons(mask: number): InvalidationReason[] {
 // Persistent record of the latest layout work. The record outlives its
 // finish: a stale-read finish path still observes the last work's inputs,
 // exactly as the former per-element fields did.
-export interface ProseLayoutWorkRecord {
+export interface LayoutWorkRecord {
   readonly operation: number;
-  kind: ProseLayoutWorkKind;
+  kind: LayoutWorkKind;
   readonly revision: number;
   usesCapturedMeasure: boolean;
   signaturesCaptured: boolean;
@@ -97,9 +104,9 @@ export interface ProseLayoutWorkRecord {
   viewportTypographyEntries: TypographyViewportEntry[];
 }
 
-// DOM-derived inputs the host element computes and hands to the machine
-// when it begins a layout work round.
-export interface ProseLayoutWorkInputs {
+// DOM-derived inputs the context computes and hands to the machine when it
+// begins a layout work round.
+export interface LayoutWorkInputs {
   usesCapturedMeasure: boolean;
   signaturesCaptured: boolean;
   geometrySignature: string;
@@ -109,15 +116,15 @@ export interface ProseLayoutWorkInputs {
   viewportTypographyEntries: TypographyViewportEntry[];
 }
 
-export interface ProsePipelineStageInputs {
+export interface EnhancementPipelineStageInputs {
   workInFlight: boolean;
-  workKind: ProseLayoutWorkKind;
+  workKind: LayoutWorkKind;
   dispatched: boolean;
 }
 
-export function deriveProsePipelineStage(
-  inputs: ProsePipelineStageInputs,
-): ProsePipelineStage {
+export function deriveEnhancementPipelineStage(
+  inputs: EnhancementPipelineStageInputs,
+): EnhancementPipelineStage {
   if (inputs.workInFlight) {
     return inputs.workKind === "Relayout" ? "relayouting" : "enhancing";
   }

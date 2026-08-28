@@ -48,7 +48,7 @@
 //       sites (parity oracle, golden evidence), which is why the oracle script
 //       is part of the codec list.
 //
-// Scanned roots: engine/, ffi/, frontend/ (npm, core, web-precompute).
+// Scanned roots: engine/, ffi/, frontend/ (npm, react, core, web-precompute).
 // Source extensions only: .kt .rs .ts .tsx .js .mjs .cjs. Checked-in dump,
 // golden and fixture data files are byte-comparison artifacts sanctioned by
 // the ruling and are not scanned.
@@ -145,8 +145,8 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/core/engine/prose-host-session.ts",
-    reason: "Separator join in signature building over the untyped payload; replaced by declared DTOs.",
+    file: "frontend/web/core/core/engine/enhance/context-state.ts",
+    reason: "Separator join in signature building over the untyped payload (moved from prose-host-session.ts in the core-neutral collapse); replaced by declared DTOs.",
   },
   {
     task: "#106",

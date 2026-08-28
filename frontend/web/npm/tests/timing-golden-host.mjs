@@ -29,176 +29,114 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
+import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
 
-// ADR 0053 C1 removed the internal document-level event channel, so the
-// timing drive observes the engine surface through a recording runtime graph
-// (R10 dissolved the engine facade the former stub impersonated). The graph
-// products record each call in phase order, projected back to the legacy
-// facade method names the fixture freezes, and answer like an engine with no
-// work: root states are created empty, the job pool accepts jobs and never
-// runs them. Projection disambiguates the composed teardowns by their graph
-// op sequence: install+deleteState+createRootState is the driver-internal
-// destroy of enhanceProgressively (bag) or relayout (null bag / canonical),
-// a bare deleteState is a standalone destroy, and cancelJob resolves to a
-// detach when the prepared-dom release follows it, otherwise to
-// cancelLayoutWork at the next unrelated op or phase boundary. The graph is
-// installed only for the duration of one drive; sibling journeys in the same
-// process (worker messages) keep the real engine.
-let activeEngineRecord = null;
+// ADR 0053 C1 removed the internal document-level event channel, and the R10
+// core-neutral refactor dissolved the engine facade the former recording stub
+// impersonated. The recording layer keeps the baseline recording CONTRACT, not
+// the dead baseline mechanism:
+//
+//   * engineCalls stays empty. After R10 the old recording doubles were never
+//     wired to anything (the drivers no longer receive an engine facade), so
+//     the frozen fixture records [] for every journey and the token-transitions
+//     verdicts freeze the "-engine-missing" vocabulary. The fixture is the
+//     contract; the drive must reproduce it exactly.
+//   * elementEvents records the completion detail at the PRE-FUNNEL point.
+//     Baseline semantics: the fake dispatchEvent snapshotted event.detail
+//     before invoking the single registered listener, and the session's ready
+//     funnel ran as that listener — so the fixture freezes the detail the
+//     driver dispatched, before the funnel's snapshot-count adjustment. The
+//     core-neutral event flip moved the funnel ahead of the DOM dispatch
+//     (eventChannel.notify runs the funnel, then synthesizes the CustomEvent),
+//     so the equivalent pre-funnel observation point is the channel's
+//     notify/dispatch entry: the drive wraps the captured context's
+//     eventChannel.notify and eventChannel.dispatch and records the detail
+//     they receive, then forwards. Events dispatched on the element from
+//     outside the channel (test drives) carry no INTERNAL_DISPATCH_MARKER and
+//     are recorded by the element.dispatchEvent override, exactly like the
+//     baseline recorded every dispatch.
+//
+// Context capture: the element builds its context in a native private field
+// (#context = createEnhanceContext(this)), unreachable from the drive. The
+// single interception point is the Object.defineProperties(context, {...})
+// call that publishes the context parts at the end of createEnhanceContext; a
+// scoped Object.defineProperties wrapper, armed only around
+// `new TiqianProseElement()`, matches that descriptor map and captures the
+// context object. teardown() restores every wrapper so sibling journeys in the
+// same process (worker messages, grant rounds) keep pristine services.
 let activeEnginePhase = "";
 
-function recordingRuntimeGraph() {
-  const states = new WeakMap();
-  let installArmed = false;
-  let cancelPending = false;
-
-  const log = (method) => {
-    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
-  };
-  const flushCancelAsWork = () => {
-    if (!cancelPending) return;
-    cancelPending = false;
-    installArmed = false;
-    log("cancelLayoutWork");
-  };
-  const blankState = (root, options) => {
-    const state = { root, options, paragraphs: [], issues: [] };
-    states.set(root, state);
-    return state;
-  };
-
-  // The graph is now empty; return an empty object.
-  return {};
-}
-
-// Recording service implementations for the timing-golden drive.
-function recordingRootState() {
-  const states = new WeakMap();
-  let installArmed = false;
-  let cancelPending = false;
-
-  const log = (method) => {
-    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
-  };
-  const flushCancelAsWork = () => {
-    if (!cancelPending) return;
-    cancelPending = false;
-    installArmed = false;
-    log("cancelLayoutWork");
-  };
-  const blankState = (root, options) => {
-    const state = { root, options, paragraphs: [], issues: [] };
-    states.set(root, state);
-    return state;
-  };
-
-  return {
-    getState(root) { return states.get(root) ?? null; },
-    setState(root, state) { states.set(root, state); },
-    deleteState(root) {
-      states.delete(root);
-      cancelPending = false;
-      if (!installArmed) log("destroy");
-    },
-    createRootState(root, bag) {
-      if (installArmed) {
-        installArmed = false;
-        log(bag == null ? "relayout" : "enhanceProgressively");
-      }
-      const selector = (bag && bag.paragraphSelector) || "p, li";
-      return blankState(root, { paragraphSelector: selector, fontSize: 16 });
-    },
-    createRootStateFromCanonical(root, canonicalOptions) {
-      if (installArmed) {
-        installArmed = false;
-        log("relayout");
-      }
-      return blankState(root, canonicalOptions);
-    },
-    paragraphCandidates() { return []; },
-    strandedSourceParagraphs() { return []; },
-    sessionArgument(state) { return { paragraphs: state.paragraphs, state: {} }; },
-    prepareArgument(state, paragraph, widthOverride) {
-      return { paragraph, widthOverride, state: {} };
-    },
-    publishState() {},
-    processParagraphArgument(state, paragraph) { return { state, paragraph }; },
-    updateCjkDashCapability() {},
-    armInstall() { installArmed = true; },
-    flushProjection: flushCancelAsWork,
-  };
-}
-
-function recordingLayoutJobPool() {
-  let cancelPending = false;
-  let installArmed = false;
-
-  const log = (method) => {
-    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
-  };
-  const flushCancelAsWork = () => {
-    if (!cancelPending) return;
-    cancelPending = false;
-    installArmed = false;
-    log("cancelLayoutWork");
-  };
-
-  return {
-    attach() { return true; },
-    detach() { return true; },
-    isAttached() { return false; },
-    hasJob() { return false; },
-    jobGeneration() { return 0; },
-    jobKind() { return null; },
-    runSlice() { return 0; },
-    pendingInTier() { return 0; },
-    paragraphCount() { return 0; },
-    paragraphAt() { return null; },
-    setParagraphTier() { return false; },
-    startJob() {},
-    cancelJob() {
-      flushCancelAsWork();
-      cancelPending = true;
-      // The drivers call clipboard.install before cancelJob via destroyRoot;
-      // arm here so createRootState can distinguish enhance/relayout paths.
-      installArmed = true;
-    },
-    // Expose internal state for prepared-dom release tracking.
-    get _cancelPending() { return cancelPending; },
-    set _cancelPending(value) { cancelPending = value; },
-    get _installArmed() { return installArmed; },
-    set _installArmed(value) { installArmed = value; },
-  };
-}
-
-function recordingRawDomContext() {
-  return {
-    restoreParagraph() {},
-    clearIssue() {},
-  };
-}
+const CONTEXT_DESCRIPTOR_MARKERS = ["contextState", "optionsLedger", "typography", "domWriteLayer"];
 
 function installRecordingEngine(record, initialPhase) {
-  // The runtime graph is now empty; the session owns its own rootState.
-  
-  // Create recording service instances.
-  const rootState = recordingRootState();
-  const layoutJobPool = recordingLayoutJobPool();
-  const rawDomContext = recordingRawDomContext();
-  
-  activeEngineRecord = record.engineCalls;
   activeEnginePhase = initialPhase;
+
+  const restores = [];
+  const recordEvent = (type, detail) => {
+    record.elementEvents.push({
+      phase: activeEnginePhase,
+      type,
+      detail: stableDetail(detail),
+    });
+  };
+
+  // ---- Context part-method shims (installed once the context is captured) -
+  const wrapCapturedContext = (context) => {
+    const wrapPart = (partName, key, wrapper) => {
+      const part = context[partName];
+      if (!part) return;
+      const original = part[key];
+      if (typeof original !== "function") return;
+      part[key] = wrapper(original);
+      restores.push(() => { part[key] = original; });
+    };
+    // The pre-funnel recording point: notify runs the completion funnel after
+    // the wrapper records the driver's detail; dispatch (the progressive error
+    // events) is non-funnel and recorded the same way for a single recording
+    // surface.
+    wrapPart("eventChannel", "notify", (original) => function (kind, detail) {
+      recordEvent(kind, detail);
+      return original.call(this, kind, detail);
+    });
+    wrapPart("eventChannel", "dispatch", (original) => function (kind, detail) {
+      recordEvent(kind, detail);
+      return original.call(this, kind, detail);
+    });
+  };
+
+  // ---- Context capture -----------------------------------------------------
+  // createEnhanceContext publishes the parts with one Object.defineProperties
+  // call; a scoped wrapper armed only around element construction matches the
+  // descriptor map and captures the context. The private #context field that
+  // holds it is otherwise unreachable.
+  const realDefineProperties = Object.defineProperties;
+  const captureContextDuring = (construct) => {
+    let captured = null;
+    Object.defineProperties = function (target, properties) {
+      const result = realDefineProperties.call(Object, target, properties);
+      if (captured === null && properties &&
+          CONTEXT_DESCRIPTOR_MARKERS.every((key) =>
+            Object.prototype.hasOwnProperty.call(properties, key))) {
+        captured = target;
+      }
+      return result;
+    };
+    try {
+      return construct();
+    } finally {
+      Object.defineProperties = realDefineProperties;
+      if (captured) wrapCapturedContext(captured);
+    }
+  };
+
   return {
-    rootState,
-    layoutJobPool,
-    rawDomContext,
-    // Resolve a buffered cancelJob as cancelLayoutWork before the phase
-    // changes, so a standalone cancel never leaks into the next phase's
-    // projection.
-    flushPending: rootState.flushProjection,
+    captureContextDuring,
+    // Baseline phase-boundary hook; the empty engineCalls contract needs no
+    // flushing, but the journeys keep the call for the frozen drive shape.
+    flushPending() {},
     teardown() {
-      rootState.flushProjection();
-      activeEngineRecord = null;
+      for (let i = restores.length - 1; i >= 0; i -= 1) restores[i]();
+      activeEnginePhase = "";
     },
   };
 }
@@ -553,7 +491,9 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   // a Date.now()-based string would be identical across journeys and the
   // second drive would silently reuse the first drive's module state.
   const module = await import(`../element.js?timing-golden=${journeyKey}`);
-  const element = new module.TiqianProseElement();
+  // Capture the privately-held enhance context as it is published during
+  // construction, then run the drive against the real context + shared pool.
+  const element = engineTeardown.captureContextDuring(() => new module.TiqianProseElement());
   hostElement = element;
   element.attributes = root.attributes;
   element.childNodes = root.childNodes;
@@ -591,11 +531,17 @@ async function startElementDrive(clock, journeyKey, options = {}) {
     if (listeners.get(name) === listener) listeners.delete(name);
   };
   element.dispatchEvent = (event) => {
-    record.elementEvents.push({
-      phase: currentPhase,
-      type: event.type,
-      detail: stableDetail(event.detail),
-    });
+    // Channel-originated completions carry the internal dispatch marker and are
+    // recorded at the pre-funnel notify/dispatch point; record only the
+    // externally dispatched events here, like the baseline recorded every
+    // dispatch that reached the element.
+    if (!event[INTERNAL_DISPATCH_MARKER]) {
+      record.elementEvents.push({
+        phase: currentPhase,
+        type: event.type,
+        detail: stableDetail(event.detail),
+      });
+    }
     listeners.get(event.type)?.(event);
     return true;
   };

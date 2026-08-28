@@ -1,17 +1,17 @@
 // R10 verification surface (spec wc-s3 item 4, ruling R8 TS-ifies new
-// tests): the dissolved engine entry is driven by a plain-data mock
-// runtime-graph context. Per ruling 1 this direct-drive test assembles its
-// own dependencies: the rootState and layoutJobPool collaborators are plain
-// object literals that satisfy the product contracts by assignment, and the
-// named entry functions receive them as explicit arguments. The third
-// parameter is a real EnhancedElementContext built through
-// createEnhanceContext; the raw-DOM lifecycle runs for real against the
-// context's paragraph records, so no module-level stubbing is involved. No
-// engine instance, no registry beyond the plain states map the wrapper
-// keeps, and no browser globals beyond the documented reads
-// (getComputedStyle for the shared-runtime-styles gate and root defaults,
-// window.innerHeight for viewport distance, document/Node for the raw-DOM
-// takeover).
+// tests; core-neutral wave): the dissolved engine entry is driven through a
+// real EnhancedElementContext built by createEnhanceContext, with the
+// driver-observable part surface (option resolvers, runtime options,
+// candidate enumeration, publishState projection) wrapped by recording
+// spies. The layout job pool is a plain object literal satisfying the
+// LayoutJobPool contract by assignment, swapped into
+// globalServices().coordination.layoutJobPool for the duration of each test.
+// Per ruling 1 this direct-drive test assembles its own dependencies: no
+// engine instance, no per-root registry (the registry dissolved into the
+// context's contextState), and no browser globals beyond the documented
+// reads (getComputedStyle for the shared-runtime-styles gate and root
+// defaults, window.innerHeight for viewport distance, document/Node for the
+// raw-DOM takeover).
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -27,13 +27,14 @@ import {
   probeRootContentDrift,
   reconcileRoot,
 } from "../core/engine/content-reconcile.js";
-import { createRootState } from "../core/engine/root-state.js";
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
-import type { RootStateApi, RootState, EngineState } from "../core/engine/root-state.js";
+import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import type { EnhanceOptions } from "../core/engine/lifecycle.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import type {
+  EnhanceOptions,
+  ResolvedEnhanceOptions,
+} from "../core/engine/lifecycle.js";
 initializeGlobalServices();
 
 // Minimal node tree for the raw-DOM lifecycle: the commit forwarding captures
@@ -231,143 +232,38 @@ function installDriveGlobals() {
   };
 }
 
-interface PlainContext {
-  rootState: RootStateApi;
-  layoutJobPool: LayoutJobPool;
-  ops: string[];
-  jobs: LayoutJobSpec[];
-  states: Map<unknown, RootState>;
-  createdBags: (Record<string, unknown> | null)[];
-  canonicalBags: EnhanceOptions[];
-  poolJobKind: string | null;
-}
-
 interface JobKindBox {
   value: string | null;
 }
 
-function blankRootState(root: Element, options: EnhanceOptions): RootState {
-  return {
-    root,
-    options: {
-      ...options,
-      fontFamilies: {
-        cjk: "Fixture CJK",
-        latin: "Fixture Latin",
-        monospace: "Fixture Mono",
-        cjkSerif: "Fixture CJK Serif",
-        latinSerif: "Fixture Latin Serif",
-      },
-    },
-    browserFallback: {
-      bridge: {
-        shapeJson: () => "{}",
-        metricsJson: () => "{}",
-      },
-    },
-    paragraphs: [],
-    issues: [],
-    preparedDomEnabled: false,
-    cjkDashCapability: { status: "unavailable", detail: null },
+// One observed context run: the real EnhancedElementContext plus the
+// recording surfaces the specs assert against. poolJobKind steers the fake
+// pool's jobKind answer so relayout branch 1 can be reached.
+interface PlainRuntime {
+  context: EnhancedElementContext;
+  ops: string[];
+  jobs: LayoutJobSpec[];
+  resolveBags: (Record<string, unknown> | null)[];
+  canonicalBags: EnhanceOptions[];
+  poolJobKind: string | null;
+  realResolve(root: Element, optionsBag: Record<string, unknown>): ResolvedEnhanceOptions;
+  restorePool(): void;
+}
+
+// The drivers reach the pool through the coordination service, so the fake
+// pool is swapped in there for the duration of one test. The coordination
+// service types the slot readonly; the swap rides one boundary cast.
+function swapLayoutJobPool(pool: LayoutJobPool): () => void {
+  const coordination = globalServices().coordination as unknown as { layoutJobPool: LayoutJobPool };
+  const previous = coordination.layoutJobPool;
+  coordination.layoutJobPool = pool;
+  return () => {
+    coordination.layoutJobPool = previous;
   };
 }
 
-function canonicalOptions(): EnhanceOptions {
+function makeFakeLayoutJobPool(ops: string[], jobs: LayoutJobSpec[], jobKindBox: JobKindBox): LayoutJobPool {
   return {
-    fontFamilies: {
-      cjk: null,
-      latin: null,
-      monospace: null,
-      cjkSerif: null,
-      latinSerif: null,
-    },
-    fontSize: null,
-    lineHeight: null,
-    firstLineIndentIc: 0,
-    emphasisDotGapEm: 0.15,
-    strongAsEmphasisMarks: false,
-    paragraphSelector: "p, li",
-    cjkDashCapability: null,
-    snapshotFontSession: null,
-    requireSnapshotLayoutWorker: false,
-  };
-}
-
-function makePlainContext(): PlainContext {
-  const ops: string[] = [];
-  const jobs: LayoutJobSpec[] = [];
-  const states = new Map<unknown, RootState>();
-  const createdBags: (Record<string, unknown> | null)[] = [];
-  const canonicalBags: EnhanceOptions[] = [];
-  const jobKindBox: JobKindBox = { value: null };
-
-  // Create a real rootState API instance and wrap its methods to track
-  // calls. The state registry lives on the plain states map so tests can
-  // seed enhanced steady states by assignment.
-  const realRootState = createRootState();
-  const rootState: RootStateApi = {
-    createRootState(root, bag) {
-      ops.push("rs.createRootState");
-      createdBags.push(bag);
-      const state = realRootState.createRootState(root, bag);
-      states.set(root, state);
-      return state;
-    },
-    createRootStateFromCanonical(root, options) {
-      ops.push("rs.createRootStateFromCanonical");
-      canonicalBags.push(options);
-      const state = realRootState.createRootStateFromCanonical(root, options);
-      states.set(root, state);
-      return state;
-    },
-    activeTsOptions(state) {
-      return realRootState.activeTsOptions(state);
-    },
-    activeSnapshotSessionDescriptor(state) {
-      return realRootState.activeSnapshotSessionDescriptor(state);
-    },
-    engineState(state) {
-      return realRootState.engineState(state);
-    },
-    processParagraphArgument(state, paragraph) {
-      return realRootState.processParagraphArgument(state, paragraph);
-    },
-    sessionArgument(state) {
-      ops.push("rs.sessionArgument");
-      return realRootState.sessionArgument(state);
-    },
-    prepareArgument(state, paragraph, widthOverride) {
-      return realRootState.prepareArgument(state, paragraph, widthOverride);
-    },
-    getState(root) {
-      return states.get(root);
-    },
-    setState(root, state) {
-      ops.push("rs.setState");
-      states.set(root, state);
-    },
-    deleteState(root) {
-      ops.push("rs.deleteState");
-      states.delete(root);
-    },
-    paragraphCandidates(root, selector) {
-      ops.push("rs.paragraphCandidates");
-      return realRootState.paragraphCandidates(root, selector);
-    },
-    strandedSourceParagraphs(root, state) {
-      ops.push("rs.strandedSourceParagraphs");
-      return realRootState.strandedSourceParagraphs(root, state);
-    },
-    publishState(state, keepEmpty) {
-      ops.push(keepEmpty ? "rs.publishState:keepEmpty" : "rs.publishState");
-      realRootState.publishState(state, keepEmpty);
-    },
-    updateCjkDashCapability(state, outcome) {
-      realRootState.updateCjkDashCapability(state, outcome);
-    },
-  };
-
-  const layoutJobPool: LayoutJobPool = {
     startJob(spec) {
       ops.push("pool.startJob");
       jobs.push(spec);
@@ -410,22 +306,85 @@ function makePlainContext(): PlainContext {
       return false;
     },
   };
+}
+
+// Builds a real EnhancedElementContext for the root and wraps its
+// driver-observable part surface with recording spies: the two option
+// resolvers dissolved from root-state's createRootState/
+// createRootStateFromCanonical, the runtime-options setter (the dissolved
+// setState), the candidate enumeration, and the publishState projection.
+// The wrappers delegate to the real implementations; the fake layout job
+// pool is swapped into the coordination service and restored through the
+// handed-back closure.
+function makePlainRuntime(root: Element): PlainRuntime {
+  const ops: string[] = [];
+  const jobs: LayoutJobSpec[] = [];
+  const resolveBags: (Record<string, unknown> | null)[] = [];
+  const canonicalBags: EnhanceOptions[] = [];
+  const jobKindBox: JobKindBox = { value: null };
+
+  const context = createEnhanceContext(root);
+  const restorePool = swapLayoutJobPool(makeFakeLayoutJobPool(ops, jobs, jobKindBox));
+
+  const ledger = context.optionsLedger;
+  const realResolve = ledger.resolveEngineOptions;
+  const realResolveCanonical = ledger.resolveEngineOptionsFromCanonical;
+  ledger.resolveEngineOptions = (rootElement: Element, optionsBag: Record<string, unknown>) => {
+    ops.push("ledger.resolveEngineOptions");
+    resolveBags.push(optionsBag);
+    return realResolve(rootElement, optionsBag);
+  };
+  ledger.resolveEngineOptionsFromCanonical = (rootElement: Element, canonicalOptions: EnhanceOptions) => {
+    ops.push("ledger.resolveEngineOptionsFromCanonical");
+    canonicalBags.push(canonicalOptions);
+    return realResolveCanonical(rootElement, canonicalOptions);
+  };
+
+  const state = context.contextState;
+  const realSetRuntimeOptions = state.setRuntimeOptions;
+  state.setRuntimeOptions = (options: ResolvedEnhanceOptions | null) => {
+    ops.push("contextState.setRuntimeOptions");
+    realSetRuntimeOptions(options);
+  };
+  const realParagraphCandidates = state.paragraphCandidates;
+  state.paragraphCandidates = (candidatesRoot: Element, selector: string) => {
+    ops.push("contextState.paragraphCandidates");
+    return realParagraphCandidates(candidatesRoot, selector);
+  };
+
+  const write = context.domWriteLayer;
+  const realPublishState = write.publishState;
+  write.publishState = (paragraphCount: number, issueCount: number, keepEmpty?: boolean) => {
+    ops.push(keepEmpty ? "domWriteLayer.publishState:keepEmpty" : "domWriteLayer.publishState");
+    realPublishState(paragraphCount, issueCount, keepEmpty);
+  };
 
   return {
-    rootState,
-    layoutJobPool,
+    context,
     ops,
     jobs,
-    states,
-    createdBags,
+    resolveBags,
     canonicalBags,
+    realResolve,
     get poolJobKind() {
       return jobKindBox.value;
     },
     set poolJobKind(value: string | null) {
       jobKindBox.value = value;
     },
+    restorePool,
   };
+}
+
+// Seeds the established steady state the specs need to reach the relayout
+// main path and branch 1: resolved options through the unwrapped resolver,
+// published through the wrapped setter (callers clear the recorded op), and
+// the runtimeEstablished flag the registry presence test dissolved into.
+function seedEstablishedRuntime(runtime: PlainRuntime, root: Element): ResolvedEnhanceOptions {
+  const resolved = runtime.realResolve(root, {});
+  runtime.context.contextState.setRuntimeOptions(resolved);
+  runtime.context.contextState.setRuntimeEstablished(true);
+  return resolved;
 }
 
 // Registers the paragraph with the context's raw-DOM bookkeeping exactly the
@@ -436,169 +395,161 @@ function registerParagraph(context: EnhancedElementContext, source: Element) {
   rawDomCommit(context, source, null);
 }
 
-test("the plain context rootState satisfies the product contracts", () => {
-  const context = makePlainContext();
-  assert.equal(typeof context.rootState.createRootState, "function");
-  assert.equal(typeof context.rootState.sessionArgument, "function");
+test("the context part surface carries the dissolved registry verbs", () => {
+  const root = fakeElement("tiqian-prose");
+  const context = createEnhanceContext(root);
+  assert.equal(typeof context.optionsLedger.resolveEngineOptions, "function");
+  assert.equal(typeof context.optionsLedger.resolveEngineOptionsFromCanonical, "function");
+  assert.equal(typeof context.contextState.setRuntimeOptions, "function");
+  assert.equal(typeof context.contextState.paragraphCandidates, "function");
+  assert.equal(typeof context.domWriteLayer.publishState, "function");
 });
 
 test("enhance installs the copy listener, tears down, then builds and publishes", () => {
-  const context = makePlainContext();
   const rootDocument = fakeDocument();
   const root = fakeElement("tiqian-prose", { ownerDocument: rootDocument });
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
-    const enhancedCount = enhance(
-      context.rootState,
-      context.layoutJobPool,
-      createEnhanceContext(root),
-      root,
-      { paragraphSelector: "p" },
-    );
+    const bag: Record<string, unknown> = { paragraphSelector: "p" };
+    const enhancedCount = enhance(runtime.context, root, bag);
     assert.equal(enhancedCount, 0);
-    assert.deepEqual(context.ops, [
+    assert.deepEqual(runtime.ops, [
       "pool.cancelJob",
-      "rs.deleteState",
-      "rs.createRootState",
-      "rs.paragraphCandidates",
-      "rs.publishState",
+      "ledger.resolveEngineOptions",
+      "contextState.setRuntimeOptions",
+      "contextState.paragraphCandidates",
+      "domWriteLayer.publishState",
     ]);
-    assert.deepEqual(context.createdBags, [{ paragraphSelector: "p" }]);
-    // The created state carries the bag's selector into the root state.
-    assert.equal(context.states.get(root)?.options.paragraphSelector, "p");
+    // The raw host bag reaches the option resolver by reference.
+    assert.equal(runtime.resolveBags.length, 1);
+    assert.equal(runtime.resolveBags[0], bag);
+    // The resolved runtime options carry the bag's selector forward.
+    assert.equal(runtime.context.contextState.runtimeOptions?.paragraphSelector, "p");
     // Observable enhancement attributes stay absent without snapshot count.
     assert.equal(root.hasAttribute("data-tiqian-enhanced"), false);
     assert.equal(root.hasAttribute("data-tiqian-enhanced-count"), false);
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
-test("enhanceProgressively starts an Enhance job through the plain pool", () => {
-  const context = makePlainContext();
+test("enhanceProgressively starts an Enhance job through the installed pool", () => {
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
     const bag: Record<string, unknown> = { paragraphSelector: "p, li" };
-    enhanceProgressively(
-      context.rootState,
-      context.layoutJobPool,
-      createEnhanceContext(root),
-      root,
-      bag,
-    );
-    assert.deepEqual(context.ops, [
+    enhanceProgressively(runtime.context, root, bag);
+    assert.deepEqual(runtime.ops, [
       "pool.cancelJob",
-      "rs.deleteState",
-      "rs.createRootState",
-      "rs.paragraphCandidates",
-      "rs.setState",
-      "rs.publishState:keepEmpty",
+      "ledger.resolveEngineOptions",
+      "contextState.setRuntimeOptions",
+      "contextState.paragraphCandidates",
+      "domWriteLayer.publishState:keepEmpty",
       "pool.startJob",
     ]);
-    // The raw host bag reaches the state builder by reference.
-    assert.equal(context.createdBags.length, 1);
-    assert.equal(context.createdBags[0], bag);
-    assert.equal(context.jobs.length, 1);
-    assert.equal(context.jobs[0].kind, "Enhance");
-    assert.equal(context.jobs[0].itemCount, 0);
-    assert.equal(context.jobs[0].root, root);
-    assert.equal(context.jobs[0].coordinated, false);
+    // The raw host bag reaches the option resolver by reference.
+    assert.equal(runtime.resolveBags.length, 1);
+    assert.equal(runtime.resolveBags[0], bag);
+    assert.equal(runtime.jobs.length, 1);
+    assert.equal(runtime.jobs[0].kind, "Enhance");
+    assert.equal(runtime.jobs[0].itemCount, 0);
+    assert.equal(runtime.jobs[0].root, root);
+    assert.equal(runtime.jobs[0].coordinated, false);
     // startLayoutJob clears the relayout-error marker on dispatch.
     assert.equal(root.hasAttribute("data-tiqian-relayout-error"), false);
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
-test("relayout cold-starts a Relayout job when the root carries no state", () => {
-  const context = makePlainContext();
+test("relayout cold-starts a Relayout job when the runtime is not established", () => {
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
-    relayout(
-      context.rootState,
-      context.layoutJobPool,
-      createEnhanceContext(root),
-      root,
-    );
-    assert.deepEqual(context.ops, [
+    relayout(runtime.context, root);
+    assert.deepEqual(runtime.ops, [
       "pool.cancelJob",
-      "rs.deleteState",
-      "rs.createRootState",
-      "rs.paragraphCandidates",
-      "rs.setState",
-      "rs.publishState:keepEmpty",
+      "ledger.resolveEngineOptions",
+      "contextState.setRuntimeOptions",
+      "contextState.paragraphCandidates",
+      "domWriteLayer.publishState:keepEmpty",
       "pool.startJob",
     ]);
-    assert.deepEqual(context.createdBags, [null]);
-    assert.equal(context.jobs[0].kind, "Relayout");
+    assert.deepEqual(runtime.resolveBags, [null]);
+    assert.equal(runtime.jobs[0].kind, "Relayout");
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
-test("relayout restarts an interrupted Enhance through the canonical builder", () => {
-  const context = makePlainContext();
+test("relayout restarts an interrupted Enhance through the canonical resolver", () => {
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
-    const seeded = blankRootState(root, canonicalOptions());
-    context.states.set(root, seeded);
-    context.poolJobKind = "Enhance";
+    const seededOptions = seedEstablishedRuntime(runtime, root);
+    runtime.ops.length = 0;
+    runtime.poolJobKind = "Enhance";
 
-    relayout(
-      context.rootState,
-      context.layoutJobPool,
-      createEnhanceContext(root),
-      root,
-    );
+    relayout(runtime.context, root);
 
     // Branch 1 reuses the running canonical options by reference and keeps
     // the Enhance kind so the finish event stays tiqian:ready.
-    assert.deepEqual(context.canonicalBags, [seeded.options]);
-    assert.equal(context.ops.includes("rs.createRootStateFromCanonical"), true);
-    assert.equal(context.jobs.length, 1);
-    assert.equal(context.jobs[0].kind, "Enhance");
+    assert.equal(runtime.canonicalBags.length, 1);
+    assert.equal(runtime.canonicalBags[0], seededOptions);
+    assert.deepEqual(runtime.ops, [
+      "pool.cancelJob",
+      "ledger.resolveEngineOptionsFromCanonical",
+      "contextState.setRuntimeOptions",
+      "contextState.paragraphCandidates",
+      "domWriteLayer.publishState:keepEmpty",
+      "pool.startJob",
+    ]);
+    assert.equal(runtime.jobs.length, 1);
+    assert.equal(runtime.jobs[0].kind, "Enhance");
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
 test("relayout main path cancels the job and rebuilds a Relayout session", () => {
-  const context = makePlainContext();
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
-    const seeded = blankRootState(root, canonicalOptions());
-    context.states.set(root, seeded);
+    const seededOptions = seedEstablishedRuntime(runtime, root);
+    runtime.ops.length = 0;
 
-    relayout(
-      context.rootState,
-      context.layoutJobPool,
-      createEnhanceContext(root),
-      root,
-    );
+    relayout(runtime.context, root);
 
-    const cancelIndex = context.ops.indexOf("pool.cancelJob");
-    const sessionIndex = context.ops.indexOf("rs.sessionArgument");
-    const jobIndex = context.ops.indexOf("pool.startJob");
+    const cancelIndex = runtime.ops.indexOf("pool.cancelJob");
+    const jobIndex = runtime.ops.indexOf("pool.startJob");
     assert.notEqual(cancelIndex, -1);
-    assert.notEqual(sessionIndex, -1);
-    assert.ok(cancelIndex < sessionIndex);
-    assert.ok(sessionIndex < jobIndex);
-    assert.equal(context.jobs.length, 1);
-    assert.equal(context.jobs[0].kind, "Relayout");
-    assert.equal(context.jobs[0].itemCount, 0);
-    // The root state survives an in-place relayout.
-    assert.equal(context.states.get(root), seeded);
+    assert.notEqual(jobIndex, -1);
+    assert.ok(cancelIndex < jobIndex);
+    assert.equal(runtime.jobs.length, 1);
+    assert.equal(runtime.jobs[0].kind, "Relayout");
+    assert.equal(runtime.jobs[0].itemCount, 0);
+    // The dissolved sessionArgument facade is observable only through the
+    // session callbacks the job carries.
+    assert.equal(typeof runtime.jobs[0].onItemsFinished, "function");
+    assert.equal(typeof runtime.jobs[0].onFailure, "function");
+    // The runtime options survive an in-place relayout.
+    assert.equal(runtime.context.contextState.runtimeOptions, seededOptions);
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
 test("destroyRoot restores tracked paragraphs, clears markers, rewrites attributes", () => {
-  const context = makePlainContext();
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
   root.setAttribute("data-tiqian-enhanced", "true");
   root.setAttribute("data-tiqian-enhanced-count", "2");
@@ -616,27 +567,28 @@ test("destroyRoot restores tracked paragraphs, clears markers, rewrites attribut
   issueElement.setAttribute("data-tiqian-capability-issue", "LoweringFailed");
   issueElement.setAttribute("data-tiqian-capability-detail", "detail");
 
-  const seeded = blankRootState(root, canonicalOptions());
-  seeded.paragraphs.push(
-    fakeOf({ source: paragraphA, lowered: fakeOf({}), lastMeasure: null }),
-    fakeOf({ source: paragraphB, lowered: fakeOf({}), lastMeasure: null }),
-  );
-  seeded.issues.push(
-    fakeOf({
-      name: "LoweringFailed",
-      detail: "detail",
-      element: issueElement,
-      reportToConsole: false,
-      markerCaptured: true,
-      originalNameAttribute: null,
-      originalDetailAttribute: null,
-    }),
-  );
-  context.states.set(root, seeded);
-
+  const runtime = makePlainRuntime(root);
+  const enhanceContext = runtime.context;
   const restoreGlobals = installDriveGlobals();
   try {
-    const enhanceContext = createEnhanceContext(root);
+    // Established steady state: two committed paragraphs and one captured
+    // capability issue, the way the enhance pass would leave them.
+    enhanceContext.contextState.setRuntimeEstablished(true);
+    enhanceContext.contextState.paragraphs.push(
+      { source: paragraphA, lowered: fakeOf({}), lastMeasure: null },
+      { source: paragraphB, lowered: fakeOf({}), lastMeasure: null },
+    );
+    enhanceContext.diagnosis.issues.push(
+      fakeOf({
+        name: "LoweringFailed",
+        detail: "detail",
+        element: issueElement,
+        reportToConsole: false,
+        markerCaptured: true,
+        originalNameAttribute: null,
+        originalDetailAttribute: null,
+      }),
+    );
     // Enhanced steady state: the takeover moved the original content into
     // the raw-DOM backup.
     registerParagraph(enhanceContext, paragraphA);
@@ -644,13 +596,17 @@ test("destroyRoot restores tracked paragraphs, clears markers, rewrites attribut
     assert.equal(paragraphA.childNodes.length, 0);
     assert.equal(paragraphB.childNodes.length, 0);
 
-    destroyRoot(context.rootState, context.layoutJobPool, enhanceContext, root);
+    destroyRoot(runtime.context, root);
 
-    assert.deepEqual(context.ops, ["pool.cancelJob", "rs.deleteState"]);
+    // The registry delete dissolved: cancelJob is the only pool touch, and
+    // the teardown effects are read off the context state.
+    assert.deepEqual(runtime.ops, ["pool.cancelJob"]);
     // The real restore handed the captured original content back to the hosts.
     assert.deepEqual(paragraphA.childNodes, [contentA]);
     assert.deepEqual(paragraphB.childNodes, [contentB]);
-    assert.equal(context.states.has(root), false);
+    assert.equal(enhanceContext.contextState.runtimeEstablished, false);
+    assert.equal(enhanceContext.contextState.paragraphs.length, 0);
+    assert.equal(enhanceContext.diagnosis.issues.length, 0);
     // clearIssue restored the capability marker attributes to their captured
     // (absent) originals.
     assert.equal(issueElement.hasAttribute("data-tiqian-capability-issue"), false);
@@ -663,115 +619,119 @@ test("destroyRoot restores tracked paragraphs, clears markers, rewrites attribut
     assert.equal(root.hasAttribute("data-tiqian-snapshot-layout-fallback"), false);
   } finally {
     restoreGlobals();
+    runtime.restorePool();
   }
 });
 
 test("destroyRoot keeps the snapshot-owned enhancement markers", () => {
-  const context = makePlainContext();
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
   root.setAttribute("data-tiqian-snapshot-count", "3");
-  const seeded = blankRootState(root, canonicalOptions());
-  context.states.set(root, seeded);
-
-  destroyRoot(context.rootState, context.layoutJobPool, createEnhanceContext(root), root);
-
-  assert.equal(root.getAttribute("data-tiqian-enhanced"), "true");
-  assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "3");
-});
-
-test("detachRoot cancels the job without touching the root state", () => {
-  const context = makePlainContext();
-  const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
-  const seeded = blankRootState(root, canonicalOptions());
-  context.states.set(root, seeded);
-  const enhanceContext = createEnhanceContext(root);
-
-  detachRoot(context.layoutJobPool, root, enhanceContext);
-
-  assert.deepEqual(context.ops, ["pool.cancelJob"]);
-  assert.equal(context.states.get(root), seeded);
-});
-
-test("probeRootContentDrift answers the probe verdict as a plain object", () => {
-  const context = makePlainContext();
-  const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
-
-  // No runtime state: the whole root is unknown.
-  assert.deepEqual(probeRootContentDrift(createEnhanceContext(root), context.rootState, root), {
-    unknown: 1,
-    drifted: 0,
-    dead: 0,
-    rawDom: 0,
-  });
-
-  const clean = fakeElement("p");
-  const drifted = fakeElement("p");
-  const dead = fakeElement("p", { isConnected: false });
-  const seeded = blankRootState(root, canonicalOptions());
-  seeded.paragraphs.push(
-    fakeOf({ source: clean, lowered: fakeOf({}), lastMeasure: null }),
-    fakeOf({ source: drifted, lowered: fakeOf({}), lastMeasure: null }),
-    fakeOf({ source: dead, lowered: fakeOf({}), lastMeasure: null }),
-  );
-  context.states.set(root, seeded);
-
-  const restoreGlobals = installDriveGlobals();
+  const runtime = makePlainRuntime(root);
   try {
-    const enhanceContext = createEnhanceContext(root);
-    registerParagraph(enhanceContext, clean);
-    registerParagraph(enhanceContext, drifted);
-    // A host edit through the native mutation path breaks the rendered
-    // identity of the drifted paragraph.
-    PlainNode.prototype.appendChild.call(drifted, new PlainNode(3, "host edit"));
+    destroyRoot(runtime.context, root);
 
-    assert.deepEqual(probeRootContentDrift(enhanceContext, context.rootState, root), {
-      unknown: 0,
-      drifted: 1,
-      dead: 1,
-      rawDom: 0,
-    });
+    assert.equal(root.getAttribute("data-tiqian-enhanced"), "true");
+    assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "3");
   } finally {
-    restoreGlobals();
+    runtime.restorePool();
   }
 });
 
-test("reconcileRoot answers null without state and idle without job dispatch", () => {
-  const context = makePlainContext();
+test("detachRoot cancels the job without touching the runtime state", () => {
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
-
-  assert.equal(
-    reconcileRoot(createEnhanceContext(root), context.rootState, context.layoutJobPool, root, []),
-    null,
-  );
-
-  const clean = fakeElement("p");
-  const seeded = blankRootState(root, canonicalOptions());
-  seeded.paragraphs.push(fakeOf({ source: clean, lowered: fakeOf({}), lastMeasure: null }));
-  context.states.set(root, seeded);
-
+  const runtime = makePlainRuntime(root);
   const restoreGlobals = installDriveGlobals();
   try {
-    const enhanceContext = createEnhanceContext(root);
-    registerParagraph(enhanceContext, clean);
-    const result = reconcileRoot(
-      enhanceContext,
-      context.rootState,
-      context.layoutJobPool,
-      root,
-      [],
-    );
-    assert.deepEqual(result, {
-      outcome: "idle",
-      drifted: 0,
-      rawDom: 0,
-      tainted: 0,
-      stranded: 0,
-      dead: 0,
-    });
-    // An idle verdict never schedules a reconcile job.
-    assert.equal(context.jobs.length, 0);
-    assert.equal(context.states.get(root), seeded);
+    const seededOptions = seedEstablishedRuntime(runtime, root);
+    runtime.ops.length = 0;
+
+    detachRoot(runtime.context, root);
+
+    assert.deepEqual(runtime.ops, ["pool.cancelJob"]);
+    assert.equal(runtime.context.contextState.runtimeEstablished, true);
+    assert.equal(runtime.context.contextState.runtimeOptions, seededOptions);
   } finally {
     restoreGlobals();
+    runtime.restorePool();
+  }
+});
+
+test("probeRootContentDrift answers the probe verdict from the context state", () => {
+  const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
+  try {
+    // No established runtime: the whole root is unknown.
+    assert.deepEqual(probeRootContentDrift(runtime.context, root), {
+      unknown: 1,
+      drifted: 0,
+      dead: 0,
+      rawDom: 0,
+    });
+
+    const restoreGlobals = installDriveGlobals();
+    try {
+      const clean = fakeElement("p");
+      const drifted = fakeElement("p");
+      const dead = fakeElement("p", { isConnected: false });
+      runtime.context.contextState.setRuntimeEstablished(true);
+      runtime.context.contextState.paragraphs.push(
+        { source: clean, lowered: fakeOf({}), lastMeasure: null },
+        { source: drifted, lowered: fakeOf({}), lastMeasure: null },
+        { source: dead, lowered: fakeOf({}), lastMeasure: null },
+      );
+      registerParagraph(runtime.context, clean);
+      registerParagraph(runtime.context, drifted);
+      // A host edit through the native mutation path breaks the rendered
+      // identity of the drifted paragraph.
+      PlainNode.prototype.appendChild.call(drifted, new PlainNode(3, "host edit"));
+
+      assert.deepEqual(probeRootContentDrift(runtime.context, root), {
+        unknown: 0,
+        drifted: 1,
+        dead: 1,
+        rawDom: 0,
+      });
+    } finally {
+      restoreGlobals();
+    }
+  } finally {
+    runtime.restorePool();
+  }
+});
+
+test("reconcileRoot answers null without an established runtime and idle without job dispatch", () => {
+  const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
+  const runtime = makePlainRuntime(root);
+  try {
+    assert.equal(reconcileRoot(runtime.context, root, []), null);
+
+    const restoreGlobals = installDriveGlobals();
+    try {
+      const clean = fakeElement("p");
+      const seededOptions = seedEstablishedRuntime(runtime, root);
+      runtime.ops.length = 0;
+      runtime.context.contextState.paragraphs.push(
+        { source: clean, lowered: fakeOf({}), lastMeasure: null },
+      );
+      registerParagraph(runtime.context, clean);
+
+      const result = reconcileRoot(runtime.context, root, []);
+      assert.deepEqual(result, {
+        outcome: "idle",
+        drifted: 0,
+        rawDom: 0,
+        tainted: 0,
+        stranded: 0,
+        dead: 0,
+      });
+      // An idle verdict never schedules a reconcile job.
+      assert.equal(runtime.jobs.length, 0);
+      // The runtime options survive an idle reconcile.
+      assert.equal(runtime.context.contextState.runtimeOptions, seededOptions);
+    } finally {
+      restoreGlobals();
+    }
+  } finally {
+    runtime.restorePool();
   }
 });

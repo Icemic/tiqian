@@ -1,12 +1,14 @@
 // TiqianProseElement — the thin custom-element shell over the core
-// ProseHostSession (wc-s5 ruling R1). The shell owns exactly three jobs:
-// (a) reflect the four platform-observed attributes into
-// session.updateOptions(); (b) delegate connectedCallback /
-// disconnectedCallback to session.mount() / session.unmount() (one noun
-// pair: the shell's connect/disconnect lifecycle delegates to the session's
-// mount/unmount); (c) completion state leaves the session as tiqian:ready /
-// tiqian:relayout-ready DOM CustomEvents dispatched on the root. Every
-// other behavior lives in the core session and the services it uses.
+// EnhancedElementContext (core-neutral ruling). The shell owns exactly four
+// jobs: (a) reflect the four platform-observed attributes into
+// context.updateOptions(); (b) delegate connectedCallback /
+// disconnectedCallback to context.mount() / context.unmount() (one noun
+// pair: the shell's connect/disconnect lifecycle delegates to the context's
+// mount/unmount); (c) synthesize the completion CustomEvents through the
+// event channel's dispatcher slot — the event single truth keeps CustomEvent
+// construction in the shell, while the funnel and the callback subscribers
+// live in core; (d) expose the four attribute-backed property accessors.
+// Every other behavior lives in the context and the services it uses.
 //
 // Registration (wc-s5 scope item 2): the three historical import-time side
 // effects — clipboard interception, snapshot-table prefetch, and the custom
@@ -15,11 +17,9 @@
 // zero-config import: it calls registerTiqianProse() once with the defaults.
 // Importing this module registers nothing; explicit hosts call
 // registerTiqianProse() themselves (wc-s6 scope 8).
-import {
-  createProseHostSession,
-  OBSERVED_ATTRIBUTES,
-} from "@tiqian/core/core/engine/prose-host-session.js";
-import type { ProseHostSession } from "@tiqian/core/core/engine/prose-host-session.js";
+import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { OBSERVED_ATTRIBUTES } from "@tiqian/core/core/engine/enhance/options-ledger.js";
+import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
 import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
 import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
 import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
@@ -35,7 +35,21 @@ const HTMLElementBase: DomElementCtor =
 class TiqianProseElement extends HTMLElementBase {
   static observedAttributes: string[] = [...OBSERVED_ATTRIBUTES];
 
-  readonly #session: ProseHostSession = createProseHostSession(this);
+  readonly #context = createEnhanceContext(this);
+
+  constructor() {
+    super();
+    // Event single truth: the core funnel has already classified the
+    // completion when the dispatcher slot runs; the shell's only job is the
+    // CustomEvent synthesis the baseline dispatched on the root. The marker
+    // keeps the channel's DOM listeners from funnelling this dispatch a
+    // second time.
+    this.#context.eventChannel.setDispatcher((kind, detail) => {
+      const event = new CustomEvent(kind, { bubbles: true, composed: true, detail });
+      (event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER] = true;
+      this.dispatchEvent(event);
+    });
+  }
 
   get disabled(): boolean {
     return this.hasAttribute("disabled");
@@ -79,36 +93,36 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   rawDomFragmentOf(paragraph: Element): DocumentFragment | null {
-    return this.#session.rawDomFragmentOf(paragraph);
+    return this.#context.domWriteLayer.rawDomFragmentOf(paragraph);
   }
 
   connectedCallback() {
-    this.#session.mount();
+    this.#context.mount();
   }
 
   disconnectedCallback() {
-    this.#session.unmount();
+    this.#context.unmount();
   }
 
   // Attribute reflection: the platform has already applied the attribute to
   // the element before this callback runs, so the shell only reports the
-  // parsed value; the session's applied-ledger diff decides the reaction.
+  // parsed value; the ledger's applied diff decides the reaction.
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null) {
     if (oldValue === newValue) return;
     if (name === "disabled") {
-      this.#session.updateOptions({ disabled: newValue != null });
+      this.#context.updateOptions({ disabled: newValue != null });
       return;
     }
     if (name === "snapshot-ref") {
-      this.#session.updateOptions({ snapshotRef: newValue });
+      this.#context.updateOptions({ snapshotRef: newValue });
       return;
     }
     if (name === "strong-as-emphasis-marks") {
-      this.#session.updateOptions({ strongAsEmphasisMarks: newValue != null });
+      this.#context.updateOptions({ strongAsEmphasisMarks: newValue != null });
       return;
     }
     if (name === "emphasis-dot-gap-em") {
-      this.#session.updateOptions({ emphasisDotGapEm: this.emphasisDotGapEm });
+      this.#context.updateOptions({ emphasisDotGapEm: this.emphasisDotGapEm });
       return;
     }
   }
