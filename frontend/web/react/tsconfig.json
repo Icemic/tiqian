@@ -8,8 +8,9 @@
     "strict": true,
     "erasableSyntaxOnly": true,
     "declaration": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmit": false
   },
-  "include": ["binding.ts"],
-  "exclude": ["node_modules", "tests"]
+  "include": ["binding.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
 }

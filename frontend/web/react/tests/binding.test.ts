@@ -15,12 +15,14 @@ import {
   loadHostRuntime,
   mount,
   setElementRect,
-} from "../../npm/tests/runtime-host.mjs";
+} from "../../npm/tests/runtime-host.js";
 import {
   createReactHarness,
   deepGeometry,
   settleEnhanced,
-} from "./react-dom-fake-host.mjs";
+} from "./react-dom-fake-host.js";
+import type { FakeElement } from "../../npm/tests/snapshot-dom-fixtures.js";
+import type { TiqianProseElement } from "../../npm/element.js";
 
 // Demo corpus excerpt: the node-stack counterpart of demo/web's paragraphs,
 // shared verbatim between the two enhancement paths under test.
@@ -30,7 +32,7 @@ const DEMO_CORPUS = [
   "在行首与行尾的禁则处理中，排版引擎还需严格遵循避头尾规则。",
 ];
 
-function corpusHtml() {
+function corpusHtml(): string {
   return DEMO_CORPUS.map((text) => `<p>${text}</p>`).join("");
 }
 
@@ -43,23 +45,23 @@ test("mount: the hook creates and mounts the EnhancedElementContext directly", a
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured = {};
+  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root).contextRef;
+    captured.contextRef = useTiqianProse(root as FakeElement & Element).contextRef;
     return null;
   }
 
   await harness.render(React.createElement(Harness));
   const context = captured.contextRef.current;
   assert.ok(context, "the mount effect created the context");
-  assert.strictEqual(context.element, root, "the context is bound to the host element");
-  assert.equal(typeof context.mount, "function");
-  assert.equal(typeof context.updateOptions, "function");
-  assert.equal(typeof context.destroy, "function");
+  assert.strictEqual((context as Record<string, unknown>).element, root, "the context is bound to the host element");
+  assert.equal(typeof (context as Record<string, unknown>).mount, "function");
+  assert.equal(typeof (context as Record<string, unknown>).updateOptions, "function");
+  assert.equal(typeof (context as Record<string, unknown>).destroy, "function");
 
   await settleEnhanced(root);
-  assert.equal(context.isConnected, true, "the mounted context reports connected");
-  assert.equal(root.querySelector("p").getAttribute("data-tq-rendered"), "true");
+  assert.equal((context as Record<string, unknown>).isConnected, true, "the mounted context reports connected");
+  assert.equal(root.querySelector("p")?.getAttribute("data-tq-rendered"), "true");
 });
 
 test("options update: new option objects flow through updateOptions", async (t) => {
@@ -71,26 +73,26 @@ test("options update: new option objects flow through updateOptions", async (t) 
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured = {};
-  function Harness({ options }) {
-    captured.contextRef = useTiqianProse(root, options).contextRef;
+  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
+  function Harness({ options }: { options: Record<string, unknown> }) {
+    captured.contextRef = useTiqianProse(root as FakeElement & Element, options).contextRef;
     return null;
   }
 
   await harness.render(React.createElement(Harness, { options: {} }));
   await settleEnhanced(root);
   const context = captured.contextRef.current;
-  assert.equal(context.optionsLedger.strongAsEmphasisMarks, false);
+  assert.equal(((context as Record<string, unknown>).optionsLedger as Record<string, unknown>)?.strongAsEmphasisMarks, false);
 
   await harness.render(
     React.createElement(Harness, { options: { strongAsEmphasisMarks: true } }),
   );
   assert.equal(
-    context.optionsLedger.strongAsEmphasisMarks,
+    ((context as Record<string, unknown>).optionsLedger as Record<string, unknown>)?.strongAsEmphasisMarks,
     true,
     "the re-render pushed the new options through updateOptions",
   );
-  assert.equal(context.isConnected, true, "the options reaction keeps the root mounted");
+  assert.equal((context as Record<string, unknown>).isConnected, true, "the options reaction keeps the root mounted");
   await settleEnhanced(root);
 });
 
@@ -103,16 +105,16 @@ test("unmount: the effect cleanup settles the lifecycle and releases the context
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured = {};
+  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root).contextRef;
+    captured.contextRef = useTiqianProse(root as FakeElement & Element).contextRef;
     return null;
   }
 
   await harness.render(React.createElement(Harness));
   await settleEnhanced(root);
   const context = captured.contextRef.current;
-  assert.equal(context.stateMachine.connected, true);
+  assert.equal(((context as Record<string, unknown>).stateMachine as Record<string, unknown>)?.connected, true);
 
   await harness.unmount();
   flushAllTestAnimationFrames();
@@ -122,8 +124,8 @@ test("unmount: the effect cleanup settles the lifecycle and releases the context
   // rawDom backups and the weak runtime state stay for reconciler-move
   // re-adoption, so the rendered state survives the settle; React's own
   // node removal carries the DOM.
-  assert.equal(context.stateMachine.connected, false, "the settle disconnected the state machine");
-  assert.equal(root.querySelector("p").getAttribute("data-tq-rendered"), "true");
+  assert.equal(((context as Record<string, unknown>).stateMachine as Record<string, unknown>)?.connected, false, "the settle disconnected the state machine");
+  assert.equal(root.querySelector("p")?.getAttribute("data-tq-rendered"), "true");
 
   // Component face: React removes the host element together with the tree.
   const componentHarness = createReactHarness();
@@ -132,8 +134,9 @@ test("unmount: the effect cleanup settles the lifecycle and releases the context
     React.createElement(TiqianProse, { options: { disabled: true } }, React.createElement("p", null, DEMO_CORPUS[0])),
   );
   const host = componentHarness.container.querySelector("tiqian-prose");
-  host.style.setProperty("--tq-styles-ready", "1");
-  setElementRect(host, 0, 360);
+  assert.ok(host, "the component rendered the tiqian-prose host element");
+  (host as HTMLElement).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(host as TiqianProseElement & FakeElement, 0, 360);
   await componentHarness.render(
     React.createElement(TiqianProse, { options: { disabled: false } }, React.createElement("p", null, DEMO_CORPUS[0])),
   );
@@ -155,11 +158,11 @@ test("relayout-ready: the subscription prop surfaces the notification", async (t
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const notifications = [];
-  const captured = {};
+  const notifications: unknown[] = [];
+  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root, {}, {
-      onRelayoutReady: (detail) => notifications.push(detail),
+    captured.contextRef = useTiqianProse(root as FakeElement & Element, {}, {
+      onRelayoutReady: (detail: unknown) => notifications.push(detail),
     }).contextRef;
     return null;
   }
@@ -168,7 +171,7 @@ test("relayout-ready: the subscription prop surfaces the notification", async (t
   await settleEnhanced(root);
   const baseline = notifications.length;
 
-  captured.contextRef.current.relayout();
+  ((captured.contextRef.current as Record<string, unknown>).relayout as (() => void) | undefined)?.();
   await settleEnhanced(root);
   assert.ok(
     notifications.length > baseline,
@@ -195,8 +198,8 @@ test("component face: TiqianProse renders and enhances its own host element", as
   );
   const host = harness.container.querySelector("tiqian-prose");
   assert.ok(host, "the component rendered the tiqian-prose host element");
-  host.style.setProperty("--tq-styles-ready", "1");
-  setElementRect(host, 0, 360);
+  (host as HTMLElement).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(host as TiqianProseElement & FakeElement, 0, 360);
   await harness.render(
     React.createElement(
       TiqianProse,
@@ -220,7 +223,7 @@ test("parity: binding geometry matches the web-component path on the demo corpus
   // entry over the same root markup.
   const wcRoot = mount(`<div data-tiqian-root="true">${corpusHtml()}</div>`);
   setElementRect(wcRoot, 0, 360);
-  assert.equal(TiqianWeb.enhance(wcRoot, null), DEMO_CORPUS.length);
+  assert.equal(TiqianWeb.enhance(wcRoot as FakeElement & Element, null), DEMO_CORPUS.length);
   await settleEnhanced(wcRoot);
 
   // Binding path: the component face over the identical corpus, mounted
@@ -233,8 +236,9 @@ test("parity: binding geometry matches the web-component path on the demo corpus
     React.createElement(TiqianProse, { options: { disabled: true } }, ...corpusChildren()),
   );
   const reactRoot = harness.container.querySelector("tiqian-prose");
-  reactRoot.style.setProperty("--tq-styles-ready", "1");
-  setElementRect(reactRoot, 0, 360);
+  assert.ok(reactRoot, "react root element found");
+  (reactRoot as HTMLElement).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(reactRoot as TiqianProseElement & FakeElement, 0, 360);
   await harness.render(
     React.createElement(TiqianProse, { options: { disabled: false } }, ...corpusChildren()),
   );
@@ -246,7 +250,7 @@ test("parity: binding geometry matches the web-component path on the demo corpus
   for (let index = 0; index < wcParagraphs.length; index += 1) {
     assert.deepEqual(
       deepGeometry(reactParagraphs[index]),
-      deepGeometry(wcParagraphs[index]),
+      deepGeometry(wcParagraphs[index] as FakeElement & Node),
       `paragraph ${index} geometry diverges between the binding and the web-component path`,
     );
   }
