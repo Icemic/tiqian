@@ -74,7 +74,7 @@ jobs:
           echo "commit=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
 
   engine-linux:
-    name: Build engine archives linux x64 arm64
+    name: Build engine archives and ffi runtime
     runs-on: ubuntu-latest
     needs: [stamp]
     steps:
@@ -112,11 +112,20 @@ jobs:
             konan-${{ runner.os }}-snapshot-precompute-
             konan-${{ runner.os }}-
 
-      - name: Link static libraries
+      - name: Link static libraries and assemble the ffi runtime
         run: >
           ./gradlew
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:native:linkReleaseStaticLinuxArm64
+          :ffi:js:assembleNpmPackage
+
+      - name: Upload the ffi npm runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ffi-runtime
+          path: ffi/js/npm/runtime
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload linuxX64 engine archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -177,6 +186,16 @@ jobs:
         with:
           name: ${{ matrix.engine-archive }}
           path: engine
+
+      # The smoke test's pretest build consumes the ffi type declarations, a
+      # Gradle product. The runtime is host-independent JS, so reuse the
+      # archive built once on linux instead of installing a JDK and the
+      # Android SDK on every matrix leg.
+      - name: Download the ffi npm runtime
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ffi-runtime
+          path: ffi/js/npm/runtime
 
       # Root install, not a server/core-local one: the smoke test's pretest
       # build consumes workspace members through their dev links.
@@ -274,6 +293,33 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null
+      - name: Install Android platform pieces
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Cache Gradle
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-snapshot-main-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/gradle-daemon-jvm.properties', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # The build chain below starts at the ffi type declarations, a Gradle
+      # product the checkout does not carry (ffi/js/npm/runtime is
+      # gitignored).
+      - name: Assemble the ffi npm runtime
+        run: ./gradlew :ffi:js:assembleNpmPackage
+
       # Root install, not a server/core-local one: the build below consumes
       # workspace members through their dev links.
       - name: Install workspace dependencies
@@ -355,6 +401,33 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null
+      - name: Install Android platform pieces
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Cache Gradle
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-snapshot-integration-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/gradle-daemon-jvm.properties', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # The build chain below starts at the ffi type declarations, a Gradle
+      # product the checkout does not carry (ffi/js/npm/runtime is
+      # gitignored).
+      - name: Assemble the ffi npm runtime
+        run: ./gradlew :ffi:js:assembleNpmPackage
 
       # Root install: the build below consumes workspace members through
       # their dev links.
