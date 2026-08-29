@@ -199,7 +199,7 @@ jobs:
         run: |
           scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
           repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          node snapshot-swap.mjs apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
+          node snapshot-swap.ts apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
 
       - name: Pack platform package
         working-directory: frontend/web-precompute/npm/platforms/${{ matrix.platform }}
@@ -218,7 +218,7 @@ jobs:
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
         working-directory: frontend/web-precompute/npm
-        run: node snapshot-swap.mjs restore
+        run: node snapshot-swap.ts restore
 
       - name: Upload platform package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -268,7 +268,7 @@ jobs:
         run: |
           scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
           repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          node snapshot-swap.mjs apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
+          node snapshot-swap.ts apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
 
       - name: Pack
         working-directory: frontend/web-precompute/npm
@@ -286,7 +286,7 @@ jobs:
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
         working-directory: frontend/web-precompute/npm
-        run: node snapshot-swap.mjs restore
+        run: node snapshot-swap.ts restore
 
       - name: Upload main package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -348,7 +348,7 @@ jobs:
         run: |
           scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
           repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          node snapshot-swap.mjs apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
+          node snapshot-swap.ts apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
 
       # The swapped tree fails the manifest assertions above by design; pack
       # without scripts and rely on the pre-swap test runs.
@@ -366,7 +366,7 @@ jobs:
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
         working-directory: frontend/web-precompute/npm
-        run: node snapshot-swap.mjs restore
+        run: node snapshot-swap.ts restore
 
       - name: Upload integration packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

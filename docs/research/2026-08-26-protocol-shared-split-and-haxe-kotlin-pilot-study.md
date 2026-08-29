@@ -104,8 +104,8 @@ prepared-dom）。同一个协议在三处各有一份手写定义：
    （naturalWidth、openTypeFeatures、renderFontFamily、glyphIdsByRange 的累积，
    两个文件的前 40 行结构相同），JSON 与 packed 两条输出路径共享同一语义。
 2. 验证基建的规模：Rust 侧 parity 测试 2,556 行（10 文件）；corpus 构建脚本与
-   fixture（`build-prepared-dom-corpus.mjs`、`prepared-dom-corpus.fixture.json`）；
-   plan parity oracle（`scripts/plan-parity-oracle.mjs` 运行 Kotlin/JS bundle 产出
+   fixture（`build-prepared-dom-corpus.ts`、`prepared-dom-corpus.fixture.json`）；
+   plan parity oracle（`scripts/plan-parity-oracle.ts` 运行 Kotlin/JS bundle 产出
    oracle.json，Rust 测试字节比对）；人工规格 `docs/ts-port-assertion-checklist.md`
    283 行逐条登记断言供重写对照。这些成本仅因存在两份实现而存在。
 3. 请求模型类型另有 schema 生成机制：`ffi/schema/assembly-record.schema.json`

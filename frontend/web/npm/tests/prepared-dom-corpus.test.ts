@@ -4,7 +4,7 @@
 // `frontend/web-precompute/rust/tiqian-precompute/tests/prepared_dom_corpus.rs`;
 // both sides assert the same bytes, so this module cannot drift from the Rust
 // port. Regenerate the fixture with
-// `node scripts/build-prepared-dom-corpus.mjs` from frontend/web-precompute.
+// `node scripts/build-prepared-dom-corpus.ts` from frontend/web-precompute.
 
 import { readFileSync } from "node:fs";
 import test from "node:test";

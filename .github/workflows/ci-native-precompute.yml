@@ -198,7 +198,7 @@ jobs:
         run: npx tsc -b --noCheck
       - name: Regenerate the fixture and fail on drift
         run: |
-          node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs
+          node frontend/web-precompute/scripts/build-prepared-dom-corpus.ts
           git diff --exit-code frontend/web/npm/tests/prepared-dom-corpus.fixture.json
       - name: Replay the fixture through the js corpus test
         run: node --test frontend/web/npm/tests/prepared-dom-corpus.test.js
@@ -245,7 +245,7 @@ jobs:
           :ffi:js:compileProductionExecutableKotlinJs
           :ffi:js:assembleNpmPackage
       - name: Dump the js oracle
-        run: node frontend/web-precompute/scripts/plan-parity-oracle.mjs
+        run: node frontend/web-precompute/scripts/plan-parity-oracle.ts
       - name: Compare the native lane against the oracle
         run: >
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic

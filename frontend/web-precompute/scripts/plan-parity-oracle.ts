@@ -21,24 +21,102 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const bundleUrl = new URL(
+const here: string = dirname(fileURLToPath(import.meta.url));
+const bundleUrl: URL = new URL(
   "../../../ffi/js/build/compileSync/js/main/productionExecutable/kotlin/Tiqian-tiqian-ffi-js.mjs",
   import.meta.url,
 );
 
+interface ShapeGlyph {
+  id: number;
+  advance: number;
+  x: number;
+  y: number;
+  bounds: [number, number, number, number];
+}
+
+interface ShapeRequest {
+  displayText: string;
+  style: { fontSize: number; locale: string };
+  range: { start: number; end: number };
+  text: string;
+  fontDecision: { candidateKey: string };
+}
+
+interface MetricsRequest {
+  fontSize: number;
+}
+
+interface ShapeGlyphRun {
+  range: { start: number; end: number };
+  fontKey: string;
+  glyphs: {
+    id: number;
+    clusterRange: { start: number; end: number };
+    advance: number;
+    x: number;
+    y: number;
+    bounds: { left: number; top: number; right: number; bottom: number };
+  }[];
+  advance: number;
+  openTypeFeatures: string[];
+}
+
+interface ShapeCluster {
+  range: { start: number; end: number };
+  text: string;
+  displayText: string;
+  fontKey: string;
+  advance: number;
+}
+
+interface ShapeDecision {
+  range: { start: number; end: number };
+  sourceText: string;
+  displayText: string;
+  fontKey: string;
+  glyphCount: number;
+  advance: number;
+  source: string;
+  reason: string;
+  glyphsWithoutInkBounds: number;
+  missingGlyphs: number;
+  resolvedFace: string;
+  script: string;
+  language: string;
+  featureEvidence: null;
+}
+
+interface ShapeResult {
+  clusters: ShapeCluster[];
+  glyphRuns: ShapeGlyphRun[];
+  decisions: ShapeDecision[];
+}
+
+interface MetricsResult {
+  ascent: number;
+  descent: number;
+  leading: number;
+  source: string;
+  typoAscent: number;
+  typoDescent: number;
+}
+
 // The fixture backend of PrecomputeExportsTest.kt: one glyph per code point,
 // advance and x scaled by the font size, glyph id 0 marks a missing glyph.
 // The callback protocol is the synchronous JSON request/response contract.
-function makeFixtureCallbacks() {
+function makeFixtureCallbacks(): {
+  shapeJson: (requestJson: string) => string;
+  metricsJson: (requestJson: string) => string;
+} {
   return {
-    shapeJson: function(requestJson) {
-      const request = JSON.parse(requestJson);
-      const displayText = request.displayText;
-      const fontSize = request.style.fontSize;
-      const missing = String(displayText).includes("\u22ef");
-      const glyphs = [];
-      let index = 0;
+    shapeJson: function (requestJson: string): string {
+      const request: ShapeRequest = JSON.parse(requestJson) as ShapeRequest;
+      const displayText: string = request.displayText;
+      const fontSize: number = request.style.fontSize;
+      const missing: boolean = String(displayText).includes("\u22ef");
+      const glyphs: ShapeGlyph[] = [];
+      let index: number = 0;
       for (const _point of displayText) {
         glyphs.push({
           id: missing ? 0 : 100 + index,
@@ -60,7 +138,7 @@ function makeFixtureCallbacks() {
         glyphRuns: [{
           range: request.range,
           fontKey: request.fontDecision.candidateKey,
-          glyphs: glyphs.map(function(g) {
+          glyphs: glyphs.map(function (g: ShapeGlyph) {
             return {
               id: g.id,
               clusterRange: request.range,
@@ -89,11 +167,11 @@ function makeFixtureCallbacks() {
           language: request.style.locale,
           featureEvidence: null,
         }],
-      });
+      } satisfies ShapeResult);
     },
-    metricsJson: function(requestJson) {
-      const request = JSON.parse(requestJson);
-      const fontSize = request.fontSize;
+    metricsJson: function (requestJson: string): string {
+      const request: MetricsRequest = JSON.parse(requestJson) as MetricsRequest;
+      const fontSize: number = request.fontSize;
       return JSON.stringify({
         ascent: fontSize * 1.04,
         descent: fontSize * 0.28,
@@ -101,15 +179,95 @@ function makeFixtureCallbacks() {
         source: "RawTables",
         typoAscent: fontSize * 0.88,
         typoDescent: fontSize * 0.12,
-      });
+      } satisfies MetricsResult);
     },
   };
 }
 
+interface TextSpanWire {
+  start: number;
+  end: number;
+  families: string[];
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShiftPx: number;
+}
+
+interface InlineBoxWire {
+  start: number;
+  end: number;
+  inlineStartPx: number;
+  inlineEndPx: number;
+  outerSpacing: string;
+}
+
+interface LineBreakSpanWire {
+  start: number;
+  end: number;
+  policy: string;
+}
+
+interface CorpusRequest {
+  text: string;
+  maxWidthPx: number;
+  fontFamilies: string[];
+  fontSizePx: number;
+  lineHeightPx: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  firstLineIndentIc: number;
+  lineLengthGridEnabled: boolean;
+  sourceBoundaries: number[];
+  textSpans: TextSpanWire[];
+  inlineBoxes: InlineBoxWire[];
+  lineBreakSpans: LineBreakSpanWire[];
+}
+
+interface WireTextSpan {
+  start: number;
+  end: number;
+  fontFamilies: string[];
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShift: number;
+}
+
+interface WireInlineBox {
+  start: number;
+  end: number;
+  inlineStart: number;
+  inlineEnd: number;
+  outerSpacing: string;
+}
+
+interface WireRequest {
+  text: string;
+  maxWidthPx: number;
+  fontFamilies: string[];
+  fontSizePx: number;
+  lineHeightPx: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  firstLineIndentIc: number;
+  lineLengthGridEnabled: boolean;
+  sourceBoundaries: number[];
+  textSpans: WireTextSpan[];
+  inlineBoxes: WireInlineBox[];
+  lineBreakSpans: LineBreakSpanWire[];
+  inlineObjects: unknown[];
+  decorations: unknown[];
+  emphasisDotGapEm: null;
+  renderEvidenceOverride: boolean;
+}
+
 // Same base values and same case list as the Rust corpus; the byte comparison
 // catches drift in either direction.
-function corpus() {
-  const base = function() {
+function corpus(): [string, CorpusRequest][] {
+  const base: () => CorpusRequest = function (): CorpusRequest {
     return {
       text: "",
       maxWidthPx: 36,
@@ -128,20 +286,20 @@ function corpus() {
     };
   };
 
-  const plain = Object.assign({}, base(), { text: "中文中文中文中文" });
+  const plain: CorpusRequest = Object.assign({}, base(), { text: "\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587" });
 
-  const punctuation = Object.assign({}, base(), { text: "中文，中文；中文。", maxWidthPx: 72 });
+  const punctuation: CorpusRequest = Object.assign({}, base(), { text: "\u4E2D\u6587\uFF0C\u4E2D\u6587\uFF1B\u4E2D\u6587\u3002", maxWidthPx: 72 });
 
-  const mixed = Object.assign({}, base(), {
-    text: "Hello 中文 world 字",
+  const mixed: CorpusRequest = Object.assign({}, base(), {
+    text: "Hello \u4E2D\u6587 world \u5B57",
     maxWidthPx: 90,
     lineLengthGridEnabled: false,
   });
 
-  const indent = Object.assign({}, base(), { text: "中文中文中文", firstLineIndentIc: 2 });
+  const indent: CorpusRequest = Object.assign({}, base(), { text: "\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587", firstLineIndentIc: 2 });
 
-  const span = Object.assign({}, base(), {
-    text: "中文中文",
+  const span: CorpusRequest = Object.assign({}, base(), {
+    text: "\u4E2D\u6587\u4E2D\u6587",
     textSpans: [{
       start: 0,
       end: 2,
@@ -153,21 +311,21 @@ function corpus() {
     }],
   });
 
-  const boundaries = Object.assign({}, base(), { text: "中文中文中文", sourceBoundaries: [2, 4] });
+  const boundaries: CorpusRequest = Object.assign({}, base(), { text: "\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587", sourceBoundaries: [2, 4] });
 
-  const policy = Object.assign({}, base(), {
-    text: "URLhttps://example.com/中文",
+  const policy: CorpusRequest = Object.assign({}, base(), {
+    text: "URLhttps://example.com/\u4E2D\u6587",
     maxWidthPx: 90,
     lineLengthGridEnabled: false,
     lineBreakSpans: [{ start: 0, end: 25, policy: "ProgressiveTechnical" }],
   });
 
-  const inlineBox = Object.assign({}, base(), {
-    text: "中文字中文",
+  const inlineBox: CorpusRequest = Object.assign({}, base(), {
+    text: "\u4E2D\u6587\u5B57\u4E2D\u6587",
     inlineBoxes: [{ start: 2, end: 3, inlineStartPx: 6, inlineEndPx: 12, outerSpacing: "Narrow" }],
   });
 
-  const ellipsis = Object.assign({}, base(), { text: "\u2026\u2026", maxWidthPx: 72 });
+  const ellipsis: CorpusRequest = Object.assign({}, base(), { text: "\u2026\u2026", maxWidthPx: 72 });
 
   return [
     ["plainWrap", plain],
@@ -182,13 +340,22 @@ function corpus() {
   ];
 }
 
+interface PrecomputeExports {
+  precomputeParagraphWithDiagnostics: (
+    request: WireRequest,
+    evidenceFlag: number,
+    shapeCallback: (json: string) => string,
+    metricsCallback: (json: string) => string,
+  ) => string;
+}
+
 const callbacks = makeFixtureCallbacks();
-const runtime = await import(bundleUrl.href);
+const runtime: PrecomputeExports = await import(bundleUrl.href) as PrecomputeExports;
 
 // Wire form: the PrepareParagraphRequest DTO (ADR 0053 corrective wave 5).
 // Field names follow TextSpanWireDto/InlineBoxWireDto; the corpus keeps its
 // own fixture names and maps here so both sides stay readable.
-function toWireRequest(request) {
+function toWireRequest(request: CorpusRequest): WireRequest {
   return {
     text: request.text,
     maxWidthPx: request.maxWidthPx,
@@ -201,7 +368,7 @@ function toWireRequest(request) {
     firstLineIndentIc: request.firstLineIndentIc,
     lineLengthGridEnabled: request.lineLengthGridEnabled,
     sourceBoundaries: request.sourceBoundaries,
-    textSpans: request.textSpans.map(function(span) {
+    textSpans: request.textSpans.map(function (span: TextSpanWire): WireTextSpan {
       return {
         start: span.start,
         end: span.end,
@@ -212,7 +379,7 @@ function toWireRequest(request) {
         baselineShift: span.baselineShiftPx,
       };
     }),
-    inlineBoxes: request.inlineBoxes.map(function(box) {
+    inlineBoxes: request.inlineBoxes.map(function (box: InlineBoxWire): WireInlineBox {
       return {
         start: box.start,
         end: box.end,
@@ -229,18 +396,22 @@ function toWireRequest(request) {
   };
 }
 
-const dump = {};
+interface DumpPlan {
+  [key: string]: unknown;
+}
+
+const dump: DumpPlan = {};
 for (const [name, request] of corpus()) {
-  const envelope = JSON.parse(runtime.precomputeParagraphWithDiagnostics(
+  const envelope: { plan: unknown } = JSON.parse(runtime.precomputeParagraphWithDiagnostics(
     toWireRequest(request),
     0.0,
     callbacks.shapeJson,
     callbacks.metricsJson,
-  ));
+  )) as { plan: unknown };
   dump[name] = envelope.plan;
 }
 
-const outPath = resolve(here, "../build/plan-parity/oracle.json");
+const outPath: string = resolve(here, "../build/plan-parity/oracle.json");
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(dump) + "\n");
 process.stdout.write("oracle dump: " + outPath + " (" + Object.keys(dump).length + " cases)\n");

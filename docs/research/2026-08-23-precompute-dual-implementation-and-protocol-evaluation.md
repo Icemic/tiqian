@@ -31,10 +31,10 @@ plan JSON 输入、spacing 判定、run 合并、语义容器嵌套、HTML 序�
 两侧输出的一致性校验分两层：
 
 1. 语料层：`frontend/web/npm/prepared-dom-corpus.fixture.json` 由
-   `scripts/build-prepared-dom-corpus.mjs` 从 JS 生成，Rust 测试
+   `scripts/build-prepared-dom-corpus.ts` 从 JS 生成，Rust 测试
    `tests/prepared_dom_corpus.rs` 与 JS 测试 `frontend/web/npm/prepared-dom-corpus.test.mjs`
    对同一 fixture 断言相同字节。
-2. plan 层：`scripts/plan-parity-oracle.mjs` 运行 Kotlin/JS 预计算 bundle 写出
+2. plan 层：`scripts/plan-parity-oracle.ts` 运行 Kotlin/JS 预计算 bundle 写出
    `build/plan-parity/oracle.json`，Rust 测试 `tests/plan_parity.rs` 字节比对。
 
 双实现之间已经出现过漂移。浏览器端真身

@@ -11,14 +11,14 @@ import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const MAX_CODE_POINT = 0x10ffff;
+const here: string = dirname(fileURLToPath(import.meta.url));
+const MAX_CODE_POINT: number = 0x10ffff;
 
-function rangesOf(predicate) {
-  const ranges = [];
-  let start = -1;
-  for (let point = 0; point <= MAX_CODE_POINT; point += 1) {
-    const hit = predicate(String.fromCodePoint(point));
+function rangesOf(predicate: (point: string) => boolean): [number, number][] {
+  const ranges: [number, number][] = [];
+  let start: number = -1;
+  for (let point: number = 0; point <= MAX_CODE_POINT; point += 1) {
+    const hit: boolean = predicate(String.fromCodePoint(point));
     if (hit && start < 0) start = point;
     if (!hit && start >= 0) {
       ranges.push([start, point - 1]);
@@ -29,13 +29,13 @@ function rangesOf(predicate) {
   return ranges;
 }
 
-const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
-const FORMAT = /\p{Cf}/u;
-const SCRIPT_HAN = /\p{Script=Han}/u;
-const SCRIPT_COMMON = /\p{Script=Common}/u;
+const EXTENDED_PICTOGRAPHIC: RegExp = /\p{Extended_Pictographic}/u;
+const FORMAT: RegExp = /\p{Cf}/u;
+const SCRIPT_HAN: RegExp = /\p{Script=Han}/u;
+const SCRIPT_COMMON: RegExp = /\p{Script=Common}/u;
 
-function emit(name, source, ranges) {
-  const lines = [
+function emit(name: string, source: string, ranges: [number, number][]): string {
+  const lines: string[] = [
     `/// ${source}`,
     `pub static ${name}: &[(u32, u32)] = &[`,
   ];
@@ -46,7 +46,7 @@ function emit(name, source, ranges) {
   return lines.join("\n");
 }
 
-const body = [
+const body: string = [
   "//! Generated Unicode range tables for the plain-text issue checks. DO NOT",
   "//! EDIT: regenerate with scripts/generate-unicode-tables.ts, which reads",
   "//! the property classes of the Node build that runs it.",
@@ -54,25 +54,25 @@ const body = [
   emit(
     "EXTENDED_PICTOGRAPHIC",
     "The \\\\p{Extended_Pictographic} class.",
-    rangesOf((point) => EXTENDED_PICTOGRAPHIC.test(point)),
+    rangesOf((point: string): boolean => EXTENDED_PICTOGRAPHIC.test(point)),
   ),
   "",
   emit(
     "FORMAT_CHARACTERS",
     "The \\\\p{Cf} class.",
-    rangesOf((point) => FORMAT.test(point)),
+    rangesOf((point: string): boolean => FORMAT.test(point)),
   ),
   "",
   emit(
     "SCRIPT_HAN",
     "The \\\\p{Script=Han} class.",
-    rangesOf((point) => SCRIPT_HAN.test(point)),
+    rangesOf((point: string): boolean => SCRIPT_HAN.test(point)),
   ),
   "",
   emit(
     "SCRIPT_COMMON",
     "The \\\\p{Script=Common} class.",
-    rangesOf((point) => SCRIPT_COMMON.test(point)),
+    rangesOf((point: string): boolean => SCRIPT_COMMON.test(point)),
   ),
   "",
   "/// True when `point` falls inside one of the table's ranges.",
@@ -92,7 +92,7 @@ const body = [
   "",
 ].join("\n");
 
-const outPath = resolve(here, "../rust/tiqian-precompute/src/unicode_tables.rs");
+const outPath: string = resolve(here, "../rust/tiqian-precompute/src/unicode_tables.rs");
 writeFileSync(outPath, body);
 process.stdout.write(
   `unicode tables: ${outPath} (pictographic, format, han, common)\n`,

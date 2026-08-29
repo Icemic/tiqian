@@ -5,7 +5,7 @@
 //! font backend, and plan JSON numbers are canonicalized in commonMain
 //! (`appendJsonNumber`), so the two dumps are expected to match byte for
 //! byte. The corpus and the fixture numbers mirror
-//! `frontend/web-precompute/scripts/plan-parity-oracle.mjs` one to one; the
+//! `frontend/web-precompute/scripts/plan-parity-oracle.ts` one to one; the
 //! oracle dump is produced by that Node script and compared byte for byte.
 //!
 //! The engine link and the fixture backend make this test meaningless without
@@ -63,7 +63,7 @@ fn install_fixture_backend() {
 }
 
 /// Mirrors the fixture backend of `PrecomputeExportsTest.kt` and
-/// `plan-parity-oracle.mjs`: one glyph per code point, advance and x scaled
+/// `plan-parity-oracle.ts`: one glyph per code point, advance and x scaled
 /// by the font size, glyph id 0 marks a missing glyph. The `unsafe` marker is
 /// part of the signature shared with the production backend; obligations:
 /// docs/rust-unsafe-inventory.md.
@@ -294,12 +294,12 @@ fn native_plans_match_the_js_oracle_byte_for_byte() {
         if std::env::var("TIQIAN_REQUIRE_PARITY_ORACLE").is_ok_and(|value| value == "1") {
             panic!(
                 "TIQIAN_REQUIRE_PARITY_ORACLE=1 but no oracle dump at {}; \
-                 run node scripts/plan-parity-oracle.mjs in frontend/web-precompute",
+                 run node scripts/plan-parity-oracle.ts in frontend/web-precompute",
                 oracle_path.display()
             );
         }
         eprintln!(
-            "skipped: no oracle dump at {}; run node scripts/plan-parity-oracle.mjs in frontend/web-precompute to produce it",
+            "skipped: no oracle dump at {}; run node scripts/plan-parity-oracle.ts in frontend/web-precompute to produce it",
             oracle_path.display()
         );
         return;

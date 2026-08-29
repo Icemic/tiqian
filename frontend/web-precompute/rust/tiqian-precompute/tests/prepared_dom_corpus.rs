@@ -3,7 +3,7 @@
 // The committed corpus is shared with the js lane
 // `frontend/web/npm/tests/prepared-dom-corpus.test.mjs`; both sides assert the same
 // bytes. Regenerate the fixture with
-// `node scripts/build-prepared-dom-corpus.mjs` from frontend/web-precompute
+// `node scripts/build-prepared-dom-corpus.ts` from frontend/web-precompute
 // after changing either implementation, then review the diff.
 
 use std::path::PathBuf;

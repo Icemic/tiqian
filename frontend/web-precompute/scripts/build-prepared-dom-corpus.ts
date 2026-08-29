@@ -13,18 +13,175 @@ import { fileURLToPath } from "node:url";
 
 import { renderPreparedParagraphArtifact } from "../../web/npm/prepared-dom.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here: string = dirname(fileURLToPath(import.meta.url));
 
-function plan(lines, height = 48, width = 320) {
+interface CellExtra {
+  leadingLayoutAdvance?: number;
+  advance?: number;
+  shapingBoundary?: boolean;
+  openTypeFeatures?: string[];
+  dashStrategy?: string;
+  shapingLanguage?: string;
+  resolvedFace?: string;
+  glyphIds?: string;
+  shapingEvidence?: string;
+  renderFontFamily?: string;
+  punctuationInkFloor?: number;
+  punctuationBodyWidth?: number;
+  style?: { fontSize: number; fontWeight: number };
+  latin?: boolean;
+  inlineObject?: number;
+}
+
+interface PlanCell {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  naturalWidth: number;
+  leadingLayoutAdvance: number;
+  [key: string]: unknown;
+}
+
+interface LineOptions {
+  rangeStart?: number;
+  rangeEnd?: number;
+  top?: number;
+  bottom?: number;
+  baseline?: number;
+  indent?: number;
+  visualWidth?: number;
+  hyphenAdvance?: number;
+  endReason?: string;
+}
+
+interface PlanLine {
+  rangeStart: number;
+  rangeEnd: number;
+  top: number;
+  bottom: number;
+  baseline: number;
+  indent: number;
+  visualWidth: number;
+  hyphenAdvance: number;
+  endReason: string;
+  cells: PlanCell[];
+}
+
+interface LayoutPlan {
+  schema: number;
+  layoutRevision: string;
+  width: number;
+  height: number;
+  lines: PlanLine[];
+  emphasisRanges?: [number, number][];
+  inlineEdges?: { offset: number; inlineEnd: number }[];
+  rubyDecisions?: {
+    baseRangeStart: number;
+    baseRangeEnd: number;
+    text: string;
+    fontSize: number;
+    fontWeight: number;
+    centerX: number;
+    baselineY: number;
+    fontFamilies: string[];
+    ascent?: number;
+  }[];
+  bopomofoDecisions?: {
+    baseRangeStart: number;
+    baseRangeEnd: number;
+    text: string;
+    fontWeight: number;
+    fontFamilies: string[];
+    placements: { role: string; text: string; left: number; top: number; width: number; height: number }[];
+  }[];
+  fontSize?: number;
+  overlayWidth?: number;
+  decorationSegments?: { kind: string; left: number; top: number; right: number }[];
+  emphasisDots?: { clusterRangeStart?: number; anchorX: number; anchorY: number; dotDiameter: number }[];
+}
+
+interface SemanticOption {
+  start: number;
+  end: number;
+  tagName: string;
+  attributes?: [string, string][];
+}
+
+interface RenderTextSpanOption {
+  start: number;
+  end: number;
+  fontFamilies: string[];
+}
+
+interface InlineBoxOption {
+  start: number;
+  end: number;
+  inlineStartPx: number;
+  inlineEndPx: number;
+}
+
+interface CjkStrongSemanticEntry {
+  start: number;
+  end: number;
+  weight: number;
+}
+
+interface CaseOptions {
+  styleClassFor?: string;
+  emphasisDotColor?: string;
+  semantics?: SemanticOption[];
+  renderTextSpans?: RenderTextSpanOption[];
+  inlineBoxes?: InlineBoxOption[];
+  cjkStrongSemantics?: CjkStrongSemanticEntry[];
+}
+
+interface CorpusCase {
+  name: string;
+  plan: LayoutPlan;
+  locale: string;
+  options: CaseOptions;
+  expectError?: string;
+}
+
+interface FixtureResultOk {
+  kind: "ok";
+  html: string;
+  artifact: string;
+  liveSemanticCount: number;
+  markerCount: number;
+}
+
+interface FixtureResultError {
+  kind: "error";
+  error: string;
+}
+
+type FixtureResult = FixtureResultOk | FixtureResultError;
+
+interface FixtureEntry {
+  name: string;
+  plan: string;
+  locale: string;
+  options: CaseOptions;
+  expect: FixtureResult;
+}
+
+interface Fixture {
+  cases: FixtureEntry[];
+}
+
+function plan(lines: PlanLine[], height: number = 48, width: number = 320): LayoutPlan {
   return { schema: 1, layoutRevision: "tiqian-layout-v2", width, height, lines };
 }
 
-function cell(rangeStart, rangeEnd, source, display, drawX, naturalWidth, extra = {}) {
+function cell(rangeStart: number, rangeEnd: number, source: string, display: string, drawX: number, naturalWidth: number, extra: CellExtra = {}): PlanCell {
   const { leadingLayoutAdvance = 0, ...rest } = extra;
   return { rangeStart, rangeEnd, source, display, drawX, naturalWidth, leadingLayoutAdvance, ...rest };
 }
 
-function line(cells, options = {}) {
+function line(cells: PlanCell[], options: LineOptions = {}): PlanLine {
   return {
     rangeStart: options.rangeStart ?? cells[0]?.rangeStart ?? 0,
     rangeEnd: options.rangeEnd ?? cells.at(-1)?.rangeEnd ?? 0,
@@ -32,22 +189,22 @@ function line(cells, options = {}) {
     bottom: options.bottom ?? 32,
     baseline: options.baseline ?? 24,
     indent: options.indent ?? 0,
-    visualWidth: options.visualWidth ?? (cells.length ? cells.at(-1).drawX + cells.at(-1).naturalWidth : 0),
+    visualWidth: options.visualWidth ?? (cells.length ? cells.at(-1)!.drawX + cells.at(-1)!.naturalWidth : 0),
     hyphenAdvance: options.hyphenAdvance ?? 0,
     endReason: options.endReason ?? "ParagraphEnd",
     cells,
   };
 }
 
-const STYLE_CLASS_MODES = {
-  "declaration-length": (declaration) => `tqc-${declaration.length}`,
+const STYLE_CLASS_MODES: Record<string, (declaration: string) => string> = {
+  "declaration-length": (declaration: string): string => `tqc-${declaration.length}`,
 };
 
-const EMPHASIS_DOT_COLOR_MODES = {
-  "fixed-color": () => "rgb(17, 34, 51)",
+const EMPHASIS_DOT_COLOR_MODES: Record<string, () => string> = {
+  "fixed-color": (): string => "rgb(17, 34, 51)",
 };
 
-const cases = [
+const cases: CorpusCase[] = [
   {
     name: "plain-merge",
     plan: plan([
@@ -258,7 +415,7 @@ const cases = [
   {
     name: "shaping-boundary",
     plan: plan([
-      line([cell(0, 2, "😀", "😀", 0, 16, { shapingBoundary: true })]),
+      line([cell(0, 2, "\u{1F600}", "\u{1F600}", 0, 16, { shapingBoundary: true })]),
     ]),
     locale: "zh-Hans",
     options: {},
@@ -282,7 +439,7 @@ const cases = [
   {
     name: "source-display-diff",
     plan: plan([
-      line([cell(0, 1, "　", " ", 0, 16)]),
+      line([cell(0, 1, "\u3000", " ", 0, 16)]),
     ]),
     locale: "zh-Hans",
     options: {},
@@ -352,7 +509,7 @@ const cases = [
     name: "dash-evidence-attributes",
     plan: plan([
       line([
-        cell(0, 1, "—", "—", 0, 18, {
+        cell(0, 1, "\u2014", "\u2014", 0, 18, {
           dashStrategy: "ReplaceEmDash",
           shapingLanguage: "zh-Hans",
           resolvedFace: "FaceA",
@@ -370,7 +527,7 @@ const cases = [
     plan: plan([
       line([
         cell(0, 1, "前", "前", 0, 18),
-        cell(1, 2, "—", "—", 18, 18, {
+        cell(1, 2, "\u2014", "\u2014", 18, 18, {
           dashStrategy: "ReplaceEmDash",
           punctuationInkFloor: 2.5,
           punctuationBodyWidth: 16,
@@ -457,7 +614,7 @@ const cases = [
       rubyDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "Běijīng",
+        text: "B\u0113ij\u012Bng",
         fontSize: 10,
         fontWeight: 500,
         centerX: 9,
@@ -479,12 +636,12 @@ const cases = [
       bopomofoDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "ㄓˇ",
+        text: "\u310B\u030D",
         fontWeight: 500,
         fontFamilies: ["Bopomofo Face"],
         placements: [
-          { role: "Symbol", text: "ㄓ", left: 0, top: 2, width: 6, height: 8 },
-          { role: "Tone", text: "ˇ", left: 6, top: 2, width: 4, height: 8 },
+          { role: "Symbol", text: "\u310B", left: 0, top: 2, width: 6, height: 8 },
+          { role: "Tone", text: "\u030D", left: 6, top: 2, width: 4, height: 8 },
         ],
       }],
     },
@@ -539,7 +696,7 @@ const cases = [
       rubyDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "Běijīng",
+        text: "B\u0113ij\u012Bng",
         fontSize: 10,
         fontWeight: 500,
         centerX: 9,
@@ -639,20 +796,20 @@ const cases = [
   },
 ];
 
-const fixture = { cases: [] };
+const fixture: Fixture = { cases: [] };
 for (const entry of cases) {
   const { name, plan: planValue, locale, options, expectError } = entry;
-  const styleMode = options.styleClassFor;
-  const dotColorMode = options.emphasisDotColor;
-  const callOptions = { ...options };
+  const styleMode: string | undefined = options.styleClassFor;
+  const dotColorMode: string | undefined = options.emphasisDotColor;
+  const callOptions: Record<string, unknown> = { ...options };
   delete callOptions.styleClassFor;
   delete callOptions.emphasisDotColor;
-  if (styleMode) callOptions.styleClassFor = STYLE_CLASS_MODES[styleMode];
-  if (dotColorMode) callOptions.emphasisDotColor = EMPHASIS_DOT_COLOR_MODES[dotColorMode];
-  let expect;
+  if (styleMode !== undefined) callOptions.styleClassFor = STYLE_CLASS_MODES[styleMode];
+  if (dotColorMode !== undefined) callOptions.emphasisDotColor = EMPHASIS_DOT_COLOR_MODES[dotColorMode];
+  let expect: FixtureResult;
   try {
-    const lowered = renderPreparedParagraphArtifact(JSON.stringify(planValue), locale, callOptions);
-    if (expectError) throw new Error(`expected error ${expectError}, got a render`);
+    const lowered = renderPreparedParagraphArtifact(JSON.stringify(planValue), locale, callOptions as Record<string, unknown>);
+    if (expectError !== undefined) throw new Error(`expected error ${expectError}, got a render`);
     expect = {
       kind: "ok",
       html: lowered.html,
@@ -660,16 +817,17 @@ for (const entry of cases) {
       liveSemanticCount: lowered.liveSemanticCount,
       markerCount: lowered.markerCount,
     };
-  } catch (error) {
-    if (!expectError) throw error;
-    if (error.message !== expectError) {
-      throw new Error(`case ${name}: expected ${expectError}, got ${error.message}`);
+  } catch (error: unknown) {
+    if (expectError === undefined) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== expectError) {
+      throw new Error(`case ${name}: expected ${expectError}, got ${message}`);
     }
-    expect = { kind: "error", error: error.message };
+    expect = { kind: "error", error: message };
   }
   fixture.cases.push({ name, plan: JSON.stringify(planValue), locale, options, expect });
 }
 
-const target = resolve(here, "../../web/npm/tests/prepared-dom-corpus.fixture.json");
+const target: string = resolve(here, "../../web/npm/tests/prepared-dom-corpus.fixture.json");
 writeFileSync(target, `${JSON.stringify(fixture, null, 2)}\n`);
 console.log(`wrote ${fixture.cases.length} cases to ${target}`);

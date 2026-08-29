@@ -1,5 +1,5 @@
 //! Generated Unicode range tables for the plain-text issue checks. DO NOT
-//! EDIT: regenerate with scripts/generate-unicode-tables.mjs, which reads
+//! EDIT: regenerate with scripts/generate-unicode-tables.ts, which reads
 //! the property classes of the Node build that runs it.
 
 /// The \\p{Extended_Pictographic} class.

@@ -1,7 +1,7 @@
 // Shared fixture font backend for the core test world (S1b-c).
 //
 // Ports installFixtureBackend() from
-// frontend/web-precompute/scripts/plan-parity-oracle.mjs (lines 37-82), which
+// frontend/web-precompute/scripts/plan-parity-oracle.ts (lines 37-82), which
 // mirrors the fixture backend of PrecomputeExportsTest.kt: one glyph per code
 // point, advance and x scaled by the font size, glyph id 0 marks a missing
 // glyph, metrics [1.04, 0.28, 0, 0.88, 0.12] x fontSize. The callback protocol

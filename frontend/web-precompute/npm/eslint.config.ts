@@ -20,9 +20,8 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Root-level dev scripts (snapshot-swap, link-prose) are plain ESM; they
-    // only touch these Node globals.
-    files: ["*.mjs"],
+    // Root-level dev scripts (snapshot-swap, link-prose) only touch these Node globals.
+    files: ["*.ts", "*.mjs"],
     languageOptions: {
       globals: { URL: "readonly", console: "readonly", process: "readonly" },
     },

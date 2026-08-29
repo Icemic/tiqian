@@ -308,7 +308,7 @@ f64 加宽值（`20.34000015258789`、整数无小数点），JVM 与 Kotlin/Nat
 - plan parity：同一语料经原生路径（Rust 打包 → ABI → 引擎 → Kotlin plan JSON）与 js oracle
   （`precomputeParagraph` ESM bundle）双路输出字节一致，进入 `LegacyJsOracleCutover` 的
   比对层清单。载体为 `tiqian-precompute` 的 `plan_parity` 集成测试与
-  `frontend/web-precompute/scripts/plan-parity-oracle.mjs`；两侧语料与 fixture 字体后端
+  `frontend/web-precompute/scripts/plan-parity-oracle.ts`；两侧语料与 fixture 字体后端
   数值一一对应，fixture 取自 `PrecomputeExportsTest` 的 canonical 数。2026-08-20 起
   九个语料（标点压缩、中西混排、缩进、span、source boundaries、断行 policy、inline box、
   ellipsis 回退、纯换行）字节一致；`plan_parity` 在无 oracle dump 时按理由跳过，

@@ -329,7 +329,7 @@ const REVIEWED_WIRE_FACE_NAMES: ReadonlySet<string> = new Set([
 // comparison the ruling explicitly retains.
 const SEPARATOR_CODEC_MODULES: readonly string[] = [
   "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireCodec.kt",
-  "frontend/web-precompute/scripts/plan-parity-oracle.mjs",
+  "frontend/web-precompute/scripts/plan-parity-oracle.ts",
 ];
 
 // Export entries already reviewed against an engine function counterpart
