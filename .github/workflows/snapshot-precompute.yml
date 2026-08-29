@@ -178,9 +178,23 @@ jobs:
           name: ${{ matrix.engine-archive }}
           path: engine
 
-      - name: Install npm dependencies
-        working-directory: platforms/web/server/core
+      # Root install, not a server/core-local one: the smoke test's pretest
+      # build consumes workspace members through their dev links.
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm install --no-audit --no-fund
+
+      # The smoke test's pretest build consumes prose's prepared-dom, whose
+      # project references consume core's declarations; a fresh checkout
+      # carries neither emit, so build that chain first (same order as
+      # ci-native-precompute.yml).
+      - name: Build core with full type checks
+        working-directory: platforms/web/client/core
+        run: npx tsc -b
+
+      - name: Emit the prose package
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
 
       # An empty TIQIAN_NATIVE_LIB_DIR keeps the engine call compiled out for
       # the platforms without a wired engine link; the font session and the
@@ -260,9 +274,23 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
-      - name: Install npm dependencies
-        working-directory: platforms/web/server/core
+      # Root install, not a server/core-local one: the build below consumes
+      # workspace members through their dev links.
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm install --no-audit --no-fund
+
+      # The precompute build consumes prose's prepared-dom, whose project
+      # references consume core's declarations; a fresh checkout carries
+      # neither emit, so build that chain first (same order as
+      # ci-native-precompute.yml).
+      - name: Build core with full type checks
+        working-directory: platforms/web/client/core
+        run: npx tsc -b
+
+      - name: Emit the prose package
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
 
       - name: Lint, typecheck, and build the JS entry
         working-directory: platforms/web/server/core
@@ -328,14 +356,30 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      # Root install: the build below consumes workspace members through
+      # their dev links.
+      - name: Install workspace dependencies
+        working-directory: .
+        run: npm install --no-audit --no-fund
+
+      # The precompute build consumes prose's prepared-dom, whose project
+      # references consume core's declarations; a fresh checkout carries
+      # neither emit, so build that chain first (same order as
+      # ci-native-precompute.yml).
+      - name: Build core with full type checks
+        working-directory: platforms/web/client/core
+        run: npx tsc -b
+
+      - name: Emit the prose package
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
+
       # The integration dev links point at the precompute package in the
       # checkout, whose `lib/` build output the sources import through the
       # export map; a fresh checkout ships only `src/`, so build it first.
       - name: Build the precompute library
         working-directory: platforms/web/server/core
-        run: |
-          npm install --no-audit --no-fund
-          npm run build
+        run: npm run build
 
       # The integration suites assert the canonical manifest set (peer
       # versions against the precompute and prose manifests), so they run
@@ -389,8 +433,14 @@ jobs:
           test "$(find pack-output -name '*.tgz' | wc -l)" -eq 2
           astro_tarball="$(find pack-output -name '*astro*.tgz' -print -quit)"
           sveltekit_tarball="$(find pack-output -name '*sveltekit*.tgz' -print -quit)"
-          tar -tzf "${astro_tarball}" | grep -q '^package/dist/integration.js$'
-          tar -tzf "${sveltekit_tarball}" | grep -q '^package/dist/server.js$'
+          # Grep saved listings, not a pipe: grep -q exits on the match while
+          # tar still writes, and pipefail turns the SIGPIPE into a failure.
+          listing="pack-output/listing.txt"
+          tar -tzf "${astro_tarball}" > "${listing}"
+          grep -q '^package/dist/integration.js$' "${listing}"
+          tar -tzf "${sveltekit_tarball}" > "${listing}"
+          grep -q '^package/dist/server.js$' "${listing}"
+          rm -f "${listing}"
 
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
@@ -489,7 +539,10 @@ jobs:
 
       # prose and ffi declare verify prepacks that assert the canonical
       # manifest set, and every package's emitted build products were made
-      # before the swap, so all four pack without scripts.
+      # before the swap, so all four pack without scripts. The content
+      # assertions grep a saved listing: piping tar straight into grep -q
+      # lets grep exit on the match while tar still writes, and pipefail
+      # turns the resulting SIGPIPE into a step failure.
       - name: Pack the four packages
         shell: bash
         run: |
@@ -505,10 +558,16 @@ jobs:
           core_tarball="$(find "${out}" -name '*core*.tgz' -print -quit)"
           prose_tarball="$(find "${out}" -name '*prose*.tgz' -print -quit)"
           react_tarball="$(find "${out}" -name '*react*.tgz' -print -quit)"
-          tar -tzf "${ffi_tarball}" | grep -q '^package/runtime/Tiqian-tiqian-ffi-js.mjs$'
-          tar -tzf "${core_tarball}" | grep -q '^package/src/'
-          tar -tzf "${prose_tarball}" | grep -q '^package/element.js$'
-          tar -tzf "${react_tarball}" | grep -q '^package/binding.js$'
+          listing="${out}/listing.txt"
+          tar -tzf "${ffi_tarball}" > "${listing}"
+          grep -q '^package/runtime/Tiqian-tiqian-ffi-js.mjs$' "${listing}"
+          tar -tzf "${core_tarball}" > "${listing}"
+          grep -q '^package/src/' "${listing}"
+          tar -tzf "${prose_tarball}" > "${listing}"
+          grep -q '^package/element.js$' "${listing}"
+          tar -tzf "${react_tarball}" > "${listing}"
+          grep -q '^package/binding.js$' "${listing}"
+          rm -f "${listing}"
 
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
