@@ -197,12 +197,15 @@ is a separate workflow.
 Releases go to npmjs.org from annotated `@tiqian/precompute@<version>` tags
 (`publish-precompute.yml`). Snapshot publication is manual-only
 (`snapshot-precompute.yml`): each dispatch stamps its own
-`precompute-snapshot-<UTC timestamp>` tag, temporarily swaps the five
-manifests to the running repository owner's scope (GitHub Packages requires
-the npm scope to equal the owner; `@tiqian-cjk` on the canonical
-repository), publishes `<base>-snapshot.<timestamp>` versions with the
+`npm-snapshot-<UTC timestamp>` tag, temporarily swaps the eleven
+manifests (precompute and its platform binaries, the astro and sveltekit
+integrations, and the ffi, core, prose, and react client packages) to the
+running repository owner's scope (GitHub Packages requires the npm scope to
+equal the owner), publishes `<base>-snapshot.<timestamp>` versions with the
 `snapshot` dist-tag to GitHub Packages, and restores the
-manifests. The addon loader resolves the platform packages under whatever
+manifests. Snapshot publishing belongs to the fork; the stamp job refuses to
+run under the canonical owner, so test packages never land under `@tiqian`
+scopes. The addon loader resolves the platform packages under whatever
 scope its own manifest carries, so the swapped packages load without a source
 patch. Consumers install by exact version with
 `--registry=https://npm.pkg.github.com` and a token carrying `read:packages`.
