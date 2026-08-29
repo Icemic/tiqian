@@ -348,14 +348,67 @@ enum class ShrinkChannel {
  * previous one. Returns [breakAt] unchanged in the give-up case where the run reaches the line
  * start (the run is wider than the line; split fallback).
  */
+/**
+ * Unbreakable cluster ranges from all sources (mourning, pinyin, attached inline, number-symbol,
+ * punctuation kinsoku, ...). Containment answers through a sorted-start / prefix-max-last index
+ * in O(log n); a contained candidate falls back to the original list-order scan. Consumers
+ * re-scan to a fixed point, so list order only decides which containing range is seen first,
+ * never the converged result. A per-break full scan made line breaking quadratic on
+ * punctuation-dense pathological paragraphs.
+ */
+class UnbreakableRanges(val ranges: List<IntRange>) {
+    private val byStart = ranges.sortedBy { it.first }
+    private val startsSorted = IntArray(byStart.size) { byStart[it].first }
+    private val prefixMaxLast = IntArray(byStart.size).also { maxLast ->
+        var running = Int.MIN_VALUE
+        byStart.forEachIndexed { index, range ->
+            running = maxOf(running, range.last)
+            maxLast[index] = running
+        }
+    }
+
+    /** Whether any range contains the boundary: `candidate > first && candidate <= last`. */
+    fun containsBoundary(candidate: Int): Boolean {
+        var low = 0
+        var high = startsSorted.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (startsSorted[mid] < candidate) low = mid + 1 else high = mid
+        }
+        return low > 0 && prefixMaxLast[low - 1] >= candidate
+    }
+
+    /** First containing range in source priority order, or null. */
+    fun containingOrNull(candidate: Int): IntRange? {
+        if (!containsBoundary(candidate)) return null
+        return ranges.firstOrNull { candidate > it.first && candidate <= it.last }
+    }
+
+    /** First range with `first <= index && last > index` in source priority order, or null. */
+    fun containingFromClosedStartOrNull(index: Int): IntRange? {
+        var low = 0
+        var high = startsSorted.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (startsSorted[mid] <= index) low = mid + 1 else high = mid
+        }
+        if (low == 0 || prefixMaxLast[low - 1] <= index) return null
+        return ranges.firstOrNull { index in it && it.last > index }
+    }
+
+    companion object {
+        val Empty = UnbreakableRanges(emptyList())
+    }
+}
+
 internal fun adjustBreakForUnbreakables(
     breakAt: Int,
     lineStart: Int,
-    unbreakableRanges: List<IntRange>,
+    unbreakableRanges: UnbreakableRanges,
 ): Int {
     var candidate = breakAt
     while (true) {
-        val containing = unbreakableRanges.firstOrNull { candidate > it.first && candidate <= it.last }
+        val containing = unbreakableRanges.containingOrNull(candidate)
             ?: return candidate
         if (containing.first <= lineStart) return breakAt
         candidate = containing.first

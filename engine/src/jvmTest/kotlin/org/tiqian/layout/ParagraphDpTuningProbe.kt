@@ -48,7 +48,7 @@ class ParagraphDpTuningProbe {
             adjustedClusters: List<Cluster>,
             maxWidth: Float,
             shrinkOpportunities: List<ShrinkOpportunity>,
-            unbreakableRanges: List<IntRange>,
+            unbreakableRanges: UnbreakableRanges,
             firstLineIndent: Float,
             hangableClusters: Set<Int>,
             extendableHangRanges: List<IntRange>,

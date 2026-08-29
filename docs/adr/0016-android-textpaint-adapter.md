@@ -44,6 +44,15 @@
   glyph 级字体读回 API，因此该路径不声称观察到 Minikin 的物理 face。
   native 模块仍保留为宿主显式选择的受控字体后端，不再是 Compose
   artifact 的默认体积与启动成本。
+- Amendment 2026-08-27：华为 HarmonyOS 4.2（API 31）主题字体证据包证明
+  `SystemAndroidFontProbe` 的固定文件锚定会绕过 OEM 用户主题字体：平台默认链对
+  中西文都返回 `/data/skin/fonts/DroidSansChinese.ttf`，而写死的
+  `NotoSansCJK-Regular.ttc` 在该机存在并抢走全部 CJK role，造成「西文吃到主题
+  字体、中文永远 stock」。API 31+ 的 CJK 锚定改为 `PlatformDefaultHanFaceReadback`：
+  用默认 typeface + `zh-Hans` locale shape 一个汉字，读回平台实际选中的 `Font`，
+  经 `Typeface.CustomFallbackBuilder`（系统链兜底）作为锚定面；固定文件路径降为
+  读回失败的兜底与 API 26–30 的既有路径。标点归面与
+  `LatinVsCjkFaceSelection` 的角色模型不变，改变的只是锚定证据来源。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 

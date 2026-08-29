@@ -66,9 +66,11 @@ fun main() {
             paragraphStyle = org.tiqian.core.ParagraphStyle(
                 lineHeight = fixture.lineHeight,
                 firstLineIndent = fixture.firstLineIndentEm?.let { org.tiqian.core.Ic(it) },
+                rubyLineHeightMode = fixture.rubyLineHeightMode,
                 lineLengthGrid = fixture.lineLengthGrid,
             ),
             decorations = fixture.decorations,
+            rubySpans = fixture.rubySpans,
         )
         val greedyResult = greedyEngine.layout(input)
         val lookaheadResult = lookaheadEngine.layout(input)

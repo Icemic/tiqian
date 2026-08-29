@@ -55,6 +55,8 @@ private fun String.interactionBoundaries(start: Int, end: Int): List<Int> {
     while (index < end) {
         val first = codePointAtCompat(index, end)
         var next = index + first.charCountCompat()
+        var precedingEmojiModifierBase = UnicodeEmojiModifierBaseData.contains(first)
+        var precedingExtendedPictographic = UnicodeExtendedPictographicData.contains(first)
 
         if (first == CR && next < end && codePointAtCompat(next, end) == LF) {
             next += 1
@@ -85,14 +87,27 @@ private fun String.interactionBoundaries(start: Int, end: Int): List<Int> {
         }
 
         next = consumeExtenders(next, end)
+        if (precedingEmojiModifierBase && next < end && codePointAtCompat(next, end).isEmojiModifier()) {
+            next += codePointAtCompat(next, end).charCountCompat()
+            precedingEmojiModifierBase = false
+            next = consumeExtenders(next, end)
+        }
         while (next < end && codePointAtCompat(next, end) == ZWJ) {
-            val afterJoiner = next + 1
-            if (afterJoiner >= end) {
-                next = afterJoiner
+            next += 1
+            if (next >= end) {
                 break
             }
-            val joined = codePointAtCompat(afterJoiner, end)
-            next = consumeExtenders(afterJoiner + joined.charCountCompat(), end)
+            val joined = codePointAtCompat(next, end)
+            if (!precedingExtendedPictographic || !UnicodeExtendedPictographicData.contains(joined)) break
+            next += joined.charCountCompat()
+            precedingEmojiModifierBase = UnicodeEmojiModifierBaseData.contains(joined)
+            precedingExtendedPictographic = true
+            next = consumeExtenders(next, end)
+            if (precedingEmojiModifierBase && next < end && codePointAtCompat(next, end).isEmojiModifier()) {
+                next += codePointAtCompat(next, end).charCountCompat()
+                precedingEmojiModifierBase = false
+                next = consumeExtenders(next, end)
+            }
         }
         index = next
         out += index
@@ -124,10 +139,10 @@ private fun Int.isInteractionExtender(): Boolean =
     this == ZWNJ ||
         this in VARIATION_SELECTOR_BMP_RANGE ||
         this in VARIATION_SELECTOR_SUPPLEMENT_RANGE ||
-        this in EMOJI_MODIFIER_RANGE ||
         this in EMOJI_TAG_RANGE ||
         (this <= 0xFFFF && this.toChar().category in EXTENDING_CATEGORIES)
 
+private fun Int.isEmojiModifier(): Boolean = this in EMOJI_MODIFIER_RANGE
 private fun Int.isRegionalIndicator(): Boolean = this in REGIONAL_INDICATOR_RANGE
 private fun Int.isHangulL(): Boolean = this in 0x1100..0x115F || this in 0xA960..0xA97C
 private fun Int.isHangulV(): Boolean = this in 0x1160..0x11A7 || this in 0xD7B0..0xD7C6

@@ -31,6 +31,15 @@ class CjkFontRoleClassifierTest {
     }
 
     @Test
+    fun classifiesUnicodeEmojiPresentationWithoutReclassifyingPlainKeycapBases() {
+        for (text in listOf("⌚", "🀄", "🫪")) {
+            assertEquals(FontRole.Emoji, classifier.classify(text, TextRange(0, text.length)), text)
+        }
+        assertEquals(FontRole.LatinText, classifier.classify("1", TextRange(0, 1)))
+        assertEquals(FontRole.Symbol, classifier.classify("❤", TextRange(0, 1)))
+    }
+
+    @Test
     fun classifiesAsciiSymbolsAndPunctuationAsLatin() {
         // The percent-sign bug: typed ASCII punctuation/symbols are Western → Latin face,
         // not the CJK fallback. Covers Po punctuation and S* symbols alike.
