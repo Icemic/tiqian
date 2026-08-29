@@ -882,7 +882,6 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
 
                     PunctuationClass.Opening,
                     PunctuationClass.Closing,
-                    PunctuationClass.Quote,
                     -> {
                         addGeometryAwareOpportunity(tier = 4)
                     }
