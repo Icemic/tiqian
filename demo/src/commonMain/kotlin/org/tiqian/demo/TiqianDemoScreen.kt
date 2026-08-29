@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -41,12 +42,18 @@ import org.tiqian.compose.emphasis
 import org.tiqian.compose.mourning
 import org.tiqian.compose.properNoun
 import org.tiqian.compose.ruby
+import kotlin.time.TimeSource
+
+private class DemoLayoutTiming {
+    var physicalContentWidth = -1
+}
 
 @Composable
 fun TiqianDemoScreen() {
     // CjkTextStyle: `.sp` is lowered to engine px via density inside the composable.
     val textStyle = CjkTextStyle(fontSize = 15.sp)
     val scrollState = rememberScrollState()
+    val layoutTiming = remember { DemoLayoutTiming() }
     CjkSelectionContainer(
         modifier = Modifier.fillMaxSize(),
         scrollState = scrollState,
@@ -57,7 +64,23 @@ fun TiqianDemoScreen() {
                 .background(Color.White)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(scrollState)
-                .padding(24.dp),
+                .padding(24.dp)
+                .layout { measurable, constraints ->
+                    val physicalContentWidth = constraints.maxWidth
+                    val logLayout = layoutTiming.physicalContentWidth != physicalContentWidth
+                    val startedAt = if (logLayout) TimeSource.Monotonic.markNow() else null
+                    val placeable = measurable.measure(constraints)
+                    if (logLayout) {
+                        layoutTiming.physicalContentWidth = physicalContentWidth
+                        println(
+                            "layout demo page with physical_content_width=$physicalContentWidth in " +
+                                startedAt!!.elapsedNow(),
+                        )
+                    }
+                    layout(placeable.width, placeable.height) {
+                        placeable.place(0, 0)
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             // 实时重排：在输入框打字，下面这段会跟着重新排版（measure+draw Modifier.Node）。
