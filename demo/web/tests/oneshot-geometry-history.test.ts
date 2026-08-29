@@ -117,7 +117,7 @@ import {
   SETTLE_HELPERS,
   DEEP_GEOMETRY_HELPERS,
   type EraConfig,
-} from "../../web-history/oneshot-history-harness.diag.mjs";
+} from "../../web-history/oneshot-history-harness.diag.ts";
 import type {
   Box,
   CdpMessageEventPayload,

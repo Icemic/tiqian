@@ -31,6 +31,6 @@ less /tmp/inspect/bed4c791/1.json
 ```
 
 Comparison semantics are frozen in `demo/web/tests/helpers/deep-geometry.mjs`;
-the kit (`demo/web-history/oneshot-history-harness.diag.mjs`) inlines them
+the kit (`demo/web-history/oneshot-history-harness.diag.ts`) inlines them
 verbatim. Run numbering: `1..N` are the study's probe runs, `901+` are the
 central verification re-runs from 2026-08-27.

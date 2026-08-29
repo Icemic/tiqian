@@ -22,7 +22,7 @@
 舍入 0.01px 后逐值精确相等，容差为零，不抽样、不丢弃任何 box；计数或页高任一
 不等即记分歧；计数为零判无效并重跑。
 
-kit（`demo/web-history/oneshot-history-harness.diag.mjs`）内联同一语义的三个组件，
+kit（`demo/web-history/oneshot-history-harness.diag.ts`）内联同一语义的三个组件，
 本次核对为逐字节一致：
 
 | 组件 | 核对结果 |
@@ -31,7 +31,7 @@ kit（`demo/web-history/oneshot-history-harness.diag.mjs`）内联同一语义�
 | `diffDeepGeometry` | 函数体逐字一致 |
 | `deepGeometryCounts` | 函数体逐字一致 |
 
-链式 diff 通过 `demo/web-history/scripts/chain-diff.mjs` 直接调用 harness 导出的
+链式 diff 通过 `demo/web-history/scripts/chain-diff.ts` 直接调用 harness 导出的
 `diffDeepGeometry`，不另写比较代码。全程未改比较语义，未加容差，未丢弃任何失败记录。
 
 ## 3. 阶段 0：时代表与渲染验证

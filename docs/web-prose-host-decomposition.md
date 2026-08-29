@@ -529,7 +529,7 @@ tiqian:error 与 tiqian:relayout-error 由运行时宿主派发（WebEnhancerSup
 兼容手段与已核实的发布约束：
 
 1. package.json exports 保持根路径，转发到新位置。demo/web 测试的 importmap 写的是字面
-   路径（npm-published-vs-dev.test.mjs:225 与 ab/compare-refs.mjs:259 带
+   路径（npm-published-vs-dev.test.mjs:225 与 ab/compare-refs.ts:259 带
    `/frontend/web/npm/` 前缀；framework-commit-conflict.test.mjs:397–398 写 `/npm/`
    前缀，由测试服务器映射到包目录），根路径模块必须
    实际存在；demo/web 生产消费只有 main.js:1 的 `import '@tiqian/prose/element'` 与
