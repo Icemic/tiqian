@@ -10,7 +10,7 @@
 //     --era demo/web-history/eras/<label>.json --commit <sha> \
 //     --runs N [--run-start K]
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
@@ -19,10 +19,20 @@ import { inflateSync } from "node:zlib";
 
 const repoRoot: string = fileURLToPath(new URL("../..", import.meta.url));
 const kitDir: string = fileURLToPath(new URL(".", import.meta.url));
+const adaptersDistDir: string = path.join(kitDir, ".dist-adapters");
 export const DEMO_PORT: number = 8996;
 export const CDP_PORT: number = 9902;
 export const VIEWPORT_WIDTH: number = 900;
 export const VIEWPORT_HEIGHT: number = 800;
+
+export function compileAdapters(): void {
+  mkdirSync(adaptersDistDir, { recursive: true });
+  execFileSync("npx", [
+    "tsc",
+    "-p",
+    path.join(kitDir, "tsconfig.json"),
+  ], { cwd: repoRoot, stdio: "pipe" });
+}
 
 export type Box = [x: number, y: number, width: number, height: number];
 
@@ -558,12 +568,15 @@ const MIME: Record<string, string> = {
 };
 
 export function startKitServer(era: EraConfig): Promise<Server> {
+  compileAdapters();
   const indexTemplate: string = readFileSync(path.join(kitDir, "index.html"), "utf8");
   const indexHtml: string = indexTemplate.replace(
     /(<script type="importmap" id="era-importmap">)[\s\S]*?(<\/script>)/,
     (_: string, open: string, close: string): string => open + JSON.stringify(era.importMap) + close,
   );
-  const adapterJs: string = readFileSync(path.join(kitDir, era.adapter), "utf8");
+  const adapterBaseName: string = path.basename(era.adapter, path.extname(era.adapter)) + ".js";
+  const adapterJsPath: string = path.join(adaptersDistDir, adapterBaseName);
+  const adapterJs: string = readFileSync(adapterJsPath, "utf8");
   const stylesheetAbs: string = path.resolve(repoRoot, era.stylesheet);
   const mounts: StaticMount[] = Object.entries(era.static ?? {}).map(([urlPrefix, dir]: [string, string]): StaticMount => ({
     prefix: urlPrefix.endsWith("/") ? urlPrefix : urlPrefix + "/",

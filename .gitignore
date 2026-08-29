@@ -27,3 +27,9 @@ frontend/web-precompute/rust/target/
 # npm workspace root install output
 /node_modules/
 /.parcel-cache/
+
+# demo web-history compiled artifacts
+demo/web-history/.dist-adapters/
+demo/web-history/*.js
+demo/web-history/*.d.ts
+demo/web-history/*.tsbuildinfo

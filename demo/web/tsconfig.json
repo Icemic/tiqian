@@ -10,6 +10,6 @@
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true
   },
-  "include": ["tests/**/*.ts"],
+  "include": ["tests/**/*.ts", "../web-history/oneshot-history-harness.diag.ts"],
   "exclude": ["node_modules"]
 }
