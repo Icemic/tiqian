@@ -3,16 +3,16 @@ import test from "node:test";
 
 import {
   createServerReplayFontSession,
-} from "../core/measurement/browser-font-replay.js";
-import type { ServerReplayFontReplay, ServerReplayFontSessionOptions } from "../core/measurement/browser-font-replay.js";
-import type { ReplayProbe } from "../core/measurement/browser-font-replay.js";
-import type { SnapshotManifestFace } from "../core/sampler/snapshot/snapshot-manifest.js";
+} from "../src/measurement/browser-font-replay.js";
+import type { ServerReplayFontReplay, ServerReplayFontSessionOptions } from "../src/measurement/browser-font-replay.js";
+import type { ReplayProbe } from "../src/measurement/browser-font-replay.js";
+import type { SnapshotManifestFace } from "../src/sampler/snapshot/snapshot-manifest.js";
 import {
   normalizeReplayNumber,
   scaleMetricReplayItem,
   scaleShapeReplayItem,
-} from "../core/measurement/replay-entry-codec.js";
-import type { ReplayShapeItem, ReplayMetricItem } from "../core/measurement/replay-entry-codec.js";
+} from "../src/measurement/replay-entry-codec.js";
+import type { ReplayShapeItem, ReplayMetricItem } from "../src/measurement/replay-entry-codec.js";
 import {
   CJK_METRIC_PROBE_TEXT,
   LATIN_METRIC_PROBE_TEXT,
@@ -21,14 +21,14 @@ import {
   replayProbeCssFont,
   REPLAY_PROBE_FACE_PREFIX,
   ZERO_ADVANCE_EPSILON,
-} from "../core/measurement/replay-probe.js";
-import type { ProbeMeasureResult, ProbeMeasure } from "../core/measurement/replay-probe.js";
+} from "../src/measurement/replay-probe.js";
+import type { ProbeMeasureResult, ProbeMeasure } from "../src/measurement/replay-probe.js";
 import {
   FONT_REPLAY_REVISION,
   metricReplayKey,
   shapeReplayKey,
-} from "../core/sampler/snapshot/snapshot-schema.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+} from "../src/sampler/snapshot/snapshot-schema.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

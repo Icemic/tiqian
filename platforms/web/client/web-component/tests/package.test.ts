@@ -66,9 +66,9 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.equal(coreManifest.name, "@tiqian/core");
   assert.equal(coreManifest.version, manifest.version);
   assert.deepEqual(coreManifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
-  assert.ok(coreManifest.files.includes("core/"));
+  assert.ok(coreManifest.files.includes("src/"));
   assert.equal(coreManifest.files.includes("runtime/"), false, "the Kotlin bundle directory is retired");
-  assert.ok(coreManifest.files.includes("core/engine/layout-worker.js"));
+  assert.ok(coreManifest.files.includes("src/engine/layout-worker.js"));
 });
 
 test("the release helper derives the repository tag and commit subject from one version", async () => {
@@ -129,17 +129,17 @@ test("the custom element validates a snapshot before dynamically loading the bro
   // composition root and its parts; sessionSource is the concatenation of the
   // dissolved module set so the contract assertions below follow the behavior.
   const dissolvedSessionPaths = [
-    "../../core/core/engine/context/enhance-context.js",
-    "../../core/core/engine/enhance/context-state.js",
-    "../../core/core/engine/enhance/event-channel.js",
-    "../../core/core/engine/enhance/options-ledger.js",
-    "../../core/core/engine/enhance/responsive.js",
-    "../../core/core/engine/enhance/snapshot-adoption.js",
-    "../../core/core/engine/enhance/typography.js",
-    "../../core/core/engine/enhance/lifecycle/foreign-guard.js",
-    "../../core/core/engine/enhance/lifecycle/mount.js",
-    "../../core/core/engine/enhance/lifecycle/initial-enhance.js",
-    "../../core/core/engine/enhance/lifecycle/progressive-dispatch.js",
+    "../../core/src/engine/context/enhance-context.js",
+    "../../core/src/engine/enhance/context-state.js",
+    "../../core/src/engine/enhance/event-channel.js",
+    "../../core/src/engine/enhance/options-ledger.js",
+    "../../core/src/engine/enhance/responsive.js",
+    "../../core/src/engine/enhance/snapshot-adoption.js",
+    "../../core/src/engine/enhance/typography.js",
+    "../../core/src/engine/enhance/lifecycle/foreign-guard.js",
+    "../../core/src/engine/enhance/lifecycle/mount.js",
+    "../../core/src/engine/enhance/lifecycle/initial-enhance.js",
+    "../../core/src/engine/enhance/lifecycle/progressive-dispatch.js",
   ];
   const sessionSource = (
     await Promise.all(
@@ -148,40 +148,40 @@ test("the custom element validates a snapshot before dynamically loading the bro
   ).join("\n");
   const elementDeclarations = await readFile(new URL("../element.d.ts", import.meta.url), "utf8");
   const browserFontsSource = await readFile(
-    new URL("../../core/core/measurement/browser-fonts.js", import.meta.url),
+    new URL("../../core/src/measurement/browser-fonts.js", import.meta.url),
     "utf8",
   );
-  const layoutWorkerSource = await readFile(new URL("../../core/core/engine/layout-worker.js", import.meta.url), "utf8");
+  const layoutWorkerSource = await readFile(new URL("../../core/src/engine/layout-worker.js", import.meta.url), "utf8");
   const loadedSnapshotsSource = await readFile(
-    new URL("../../core/core/sampler/snapshot/loaded-snapshots.js", import.meta.url),
+    new URL("../../core/src/sampler/snapshot/loaded-snapshots.js", import.meta.url),
     "utf8",
   );
   const eligibilitySource = await readFile(
-    new URL("../../core/core/engine/eligibility.js", import.meta.url),
+    new URL("../../core/src/engine/eligibility.js", import.meta.url),
     "utf8",
   );
   const snapshotCompletionSource = await readFile(
-    new URL("../../core/core/sampler/snapshot/snapshot-completion.js", import.meta.url),
+    new URL("../../core/src/sampler/snapshot/snapshot-completion.js", import.meta.url),
     "utf8",
   );
   const responsiveMeasureSource = await readFile(
-    new URL("../../core/core/engine/responsive-measure.js", import.meta.url),
+    new URL("../../core/src/engine/responsive-measure.js", import.meta.url),
     "utf8",
   );
   for (const shim of ["prepared-dom.js", "snapshot-client.js"]) {
     const shimSource = await readFile(new URL(`../${shim}`, import.meta.url), "utf8");
-    assert.match(shimSource, /export \* from "@tiqian\/core\/core\/sampler\/snapshot\//u);
+    assert.match(shimSource, /export \* from "@tiqian\/core\/src\/sampler\/snapshot\//u);
   }
   for (const shim of ["precomputed.js", "snapshot-source.js"]) {
     await assert.rejects(() => readFile(new URL(`../../core/${shim}`, import.meta.url), "utf8"));
   }
   {
     const coreExports = JSON.parse(await readFile(new URL("../../core/package.json", import.meta.url), "utf8")).exports;
-    assert.equal(coreExports["./precomputed"].default, "./core/sampler/snapshot/precomputed.js");
-    assert.equal(coreExports["./snapshot-source"].default, "./core/sampler/snapshot/snapshot-source.js");
+    assert.equal(coreExports["./precomputed"].default, "./src/sampler/snapshot/precomputed.js");
+    assert.equal(coreExports["./snapshot-source"].default, "./src/sampler/snapshot/snapshot-source.js");
   }
   const fontLoaderSource = await readFile(
-    new URL("../../core/core/engine/loaders/font-loader.js", import.meta.url),
+    new URL("../../core/src/engine/loaders/font-loader.js", import.meta.url),
     "utf8",
   );
   // Single source of truth: the stylesheet ships from @tiqian/core only;
@@ -249,7 +249,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   // installs the deleted prepared-dom bridge itself.
   assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
-  assert.match(sessionSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
+  assert.match(sessionSource, /import\("@tiqian\/core\/src\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.doesNotMatch(sessionSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(sessionSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(sessionSource, /from "\.\/font-shaping\.js"/u);
@@ -348,7 +348,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(sessionSource, /tq-inline-size-probe/u);
   const observersSource = await readFile(
-    new URL("../../core/core/sampler/observers.js", import.meta.url),
+    new URL("../../core/src/sampler/observers.js", import.meta.url),
     "utf8",
   );
   assert.match(observersSource, /observer\??\.observe\([^)]+, \{ box: "border-box" \}\)/u);
@@ -360,7 +360,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(sessionSource, /paragraphWidthSignature\(root\)/u);
   const signaturesSource = await readFile(
-    new URL("../../core/core/sampler/signatures.js", import.meta.url),
+    new URL("../../core/src/sampler/signatures.js", import.meta.url),
     "utf8",
   );
   assert.match(signaturesSource, /function fragmentedBorderBoxInlineSize\(element\)/u);
@@ -417,7 +417,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const dispatchStart = sessionSource.indexOf("async function dispatchProgressiveEnhance(");
   const dispatchSource = sessionSource.slice(dispatchStart);
   const dispatchRuntimeLoad = dispatchSource.indexOf(
-    'import("@tiqian/core/core/engine/web-worker/worker-channel.js")',
+    'import("@tiqian/core/src/engine/web-worker/worker-channel.js")',
   );
   assert.ok(dispatchStart >= 0);
   assert.ok(dispatchSource.indexOf("beforeDispatch?.();") >= 0);
@@ -616,16 +616,16 @@ test("layout coordinator implements visual prominence scoring, proportional back
   // mirrors it), and the scroll-anchoring handover lives in the progressive
   // dispatch commit bracket.
   const eventChannelSource = await readFile(
-    new URL("../../core/core/engine/enhance/event-channel.js", import.meta.url),
+    new URL("../../core/src/engine/enhance/event-channel.js", import.meta.url),
     "utf8",
   );
   const dispatchSource = await readFile(
-    new URL("../../core/core/engine/enhance/lifecycle/progressive-dispatch.js", import.meta.url),
+    new URL("../../core/src/engine/enhance/lifecycle/progressive-dispatch.js", import.meta.url),
     "utf8",
   );
   const elementShellSource = await readFile(new URL("../element.js", import.meta.url), "utf8");
   const coordinatorSource = await readFile(
-    new URL("../../core/core/engine/coordination/coordination-service.js", import.meta.url),
+    new URL("../../core/src/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
   );
 
@@ -709,7 +709,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
 
 test("offscreen deferred queue keeps every pending callback per element", async () => {
   const coordinatorSource = await readFile(
-    new URL("../../core/core/engine/coordination/coordination-service.js", import.meta.url),
+    new URL("../../core/src/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
   );
 

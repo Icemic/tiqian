@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import type { LoweredParagraph } from "../src/engine/lowered-paragraph.js";
 import {
   isCanonicalPlainParagraph,
   isRuntimeSnapshotPreparedDomEligible,
-} from "../core/engine/lowered-paragraph.js";
+} from "../src/engine/lowered-paragraph.js";
 
 interface TextStyleRecord {
   fontFamilies: string[];

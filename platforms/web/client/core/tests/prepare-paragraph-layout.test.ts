@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { prepareParagraphLayout, wireArguments } from "../core/engine/prepare-paragraph-layout.js";
-import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
-import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.js";
+import { prepareParagraphLayout, wireArguments } from "../src/engine/prepare-paragraph-layout.js";
+import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
+import { installFixtureFontBackend, installThrowingFontBackend } from "./fixture-font-backend.js";
 import { emptyDomRectList } from "./snapshot-dom-fixtures.js";
-import type { FixtureFontBackend } from "../test-support/fixture-font-backend.js";
-import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle, DomInlineObject } from "../core/engine/lowered-paragraph.js";
-import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
+import type { FixtureFontBackend } from "./fixture-font-backend.js";
+import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle, DomInlineObject } from "../src/engine/lowered-paragraph.js";
+import type { PrepareLayoutResult, PrepareReadyResult } from "../src/engine/prepare-paragraph-layout.js";
 
 type PrepareParagraphLayoutArgument = Parameters<typeof prepareParagraphLayout>[0];
 

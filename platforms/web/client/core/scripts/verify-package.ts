@@ -3,7 +3,7 @@
 // Package integrity check for @tiqian/core. Verifies the manifest name,
 // license, dependency surface, and that every required published file exists
 // and is non-empty. The engine runtime installs through
-// core/engine/loaders/cjk-dash.js at import time; no bundled Kotlin/JS
+// src/engine/loaders/cjk-dash.js at import time; no bundled Kotlin/JS
 // runtime artifact is scanned here anymore.
 
 import { readFile, stat } from "node:fs/promises";
@@ -12,12 +12,12 @@ const EXPECTED_NAME = "@tiqian/core";
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
-  "core/",
-  "core/sampler/snapshot/snapshot-schema.js",
-  "core/sampler/snapshot/snapshot-tables.js",
-  "core/engine/layout-worker.js",
-  "core/engine/web-worker/worker-channel.js",
-  "core/sampler/snapshot/table-binary-writer.js",
+  "src/",
+  "src/sampler/snapshot/snapshot-schema.js",
+  "src/sampler/snapshot/snapshot-tables.js",
+  "src/engine/layout-worker.js",
+  "src/engine/web-worker/worker-channel.js",
+  "src/sampler/snapshot/table-binary-writer.js",
 ];
 
 function fail(message: string): never {

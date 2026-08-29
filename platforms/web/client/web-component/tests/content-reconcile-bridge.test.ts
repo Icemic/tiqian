@@ -1,5 +1,5 @@
 // Unit tests for the content-reconcile engine module behind ts-runtime.
-// core/core/engine/content-reconcile.js exports the four named functions;
+// core/src/engine/content-reconcile.js exports the four named functions;
 // these tests call them with raw-dom named exports and drive the
 // raw-DOM backup graph directly, so no full runtime boot is required.
 
@@ -12,7 +12,7 @@ import {
   prepareTrackedParagraphForRelowering,
   probeContentDrift,
   stripEngineMarkupFromStrandedParagraph,
-} from "@tiqian/core/core/engine/content-reconcile.js";
+} from "@tiqian/core/src/engine/content-reconcile.js";
 import {
   rawDomBegin,
   rawDomTake,
@@ -20,9 +20,9 @@ import {
   rawDomStampRendered,
   rawDomRenderedMatches,
   rawDomSuspendEngineWrites,
-} from "@tiqian/core/core/engine/raw-dom.js";
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+} from "@tiqian/core/src/engine/raw-dom.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 initializeGlobalServices();
 
 

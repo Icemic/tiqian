@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import type { LoweredParagraph } from "../src/engine/lowered-paragraph.js";
 import {
   preparedSemanticReplayJson,
   preparedInlineObjectMetaJson,
   preparedCjkStrongSemanticsJson,
-} from "../core/engine/prepared-metadata.js";
+} from "../src/engine/prepared-metadata.js";
 
 interface ElementRecord {
   tagName: string;

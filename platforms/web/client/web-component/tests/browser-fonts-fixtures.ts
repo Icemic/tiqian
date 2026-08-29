@@ -10,8 +10,8 @@ import {
   type BrowserFontSessionLoaderOptions,
   type FontSessionCreator,
   type BrowserFontSessionCreateOptions,
-} from "@tiqian/core/core/measurement/browser-fonts.js";
-import type { ServerReplayFontSession } from "@tiqian/core/core/measurement/browser-font-replay.js";
+} from "@tiqian/core/src/measurement/browser-fonts.js";
+import type { ServerReplayFontSession } from "@tiqian/core/src/measurement/browser-font-replay.js";
 import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,

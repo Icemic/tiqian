@@ -5,22 +5,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { belongsToRootScope, rootScopedParagraphs } from "../core/sampler/observers.js";
-import { hasStrongEmphasis, isPureBlockImageParagraph } from "../core/engine/eligibility.js";
+import { belongsToRootScope, rootScopedParagraphs } from "../src/sampler/observers.js";
+import { hasStrongEmphasis, isPureBlockImageParagraph } from "../src/engine/eligibility.js";
 import {
   renderedRawDomParagraphs,
   rendererOwnedProgressiveStyleMutation,
-} from "../core/engine/raw-dom.js";
+} from "../src/engine/raw-dom.js";
 import {
   isRuntimeCompletionCandidate,
   snapshotCompletionSelector,
-} from "../core/sampler/snapshot/snapshot-completion.js";
-import { snapshotFontAttemptSignature } from "../core/sampler/signatures.js";
-import { lineLengthGridMeasure } from "../core/sampler/grid-metrics.js";
-import { hasHostInlineSizeParagraph } from "../core/engine/responsive-measure.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import { ensureTiqianStyles } from "../core/engine/loaders/styles.js";
-import { createTiqianClipboardPayload } from "../core/utils/copy.js";
+} from "../src/sampler/snapshot/snapshot-completion.js";
+import { snapshotFontAttemptSignature } from "../src/sampler/signatures.js";
+import { lineLengthGridMeasure } from "../src/sampler/grid-metrics.js";
+import { hasHostInlineSizeParagraph } from "../src/engine/responsive-measure.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import { ensureTiqianStyles } from "../src/engine/loaders/styles.js";
+import { createTiqianClipboardPayload } from "../src/utils/copy.js";
 
 interface FakeNode {
   nodeType: number;

@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openRelayoutSession } from "../core/engine/relayout-session.js";
-import type { RelayoutSession } from "../core/engine/relayout-session.js";
-import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
+import { openRelayoutSession } from "../src/engine/relayout-session.js";
+import type { RelayoutSession } from "../src/engine/relayout-session.js";
+import type { PrepareLayoutResult, PrepareReadyResult } from "../src/engine/prepare-paragraph-layout.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
 import {
   rawDomBegin,
   rawDomCommit,
   rawDomTake,
-} from "../core/engine/raw-dom.js";
-import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
+} from "../src/engine/raw-dom.js";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../src/sampler/snapshot/snapshot-schema.js";
 import { FakeElement, FakeFragment, FakeNode, FakeText, styleDeclaration } from "./snapshot-dom-fixtures.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
-import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
-import type { DiagnosisIssueRecord } from "../core/engine/context/diagnosis-manager.js";
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
+import type { TrackedParagraph } from "../src/engine/enhance/context-state.js";
+import type { DiagnosisIssueRecord } from "../src/engine/context/diagnosis-manager.js";
+import type { LoweredParagraph } from "../src/engine/lowered-paragraph.js";
 import type { PartialReadyVerdict, Thunk } from "./types.js";
 initializeGlobalServices();
 

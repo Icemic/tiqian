@@ -10,9 +10,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createEnhancementStateMachine } from "../core/engine/enhance/state-machine.js";
-import { InvalidationReason, invalidationReasons } from "../core/engine/enhance/state.js";
-import type { LayoutWorkInputs } from "../core/engine/enhance/state.js";
+import { createEnhancementStateMachine } from "../src/engine/enhance/state-machine.js";
+import { InvalidationReason, invalidationReasons } from "../src/engine/enhance/state.js";
+import type { LayoutWorkInputs } from "../src/engine/enhance/state.js";
 
 function workInputs(): LayoutWorkInputs {
   return {

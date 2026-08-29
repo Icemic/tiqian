@@ -1,12 +1,12 @@
-import { globalServices } from "../core/services/global-services.js";
-import { snapshotSessionCallbacks } from "../core/measurement/browser-font-replay.js";
+import { globalServices } from "../src/services/global-services.js";
+import { snapshotSessionCallbacks } from "../src/measurement/browser-font-replay.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
   BrowserFontSessionError,
   browserFontSessionWorkerContract,
-} from "../core/measurement/browser-fonts.js";
+} from "../src/measurement/browser-fonts.js";
 import {
   digest,
   faceEvidence,
@@ -15,24 +15,24 @@ import {
   manifestWithFaces,
 } from "./browser-fonts-fixtures.js";
 import { emptyDomRectList } from "./snapshot-dom-fixtures.js";
-import { optionsFromJs } from "../core/engine/lifecycle.js";
-import { workerLayoutRequestForRoot } from "../core/engine/worker-request.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { optionsFromJs } from "../src/engine/lifecycle.js";
+import { workerLayoutRequestForRoot } from "../src/engine/worker-request.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 
 import type {
   BrowserFontSessionCreateOptions,
   BrowserFontSessionHandle,
   BrowserFontSessionLoader,
   ManifestFaceSpec,
-} from "../core/measurement/browser-fonts.js";
+} from "../src/measurement/browser-fonts.js";
 import type {
   PrepareJob,
   TiqianLayoutWorkerInstance,
-} from "../core/engine/coordination/coordination-service.js";
+} from "../src/engine/coordination/coordination-service.js";
 import type {
   IsCurrentPredicate,
   PrepareJobOptions,
-} from "../core/engine/web-worker/worker-channel.js";
+} from "../src/engine/web-worker/worker-channel.js";
 import type { SnapshotRootDocumentOverrides } from "./browser-fonts-fixtures.js";
 import type { Thunk } from "./types.js";
 
@@ -437,7 +437,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     globalThis.getComputedStyle = (): CSSStyleDeclaration => computedStyleDeclaration;
 
     const firstModule: PrepareJobModule = await import(
-      `../core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
+      `../src/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
     );
     assert.notEqual(globalServices().coordination.layoutWorker, legacyBridge);
     assert.equal(globalServices().coordination.layoutWorker!.version, 1);
@@ -477,7 +477,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
 
     requestText = "second";
     const secondModule: PrepareJobModule = await import(
-      `../core/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
+      `../src/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
     );
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
     const secondRequest = requestJson();

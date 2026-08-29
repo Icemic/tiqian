@@ -10,9 +10,9 @@
 
 import { createElement, useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import type { EnhancedElementContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import type { EnhancementOptions } from "@tiqian/core/core/engine/enhance/options-ledger.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import type { EnhancementOptions } from "@tiqian/core/src/engine/enhance/options-ledger.js";
 
 export interface TiqianProseEventDetail {
   readonly [key: string]: unknown;

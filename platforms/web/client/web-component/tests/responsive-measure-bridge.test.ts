@@ -1,5 +1,5 @@
 // Unit tests for the responsive measure engine module behind ts-runtime.
-// core/core/engine/responsive-measure.js exports the measure helpers as
+// core/src/engine/responsive-measure.js exports the measure helpers as
 // plain named functions; these tests drive them directly.
 
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import {
   elementContentWidth,
   sourceParagraphWidth,
   isCurrentResponsiveMeasure,
-} from "@tiqian/core/core/engine/responsive-measure.js";
+} from "@tiqian/core/src/engine/responsive-measure.js";
 import { probe } from "./runtime-host.js";
 
 interface RectLike {

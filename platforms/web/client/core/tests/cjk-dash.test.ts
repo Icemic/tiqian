@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   needsCjkDashShaping,
   prepareCjkDashShapingIfNeeded,
-} from "../core/engine/loaders/cjk-dash.js";
-import { isLoadedSnapshotAdopted } from "../core/sampler/snapshot/loaded-snapshots.js";
+} from "../src/engine/loaders/cjk-dash.js";
+import { isLoadedSnapshotAdopted } from "../src/sampler/snapshot/loaded-snapshots.js";
 
 interface TextBearingRoot {
   textContent: string | null;

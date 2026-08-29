@@ -35,7 +35,7 @@ declare global {
 }
 
 const element: EnhanceElementModule = (await import("@tiqian/prose/element")) as EnhanceElementModule;
-const core: EnhanceCoreModule = (await import("@tiqian/core/core/engine/context/enhance-context.js")) as EnhanceCoreModule;
+const core: EnhanceCoreModule = (await import("@tiqian/core/src/engine/context/enhance-context.js")) as EnhanceCoreModule;
 
 if (typeof element.registerTiqianProse === "function") {
   element.registerTiqianProse();

@@ -198,7 +198,7 @@ function createProgressiveDispatch(
     };
     if (snapshotFontSession) {
       try {
-        const channel = await raceAbort(signal, import("@tiqian/core/core/engine/web-worker/worker-channel.js"));
+        const channel = await raceAbort(signal, import("@tiqian/core/src/engine/web-worker/worker-channel.js"));
         if (channel.aborted) return false;
         const prepareJob = await raceAbort(signal, channel.value.createPrepareJob(
           root,

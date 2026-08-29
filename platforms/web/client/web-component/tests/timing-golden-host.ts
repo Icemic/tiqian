@@ -68,7 +68,7 @@ import {
 } from "./snapshot-dom-fixtures.js";
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer";
-import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
+import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/src/engine/enhance/event-channel.js";
 
 import { probe } from "./runtime-host.js";
 
@@ -788,8 +788,8 @@ async function startElementDrive(
   // test load and shift observer creation order per run; warm, the cache hits
   // keep the S1 tail deterministic. The warm imports run inside the journey's
   // fake-clock window, so any module top-level captures see the same doubles.
-  await import("@tiqian/core/core/engine/web-worker/worker-channel.js");
-  await import("@tiqian/core/core/measurement/browser-fonts.js");
+  await import("@tiqian/core/src/engine/web-worker/worker-channel.js");
+  await import("@tiqian/core/src/measurement/browser-fonts.js");
   probe<FakeElement & { connectedCallback: LifecycleCallback }>(asFakeElement(element)).connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
@@ -980,7 +980,7 @@ export async function driveDeclaredFaceWakeTimeline(
   };
 
   const { declareTiqianFontFaces } = await import(
-    "@tiqian/core/core/sampler/snapshot/declared-faces.js"
+    "@tiqian/core/src/sampler/snapshot/declared-faces.js"
   );
 
   const setWakePhase = (phase: string) => {

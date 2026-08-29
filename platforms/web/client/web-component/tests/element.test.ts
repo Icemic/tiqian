@@ -11,7 +11,7 @@ import {
   driveElementTimeline,
   ELEMENT_DRIVE_GLOBALS,
 } from "./timing-golden-host.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 initializeGlobalServices();
 
 

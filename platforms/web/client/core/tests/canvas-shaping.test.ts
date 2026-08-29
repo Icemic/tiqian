@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFontFamilies } from "../core/engine/canvas-fonts.js";
-import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
+import { createFontFamilies } from "../src/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../src/engine/canvas-fonts.js";
 import {
   createTextShaper,
   installFontLoadInvalidation,
   clearMeasurementCache,
   measurementCacheSize,
-} from "../core/engine/canvas-shaping.js";
+} from "../src/engine/canvas-shaping.js";
 import type {
   CanvasTextShaperInstance,
   CanvasShapingEnv,
@@ -16,9 +16,9 @@ import type {
   ProbeElementLike,
   CjkDashCapability,
   ShapeInput,
-} from "../core/engine/canvas-shaping.js";
-import type { CanvasContextLike, CanvasTextMetricsLike } from "../core/engine/canvas-metrics.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+} from "../src/engine/canvas-shaping.js";
+import type { CanvasContextLike, CanvasTextMetricsLike } from "../src/engine/canvas-metrics.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

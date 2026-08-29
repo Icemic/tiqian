@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   lineLengthGridCellCount,
   lineLengthGridMeasure,
-} from "../core/sampler/grid-metrics.js";
+} from "../src/sampler/grid-metrics.js";
 
 test("responsive invalidation follows the engine line-length grid", () => {
   assert.equal(lineLengthGridCellCount(912, 15), 60);

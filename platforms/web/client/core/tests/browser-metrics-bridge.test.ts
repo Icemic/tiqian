@@ -4,13 +4,13 @@ import test from "node:test";
 import { precomputeParagraphWithBrowserMetrics, precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
 import type { PrepareParagraphRequest } from "@tiqian/ffi";
 
-import { createFontFamilies } from "../core/engine/canvas-fonts.js";
-import { clearMeasurementCache } from "../core/engine/canvas-shaping.js";
-import { createBrowserMetricsBridge } from "../core/engine/browser-metrics-bridge.js";
-import type { CanvasContextLike, CanvasTextMetricsLike } from "../core/engine/canvas-metrics.js";
-import type { CanvasShapingEnv, ProbeElementLike } from "../core/engine/canvas-shaping.js";
-import { prepareParagraphRequestWire } from "../core/engine/wire-construction.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { createFontFamilies } from "../src/engine/canvas-fonts.js";
+import { clearMeasurementCache } from "../src/engine/canvas-shaping.js";
+import { createBrowserMetricsBridge } from "../src/engine/browser-metrics-bridge.js";
+import type { CanvasContextLike, CanvasTextMetricsLike } from "../src/engine/canvas-metrics.js";
+import type { CanvasShapingEnv, ProbeElementLike } from "../src/engine/canvas-shaping.js";
+import { prepareParagraphRequestWire } from "../src/engine/wire-construction.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

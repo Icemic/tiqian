@@ -27,18 +27,18 @@ import {
   validatePrecomputedSnapshotFontReplayContract,
   validatePrecomputedSnapshotFontReplayLiveContract,
   validatePrecomputedSnapshotFontContract,
-} from "../core/sampler/snapshot/precomputed.js";
-import { FONT_REPLAY_REVISION, stableStringify } from "../core/sampler/snapshot/snapshot-schema.js";
-import { snapshotTablesForRoot } from "../core/sampler/snapshot/snapshot-tables.js";
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
-import { createEnhanceContext, type EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+} from "../src/sampler/snapshot/precomputed.js";
+import { FONT_REPLAY_REVISION, stableStringify } from "../src/sampler/snapshot/snapshot-schema.js";
+import { snapshotTablesForRoot } from "../src/sampler/snapshot/snapshot-tables.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
+import { createEnhanceContext, type EnhancedElementContext } from "../src/engine/context/enhance-context.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 import type {
   SnapshotManifestFace,
   SnapshotManifestWire,
   SnapshotManifestWireEntry,
-} from "../core/sampler/snapshot/snapshot-manifest.js";
-import type { SnapshotProbe } from "../core/sampler/snapshot/snapshot-table-binary.js";
+} from "../src/sampler/snapshot/snapshot-manifest.js";
+import type { SnapshotProbe } from "../src/sampler/snapshot/snapshot-table-binary.js";
 
 initializeGlobalServices();
 

@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFontFamilies } from "../core/engine/canvas-fonts.js";
-import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
-import { stubFontMetrics, createMetricsResolver, ZERO_ADVANCE_EPSILON } from "../core/engine/canvas-metrics.js";
+import { createFontFamilies } from "../src/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../src/engine/canvas-fonts.js";
+import { stubFontMetrics, createMetricsResolver, ZERO_ADVANCE_EPSILON } from "../src/engine/canvas-metrics.js";
 import type {
   CanvasFontMetricsRequest,
   CanvasFontMetricsResult,
   CanvasTextMetricsLike,
   CanvasContextLike,
   CanvasMetricsResolverInstance,
-} from "../core/engine/canvas-metrics.js";
+} from "../src/engine/canvas-metrics.js";
 
 interface FakeCanvasOptions {
   measure?: FakeMeasureFn;

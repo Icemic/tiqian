@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { expandSnapshotManifest } from "../core/sampler/snapshot/snapshot-manifest.js";
-import type { SnapshotManifestWire, SnapshotTablesPin } from "../core/sampler/snapshot/snapshot-manifest.js";
-import { metricReplayKey, shapeReplayKey } from "../core/sampler/snapshot/snapshot-schema.js";
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
-import type { BinaryTableInput } from "../core/sampler/snapshot/table-binary-writer.js";
-import { decodeSnapshotTableBinary } from "../core/sampler/snapshot/snapshot-table-binary.js";
+import { expandSnapshotManifest } from "../src/sampler/snapshot/snapshot-manifest.js";
+import type { SnapshotManifestWire, SnapshotTablesPin } from "../src/sampler/snapshot/snapshot-manifest.js";
+import { metricReplayKey, shapeReplayKey } from "../src/sampler/snapshot/snapshot-schema.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
+import type { BinaryTableInput } from "../src/sampler/snapshot/table-binary-writer.js";
+import { decodeSnapshotTableBinary } from "../src/sampler/snapshot/snapshot-table-binary.js";
 
 /** Helper to create a valuesEm array with nulls */
 function valuesEm(...values: Array<number | null>): (number | null)[] {

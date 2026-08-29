@@ -20,21 +20,21 @@ import {
   enhance,
   enhanceProgressively,
   relayout,
-} from "../core/engine/progressive-drivers.js";
-import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+} from "../src/engine/progressive-drivers.js";
+import { destroyRoot, detachRoot } from "../src/engine/lifecycle.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
 import {
   probeRootContentDrift,
   reconcileRoot,
-} from "../core/engine/content-reconcile.js";
-import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
-import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
-import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
+} from "../src/engine/content-reconcile.js";
+import { rawDomBegin, rawDomCommit, rawDomTake } from "../src/engine/raw-dom.js";
+import { globalServices, initializeGlobalServices } from "../src/services/global-services.js";
+import type { LayoutJobPool, LayoutJobSpec } from "../src/engine/layout-job-pool.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
 import type {
   EnhanceOptions,
   ResolvedEnhanceOptions,
-} from "../core/engine/lifecycle.js";
+} from "../src/engine/lifecycle.js";
 import type { CoordinationPoolSlot } from "./types.js";
 initializeGlobalServices();
 

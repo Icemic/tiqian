@@ -15,14 +15,14 @@ import {
   stabilizeContentSizedItemInlineSize,
   withoutSnapshotFontSession,
   withRootDefaults,
-} from "../core/engine/lifecycle.js";
-import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
+} from "../src/engine/lifecycle.js";
+import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
 import type {
   CapabilityIssueRecord,
   EnhanceFontFamilies,
   EnhanceOptions,
   SourceInlineSizeCapture,
-} from "../core/engine/lifecycle.js";
+} from "../src/engine/lifecycle.js";
 
 const DEFAULT_CJK_FONT_FAMILY = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
 const DEFAULT_LATIN_FONT_FAMILY = '"InterVariable", "Inter", "MiSans VF", sans-serif';

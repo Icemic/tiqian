@@ -8,8 +8,8 @@ import {
   DEFAULT_CJK_SERIF_FONT_FAMILY,
   DEFAULT_LATIN_SERIF_FONT_FAMILY,
   DEFAULT_BOPOMOFO_FONT_FAMILY,
-} from "../core/engine/canvas-fonts.js";
-import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
+} from "../src/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../src/engine/canvas-fonts.js";
 
 const EXPECTED_LATIN_MONOSPACE: string =
   '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';

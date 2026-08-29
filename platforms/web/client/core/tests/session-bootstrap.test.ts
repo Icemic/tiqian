@@ -5,15 +5,15 @@ import test from "node:test";
 import {
   createManifestFontSession,
   createProbeBootstrapFontSession,
-} from "../core/engine/web-worker/session-bootstrap.js";
-import type { ProbeBootstrapOptions } from "../core/engine/web-worker/session-bootstrap.js";
-import { createServerReplayFontSession } from "../core/measurement/browser-font-replay.js";
-import type { ServerReplayFontSession, ReplayProbe } from "../core/measurement/browser-font-replay.js";
-import { FONT_REPLAY_REVISION } from "../core/sampler/snapshot/snapshot-schema.js";
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
-import type { BinaryTableInput } from "../core/sampler/snapshot/table-binary-writer.js";
-import type { SnapshotManifestWire } from "../core/sampler/snapshot/snapshot-manifest.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+} from "../src/engine/web-worker/session-bootstrap.js";
+import type { ProbeBootstrapOptions } from "../src/engine/web-worker/session-bootstrap.js";
+import { createServerReplayFontSession } from "../src/measurement/browser-font-replay.js";
+import type { ServerReplayFontSession, ReplayProbe } from "../src/measurement/browser-font-replay.js";
+import { FONT_REPLAY_REVISION } from "../src/sampler/snapshot/snapshot-schema.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
+import type { BinaryTableInput } from "../src/sampler/snapshot/table-binary-writer.js";
+import type { SnapshotManifestWire } from "../src/sampler/snapshot/snapshot-manifest.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 
@@ -194,7 +194,7 @@ test("manifest sessions keep the baked contract path", async () => {
 });
 
 test("layout-worker keeps its ffi import and snapshot-subset wiring", async () => {
-  const source = await readFile(new URL("../core/engine/layout-worker.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/engine/layout-worker.js", import.meta.url), "utf8");
   assert.match(source, /createProbeBootstrapFontSession/u);
   assert.match(source, /createManifestFontSession/u);
   assert.match(source, /from "@tiqian\/ffi"/u);

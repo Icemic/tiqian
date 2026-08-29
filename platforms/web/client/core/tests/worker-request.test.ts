@@ -10,13 +10,13 @@ import type {
   InlineObjectSpan,
   DomSourceSpan,
   LineBreakSpan,
-} from "../core/engine/lowered-paragraph.js";
+} from "../src/engine/lowered-paragraph.js";
 import {
   buildWorkerLayoutRequest,
   workerLayoutRequestForRoot,
   workerLayoutRequest,
-} from "../core/engine/worker-request.js";
-import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
+} from "../src/engine/worker-request.js";
+import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
 import { firstDivergentInlineShapingProperty, unsupportedInlineShapingProperties } from "@tiqian/ffi";
 
 function asType<T>(value: unknown): T {

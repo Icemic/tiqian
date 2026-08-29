@@ -2,7 +2,7 @@ name: Boundary check CI
 
 # ADR 0053 (Web prose host consolidation), "ffi boundary review record
 # (2026-08-25)": the boundary rulings are enforced as a mechanical gate.
-# tools/boundary-check/check.mjs fails CI when engine/, ffi/, frontend/ or
+# tools/boundary-check/check.ts fails CI when engine/, ffi/, frontend/ or
 # platforms/ reintroduce what a corrective wave must delete (environment
 # globals in engine, wire-format naming in engine commonMain, font session
 # state in ffi, unreviewed export entries, separator escape literals outside
@@ -45,7 +45,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
-      # tools/boundary-check/check.mjs uses node: builtins only, so there is
+      # tools/boundary-check/check.ts uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run boundary check
         run: node tools/boundary-check/check.ts

@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   mergeSerializedSourceBoundaries,
   workerSnapshotSubsetSourceBoundaries,
-} from "../core/sampler/font-face-boundaries.js";
-import type { FontFaceRecord, WorkerFontContractRequest } from "../core/sampler/font-face-boundaries.js";
+} from "../src/sampler/font-face-boundaries.js";
+import type { FontFaceRecord, WorkerFontContractRequest } from "../src/sampler/font-face-boundaries.js";
 
 function face(sourceOrder: number, unicodeRange: string, publicUrl: string): FontFaceRecord {
   return {

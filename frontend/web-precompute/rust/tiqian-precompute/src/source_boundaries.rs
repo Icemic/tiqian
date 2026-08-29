@@ -1,4 +1,4 @@
-//! Source-boundary port of `platforms/web/client/core/core/sampler/font-face-boundaries.ts`
+//! Source-boundary port of `platforms/web/client/core/src/sampler/font-face-boundaries.ts`
 //! (ADR 0050). The descriptor matching primitives of the same JS file live in
 //! `font_face.rs` and `selection.rs`; this module keeps the boundary scan
 //! itself: the exact-face run boundaries the layout core consumes, the Worker

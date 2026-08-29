@@ -400,7 +400,7 @@ async function main(): Promise<void> {
   )) as FontFaceBoundariesModule;
 
   const assemblyModule: AssemblyFieldsModule = (await import(
-    new URL("@tiqian/core/core/engine/web-worker/assembly-record-fields.js", import.meta.url).href
+    new URL("@tiqian/core/src/engine/web-worker/assembly-record-fields.js", import.meta.url).href
   )) as AssemblyFieldsModule;
 
   const { session, requests } = await replaySession();

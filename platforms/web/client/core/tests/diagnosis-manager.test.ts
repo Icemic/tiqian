@@ -8,9 +8,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createDiagnosisManager } from "../core/engine/context/diagnosis-manager.js";
-import type { DiagnosisEvent } from "../core/engine/context/diagnosis-manager.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { createDiagnosisManager } from "../src/engine/context/diagnosis-manager.js";
+import type { DiagnosisEvent } from "../src/engine/context/diagnosis-manager.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
 
 // The fakes ride through the same any-typed Object.create seam the
 // engine-plain-context suite uses: the typed contracts are satisfied by

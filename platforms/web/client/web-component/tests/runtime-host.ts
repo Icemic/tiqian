@@ -1,9 +1,9 @@
-import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { globalServices, initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 import { SNAPSHOT_SCHEMA, LAYOUT_REVISION } from "@tiqian/core/snapshot-schema";
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import type { EnhancedElementContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import type { ReplayMetricItem, ReplayShapeItem } from "@tiqian/core/core/measurement/replay-entry-codec.js";
-import type { GrantController, TiqianLayoutWorkerInstance } from "@tiqian/core/core/engine/coordination/coordination-service.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import type { ReplayMetricItem, ReplayShapeItem } from "@tiqian/core/src/measurement/replay-entry-codec.js";
+import type { GrantController, TiqianLayoutWorkerInstance } from "@tiqian/core/src/engine/coordination/coordination-service.js";
 
 export function probe<T>(value: unknown): T {
   return value as T;
@@ -246,10 +246,10 @@ import {
   enhanceProgressively,
   enhanceProgressivelyFromCanonical,
   relayout,
-} from "@tiqian/core/core/engine/progressive-drivers.js";
-import { destroyRoot, detachRoot, optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
-import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/core/engine/content-reconcile.js";
-import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
+} from "@tiqian/core/src/engine/progressive-drivers.js";
+import { destroyRoot, detachRoot, optionsFromJs } from "@tiqian/core/src/engine/lifecycle.js";
+import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/src/engine/content-reconcile.js";
+import { workerLayoutRequestForRoot } from "@tiqian/core/src/engine/worker-request.js";
 
 export class FakeDOMRect {
   readonly x: number;

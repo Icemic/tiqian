@@ -7,8 +7,8 @@ import {
   releasePreparedValueStyleRoot,
   renderPreparedParagraphArtifact,
   renderPreparedParagraphInto,
-} from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+} from "@tiqian/core/src/sampler/snapshot/prepared-dom.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
 import { probe } from "./runtime-host.js";
 
 type TestPlan = Exclude<Parameters<typeof renderPreparedParagraphArtifact>[0], string>;

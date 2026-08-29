@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ClipboardManager } from "../core/services/clipboard-manager.js";
+import { ClipboardManager } from "../src/services/clipboard-manager.js";
 
 interface FakeRange {
   readonly startContainer: FakeNode;

@@ -7,8 +7,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLayoutJobPool } from "../core/engine/layout-job-pool.js";
-import type { LayoutJobPool } from "../core/engine/layout-job-pool.js";
+import { createLayoutJobPool } from "../src/engine/layout-job-pool.js";
+import type { LayoutJobPool } from "../src/engine/layout-job-pool.js";
 
 // Minimal fake Element for testing. Uses a class so WeakMap/WeakSet accept it.
 class FakeElement {

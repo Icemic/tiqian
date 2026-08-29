@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TestContext } from "node:test";
 
-import { createTypographyInvalidationSource } from "../core/sampler/observers.js";
-import type { TypographyInvalidationSource } from "../core/sampler/observers.js";
+import { createTypographyInvalidationSource } from "../src/sampler/observers.js";
+import type { TypographyInvalidationSource } from "../src/sampler/observers.js";
 import {
   declaredFaceSheets,
   declaredFacesDiagnostics,
   declareTiqianFontFaces,
   onDeclaredFacesChanged,
-} from "../core/sampler/snapshot/declared-faces.js";
-import type { DeclaredFaceDiagnostic, DeclaredFaceSheet } from "../core/sampler/snapshot/declared-faces.js";
-import { collectFontFaces } from "../core/sampler/snapshot/precomputed.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+} from "../src/sampler/snapshot/declared-faces.js";
+import type { DeclaredFaceDiagnostic, DeclaredFaceSheet } from "../src/sampler/snapshot/declared-faces.js";
+import { collectFontFaces } from "../src/sampler/snapshot/precomputed.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

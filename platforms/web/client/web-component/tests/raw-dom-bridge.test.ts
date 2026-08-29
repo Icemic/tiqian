@@ -1,5 +1,5 @@
 // Unit tests for the raw-DOM backup engine module behind ts-runtime.
-// core/core/engine/raw-dom.js exports named functions; these tests drive
+// core/src/engine/raw-dom.js exports named functions; these tests drive
 // them directly with an enhance context.
 
 import assert from "node:assert/strict";
@@ -19,9 +19,9 @@ import {
   rawDomRestoreShell,
   rawDomEnsureContainingBlock,
   rawDomSuspendEngineWrites,
-} from "@tiqian/core/core/engine/raw-dom.js";
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+} from "@tiqian/core/src/engine/raw-dom.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 initializeGlobalServices();
 
 
@@ -58,7 +58,7 @@ function beginDefaults(context: ReturnType<typeof createEnhanceContext>, paragra
   );
 }
 
-import * as rawDomModule from "@tiqian/core/core/engine/raw-dom.js";
+import * as rawDomModule from "@tiqian/core/src/engine/raw-dom.js";
 
 test("rawDomBridge_exportsFullApiSurface", () => {
   for (const name of [

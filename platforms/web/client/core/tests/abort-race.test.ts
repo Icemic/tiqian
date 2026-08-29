@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getEventListeners } from "node:events";
 
-import { raceAbort } from "../core/engine/abort-race.js";
+import { raceAbort } from "../src/engine/abort-race.js";
 
 test("the abort race delivers the value when the pipeline step settles first", async () => {
   const controller = new AbortController();

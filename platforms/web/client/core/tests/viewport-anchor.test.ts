@@ -6,8 +6,8 @@ import {
   compensateViewportAnchor,
   holdNativeScrollAnchoring,
   releaseNativeScrollAnchoring,
-} from "../core/engine/coordination/viewport-anchor.js";
-import type { ViewportAnchor } from "../core/engine/coordination/viewport-anchor.js";
+} from "../src/engine/coordination/viewport-anchor.js";
+import type { ViewportAnchor } from "../src/engine/coordination/viewport-anchor.js";
 
 interface GlobalEntry {
   name: string;

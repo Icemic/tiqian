@@ -7,11 +7,11 @@ import {
   normalizeReplayNumber,
   scaleMetricReplayItem,
   scaleShapeReplayItem,
-} from "../core/measurement/replay-entry-codec.js";
-import type { ReplayShapeGlyph, ReplayShapeItem, ReplayMetricItem } from "../core/measurement/replay-entry-codec.js";
-import type { ShapeReplayWireRow } from "../core/measurement/replay-entry-codec.js";
-import type { SnapshotMetricRow } from "../core/sampler/snapshot/snapshot-table-binary.js";
-import { metricReplayKey, shapeReplayKey } from "../core/sampler/snapshot/snapshot-schema.js";
+} from "../src/measurement/replay-entry-codec.js";
+import type { ReplayShapeGlyph, ReplayShapeItem, ReplayMetricItem } from "../src/measurement/replay-entry-codec.js";
+import type { ShapeReplayWireRow } from "../src/measurement/replay-entry-codec.js";
+import type { SnapshotMetricRow } from "../src/sampler/snapshot/snapshot-table-binary.js";
+import { metricReplayKey, shapeReplayKey } from "../src/sampler/snapshot/snapshot-schema.js";
 
 type StringAt = (ref: number) => string;
 

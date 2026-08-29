@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { registerSnapshotBundle } from "../core/sampler/snapshot/snapshot-client.js";
-import type { ClientSnapshotBundle } from "../core/sampler/snapshot/snapshot-client.js";
+import { registerSnapshotBundle } from "../src/sampler/snapshot/snapshot-client.js";
+import type { ClientSnapshotBundle } from "../src/sampler/snapshot/snapshot-client.js";
 
 interface FakeElement {
   tagName: string;

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { precomputeParagraphWithDiagnostics, type PrepareParagraphRequest } from "@tiqian/ffi";
-import { createProbeBootstrapFontSession } from "../core/engine/web-worker/session-bootstrap.js";
-import { prepareParagraphRequestWire } from "../core/engine/wire-construction.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { createProbeBootstrapFontSession } from "../src/engine/web-worker/session-bootstrap.js";
+import { prepareParagraphRequestWire } from "../src/engine/wire-construction.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

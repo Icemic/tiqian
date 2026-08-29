@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../core/engine/commit-prepared-paragraph.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
-import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
+import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../src/engine/commit-prepared-paragraph.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../src/sampler/snapshot/snapshot-schema.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
 import type {
   DecorationSpan,
   InlineBoxSpan,
@@ -14,7 +14,7 @@ import type {
   LoweredParagraph,
   TextSpan,
   TextStyle,
-} from "../core/engine/lowered-paragraph.js";
+} from "../src/engine/lowered-paragraph.js";
 
 // The commit functions run for real, including the real prepared-DOM
 // renderer. The former injected validator and its mismatch/fallback/retry

@@ -1,13 +1,13 @@
 // Unit tests for the markdown-lowering engine module.
-// core/core/engine/markdown-lowering.js exports lowerMarkdown() as a
+// core/src/engine/markdown-lowering.js exports lowerMarkdown() as a
 // plain function; these tests drive it directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lowerMarkdown } from "@tiqian/core/core/engine/markdown-lowering.js";
+import { lowerMarkdown } from "@tiqian/core/src/engine/markdown-lowering.js";
 import { cleanupMounted, mount } from "./runtime-host.js";
 import type { FakeElement } from "./snapshot-dom-fixtures.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 initializeGlobalServices();
 
 

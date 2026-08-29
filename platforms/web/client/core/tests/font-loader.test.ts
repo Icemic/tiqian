@@ -5,8 +5,8 @@ import {
   fontLoadingAffectsTypography,
   parseCssFontFamilies,
   waitForTypographyFonts,
-} from "../core/engine/loaders/font-loader.js";
-import type { FontLoadingEventLike, TypographyFontWaitResult } from "../core/engine/loaders/font-loader.js";
+} from "../src/engine/loaders/font-loader.js";
+import type { FontLoadingEventLike, TypographyFontWaitResult } from "../src/engine/loaders/font-loader.js";
 
 interface FakeStyleLike {
   getPropertyValue(property: string): string;

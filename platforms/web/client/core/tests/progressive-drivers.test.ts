@@ -7,12 +7,12 @@ import {
   rejectMissingSharedRuntimeStyles,
   relayout,
   startLayoutJob,
-} from "../core/engine/progressive-drivers.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
-import { installFixtureFontBackend } from "../test-support/fixture-font-backend.js";
-import type { FixtureFontBackend } from "../test-support/fixture-font-backend.js";
+} from "../src/engine/progressive-drivers.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
+import { rawDomBegin, rawDomCommit, rawDomTake } from "../src/engine/raw-dom.js";
+import { installFixtureFontBackend } from "./fixture-font-backend.js";
+import type { FixtureFontBackend } from "./fixture-font-backend.js";
 import {
   FakeElement,
   FakeFragment,
@@ -21,12 +21,12 @@ import {
   asNodeConstructor,
   emptyDomRectList,
 } from "./snapshot-dom-fixtures.js";
-import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
-import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
-import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";
-import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
-import type { BrowserFallbackDescriptor } from "../core/engine/enhance/typography.js";
+import { globalServices, initializeGlobalServices } from "../src/services/global-services.js";
+import type { LayoutJobPool, LayoutJobSpec } from "../src/engine/layout-job-pool.js";
+import type { EnhanceOptions, ResolvedEnhanceOptions } from "../src/engine/lifecycle.js";
+import type { TrackedParagraph } from "../src/engine/enhance/context-state.js";
+import type { LoweredParagraph } from "../src/engine/lowered-paragraph.js";
+import type { BrowserFallbackDescriptor } from "../src/engine/enhance/typography.js";
 import type { CoordinationPoolSlot, GlobalEntry } from "./types.js";
 initializeGlobalServices();
 

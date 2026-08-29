@@ -4,8 +4,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLayoutJobPool } from "../core/engine/layout-job-pool.js";
-import type { LayoutJobPool, LayoutJobSpec, LayoutJobFinishReport, LayoutJobFailureReport } from "../core/engine/layout-job-pool.js";
+import { createLayoutJobPool } from "../src/engine/layout-job-pool.js";
+import type { LayoutJobPool, LayoutJobSpec, LayoutJobFinishReport, LayoutJobFailureReport } from "../src/engine/layout-job-pool.js";
 
 interface TestRoot {
   id: string;

@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
-      # tools/service-directory/check.mjs uses node: builtins only, so there is
+      # tools/service-directory/check.ts uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run service directory check
         run: node tools/service-directory/check.ts

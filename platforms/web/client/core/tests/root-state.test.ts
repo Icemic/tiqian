@@ -13,13 +13,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import { activeSnapshotSessionDescriptor } from "../core/engine/enhance/snapshot-adoption.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
-import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";
-import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
+import { activeSnapshotSessionDescriptor } from "../src/engine/enhance/snapshot-adoption.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
+import type { EnhanceOptions, ResolvedEnhanceOptions } from "../src/engine/lifecycle.js";
+import type { TrackedParagraph } from "../src/engine/enhance/context-state.js";
+import type { LoweredParagraph } from "../src/engine/lowered-paragraph.js";
 initializeGlobalServices();
 
 

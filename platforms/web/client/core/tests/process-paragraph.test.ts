@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
-import { processParagraph } from "../core/engine/process-paragraph.js";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import { optionsFromJs } from "../core/engine/lifecycle.js";
-import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
-import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import { installThrowingFontBackend } from "../test-support/fixture-font-backend.js";
+import { globalServices, initializeGlobalServices } from "../src/services/global-services.js";
+import { processParagraph } from "../src/engine/process-paragraph.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import { optionsFromJs } from "../src/engine/lifecycle.js";
+import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../src/sampler/snapshot/snapshot-schema.js";
+import { installThrowingFontBackend } from "./fixture-font-backend.js";
 import { FakeElement, FakeFragment, FakeNode, FakeText, asElement, asFakeElement, asNodeConstructor } from "./snapshot-dom-fixtures.js";
-import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import type { TiqianLayoutWorkerInstance } from "../core/engine/coordination/coordination-service.js";
-import type { ReplayProbe, ReplayRegistry } from "../core/measurement/browser-font-replay.js";
+import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
+import type { TiqianLayoutWorkerInstance } from "../src/engine/coordination/coordination-service.js";
+import type { ReplayProbe, ReplayRegistry } from "../src/measurement/browser-font-replay.js";
 initializeGlobalServices();
 
 // The pipeline runs for real: eligibility, markdown lowering, the lifecycle

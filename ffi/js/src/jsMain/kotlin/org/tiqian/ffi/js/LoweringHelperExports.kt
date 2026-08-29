@@ -11,7 +11,7 @@ import org.tiqian.font.InlineShapingStylePolicy
 
 /**
  * Lowering helper exports consumed by the TypeScript markdown lowering engine
- * (`platforms/web/client/core/core/engine/markdown-lowering.js`) via `@tiqian/ffi`.
+ * (`platforms/web/client/core/src/engine/markdown-lowering.js`) via `@tiqian/ffi`.
  *
  * These exports feed the helper callbacks of the TS markdown lowering. Until the
  * TsHost port deletes the Kotlin facade, both consumers share the font module as

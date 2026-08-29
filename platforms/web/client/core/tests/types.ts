@@ -1,7 +1,7 @@
 // Shared test types for the core package.
 // Consolidates test-side shapes used across multiple test files.
 
-import type { LayoutJobPool } from "../core/engine/layout-job-pool.js";
+import type { LayoutJobPool } from "../src/engine/layout-job-pool.js";
 
 export interface GlobalEntry {
   readonly name: string;

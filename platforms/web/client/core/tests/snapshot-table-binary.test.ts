@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
-import type { BinaryTableInput } from "../core/sampler/snapshot/table-binary-writer.js";
-import { decodeSnapshotTableBinary } from "../core/sampler/snapshot/snapshot-table-binary.js";
-import { snapshotTablesForRoot, snapshotTablesFromBytes } from "../core/sampler/snapshot/snapshot-tables.js";
-import { expandSnapshotManifest } from "../core/sampler/snapshot/snapshot-manifest.js";
-import type { SnapshotManifestWire, SnapshotTablesPin } from "../core/sampler/snapshot/snapshot-manifest.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
+import type { BinaryTableInput } from "../src/sampler/snapshot/table-binary-writer.js";
+import { decodeSnapshotTableBinary } from "../src/sampler/snapshot/snapshot-table-binary.js";
+import { snapshotTablesForRoot, snapshotTablesFromBytes } from "../src/sampler/snapshot/snapshot-tables.js";
+import { expandSnapshotManifest } from "../src/sampler/snapshot/snapshot-manifest.js";
+import type { SnapshotManifestWire, SnapshotTablesPin } from "../src/sampler/snapshot/snapshot-manifest.js";
 
 interface MockElement {
   getAttribute: GetAttributeFn;

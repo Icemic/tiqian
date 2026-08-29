@@ -6,10 +6,10 @@ import {
   prefetchSnapshotTables,
   snapshotTablesForRoot,
   snapshotTablesFromBytes,
-} from "../core/sampler/snapshot/snapshot-tables.js";
-import type { LoadedSnapshotTable } from "../core/sampler/snapshot/snapshot-tables.js";
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
-import type { BinaryTableInput } from "../core/sampler/snapshot/table-binary-writer.js";
+} from "../src/sampler/snapshot/snapshot-tables.js";
+import type { LoadedSnapshotTable } from "../src/sampler/snapshot/snapshot-tables.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
+import type { BinaryTableInput } from "../src/sampler/snapshot/table-binary-writer.js";
 
 interface RootWithAttribute {
   getAttribute: GetAttributeFn;

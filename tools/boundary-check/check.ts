@@ -170,7 +170,7 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/engine/enhance/context-state.ts",
+    file: "platforms/web/client/core/src/engine/enhance/context-state.ts",
     reason: "Separator join in signature building over the untyped payload (moved from prose-host-session.ts in the core-neutral collapse); replaced by declared DTOs.",
   },
   {
@@ -182,37 +182,37 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/engine/canvas-fonts.ts",
+    file: "platforms/web/client/core/src/engine/canvas-fonts.ts",
     reason: "Family separator split of the untyped payload string; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/engine/canvas-metrics.ts",
+    file: "platforms/web/client/core/src/engine/canvas-metrics.ts",
     reason: "Record/field/family splits of the untyped payload strings; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/sampler/font-face-boundaries.ts",
+    file: "platforms/web/client/core/src/sampler/font-face-boundaries.ts",
     reason: "Separator use in untyped sampling payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/sampler/grid-metrics.ts",
+    file: "platforms/web/client/core/src/sampler/grid-metrics.ts",
     reason: "Separator use in untyped sampling payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/sampler/signatures.ts",
+    file: "platforms/web/client/core/src/sampler/signatures.ts",
     reason: "Separator joins building cache signatures over untyped fields; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/sampler/snapshot/prepared-dom.ts",
+    file: "platforms/web/client/core/src/sampler/snapshot/prepared-dom.ts",
     reason: "Separator use in untyped snapshot payloads; replaced by declared DTOs.",
   },
   {
@@ -242,13 +242,13 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/measurement/replay-probe.ts",
+    file: "platforms/web/client/core/src/measurement/replay-probe.ts",
     reason: "Separator splits in the replay probe over untyped payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "platforms/web/client/core/core/measurement/browser-font-replay.ts",
+    file: "platforms/web/client/core/src/measurement/browser-font-replay.ts",
     reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback transport in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
   },
 

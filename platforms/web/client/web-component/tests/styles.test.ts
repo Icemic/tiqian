@@ -175,7 +175,7 @@ test("reinstalls a stylesheet removed by a client router", async () => {
     }
 
     const module: EnsureTiqianStylesResult = await import(
-      `@tiqian/core/core/engine/loaders/styles.js?test=${Date.now()}`
+      `@tiqian/core/src/engine/loaders/styles.js?test=${Date.now()}`
     );
     const ensureTiqianStyles: EnsureTiqianStylesFunction =
       module.ensureTiqianStyles;
@@ -249,7 +249,7 @@ test("does not inject a duplicate link when the public CSS entry is already acti
 
   try {
     const module: EnsureTiqianStylesModule = await import(
-      `@tiqian/core/core/engine/loaders/styles.js?static=${Date.now()}`
+      `@tiqian/core/src/engine/loaders/styles.js?static=${Date.now()}`
     );
     const ensureTiqianStyles: EnsureTiqianStylesWithOptions = module.ensureTiqianStyles;
 

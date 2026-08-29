@@ -35,7 +35,7 @@ declare global {
 }
 
 const element: HostSessionElementModule = (await import("@tiqian/prose/element")) as HostSessionElementModule;
-const core: CoreSessionModule = (await import("@tiqian/core/core/engine/prose-host-session.js" as string)) as CoreSessionModule;
+const core: CoreSessionModule = (await import("@tiqian/core/src/engine/prose-host-session.js" as string)) as CoreSessionModule;
 
 if (typeof element.registerTiqianProse === "function") {
   element.registerTiqianProse();

@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 
-import { createBrowserFontSessionLoader } from "../core/measurement/browser-fonts.js";
+import { createBrowserFontSessionLoader } from "../src/measurement/browser-fonts.js";
 import type {
   BrowserFontSessionCreateOptions,
   BrowserFontSessionLoader,
@@ -13,16 +13,16 @@ import type {
   FontSessionCreator,
   ManifestFaceSpec,
   SnapshotFontContractResult,
-} from "../core/measurement/browser-fonts.js";
+} from "../src/measurement/browser-fonts.js";
 import type {
   ServerReplayFontSession,
-} from "../core/measurement/browser-font-replay.js";
+} from "../src/measurement/browser-font-replay.js";
 import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,
-} from "../core/sampler/snapshot/snapshot-schema.js";
-import type { SnapshotProbe } from "../core/sampler/snapshot/snapshot-table-binary.js";
-import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.js";
+} from "../src/sampler/snapshot/snapshot-schema.js";
+import type { SnapshotProbe } from "../src/sampler/snapshot/snapshot-table-binary.js";
+import { writeBinaryTable } from "../src/sampler/snapshot/table-binary-writer.js";
 import { FakeElement } from "./snapshot-dom-fixtures.js";
 
 function probe<T>(value: unknown): T {

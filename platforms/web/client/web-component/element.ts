@@ -17,13 +17,13 @@
 // zero-config import: it calls registerTiqianProse() once with the defaults.
 // Importing this module registers nothing; explicit hosts call
 // registerTiqianProse() themselves (wc-s6 scope 8).
-import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-import { OBSERVED_ATTRIBUTES } from "@tiqian/core/core/engine/enhance/options-ledger.js";
-import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
-import type { MarkedCompletionEvent } from "@tiqian/core/core/engine/enhance/event-channel.js";
-import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
-import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
-import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
+import { createEnhanceContext } from "@tiqian/core/src/engine/context/enhance-context.js";
+import { OBSERVED_ATTRIBUTES } from "@tiqian/core/src/engine/enhance/options-ledger.js";
+import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/src/engine/enhance/event-channel.js";
+import type { MarkedCompletionEvent } from "@tiqian/core/src/engine/enhance/event-channel.js";
+import { globalServices, initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
+import { prefetchSnapshotTables } from "@tiqian/core/src/sampler/snapshot/snapshot-tables.js";
+import { CoordinationService } from "@tiqian/core/src/engine/coordination/coordination-service.js";
 
 const ELEMENT_NAME = "tiqian-prose";
 

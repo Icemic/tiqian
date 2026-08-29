@@ -1,4 +1,4 @@
-import { globalServices } from "@tiqian/core/core/services/global-services.js";
+import { globalServices } from "@tiqian/core/src/services/global-services.js";
 // Timing-anchor goldens for the web prose host refactor (ADR 0053 batch 0,
 // decomposition report section 11). Every journey runs real module code under
 // the shared fake clock (test-clock.ts) so dispatch order and record
@@ -35,11 +35,11 @@ import {
   TimingGoldenRecord,
 } from "./timing-golden-host.js";
 import { probe } from "./runtime-host.js";
-import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
-import { optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
-import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
-import type { createPrepareJob as CreatePrepareJob } from "@tiqian/core/core/engine/web-worker/worker-channel.js";
+import { workerLayoutRequestForRoot } from "@tiqian/core/src/engine/worker-request.js";
+import { optionsFromJs } from "@tiqian/core/src/engine/lifecycle.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
+import { CoordinationService } from "@tiqian/core/src/engine/coordination/coordination-service.js";
+import type { createPrepareJob as CreatePrepareJob } from "@tiqian/core/src/engine/web-worker/worker-channel.js";
 initializeGlobalServices();
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
@@ -564,7 +564,7 @@ async function runWorkerMessagesJourney() {
     // Same query-string cache-bust trick as the grants journey: a pristine
     // worker-channel module whose install step re-creates the bridge.
     const module = await import(
-      "@tiqian/core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages" as string
+      "@tiqian/core/src/engine/web-worker/worker-channel.js?timing-golden=worker-messages" as string
     ) as { createPrepareJob: typeof CreatePrepareJob };
     const bridge = globalServices().coordination.layoutWorker!;
     const prepare = async () => {

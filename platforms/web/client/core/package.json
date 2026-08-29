@@ -39,98 +39,98 @@
     "LICENSE",
     "README.md",
     "*.d.ts",
-    "core/",
-    "core/engine/layout-worker.js",
-    "core/engine/web-worker/worker-channel.js",
-    "core/measurement/browser-font-replay.js",
-    "core/sampler/snapshot/snapshot-schema.js",
-    "core/sampler/snapshot/snapshot-manifest.js",
-    "core/sampler/snapshot/snapshot-table-binary.js",
-    "core/sampler/snapshot/snapshot-tables.js",
-    "core/sampler/snapshot/table-binary-writer.js",
-    "core/measurement/browser-fonts.js",
-    "core/sampler/font-face-boundaries.js",
-    "core/sampler/snapshot/precomputed.js",
-    "core/sampler/snapshot/snapshot-source.js",
-    "core/engine/coordination/viewport-anchor.js",
+    "src/",
+    "src/engine/layout-worker.js",
+    "src/engine/web-worker/worker-channel.js",
+    "src/measurement/browser-font-replay.js",
+    "src/sampler/snapshot/snapshot-schema.js",
+    "src/sampler/snapshot/snapshot-manifest.js",
+    "src/sampler/snapshot/snapshot-table-binary.js",
+    "src/sampler/snapshot/snapshot-tables.js",
+    "src/sampler/snapshot/table-binary-writer.js",
+    "src/measurement/browser-fonts.js",
+    "src/sampler/font-face-boundaries.js",
+    "src/sampler/snapshot/precomputed.js",
+    "src/sampler/snapshot/snapshot-source.js",
+    "src/engine/coordination/viewport-anchor.js",
     "styles.css"
   ],
   "exports": {
-    "./core/*": "./core/*",
+    "./src/*": "./src/*",
     "./snapshot-schema": {
-      "default": "./core/sampler/snapshot/snapshot-schema.js"
+      "default": "./src/sampler/snapshot/snapshot-schema.js"
     },
     "./snapshot-schema.js": {
-      "default": "./core/sampler/snapshot/snapshot-schema.js"
+      "default": "./src/sampler/snapshot/snapshot-schema.js"
     },
     "./snapshot-manifest": {
-      "default": "./core/sampler/snapshot/snapshot-manifest.js"
+      "default": "./src/sampler/snapshot/snapshot-manifest.js"
     },
     "./snapshot-manifest.js": {
-      "default": "./core/sampler/snapshot/snapshot-manifest.js"
+      "default": "./src/sampler/snapshot/snapshot-manifest.js"
     },
     "./snapshot-tables": {
-      "default": "./core/sampler/snapshot/snapshot-tables.js"
+      "default": "./src/sampler/snapshot/snapshot-tables.js"
     },
     "./snapshot-tables.js": {
-      "default": "./core/sampler/snapshot/snapshot-tables.js"
+      "default": "./src/sampler/snapshot/snapshot-tables.js"
     },
     "./snapshot-table-binary": {
-      "default": "./core/sampler/snapshot/snapshot-table-binary.js"
+      "default": "./src/sampler/snapshot/snapshot-table-binary.js"
     },
     "./snapshot-table-binary.js": {
-      "default": "./core/sampler/snapshot/snapshot-table-binary.js"
+      "default": "./src/sampler/snapshot/snapshot-table-binary.js"
     },
     "./table-binary-writer": {
-      "default": "./core/sampler/snapshot/table-binary-writer.js"
+      "default": "./src/sampler/snapshot/table-binary-writer.js"
     },
     "./browser-font-replay": {
-      "default": "./core/measurement/browser-font-replay.js"
+      "default": "./src/measurement/browser-font-replay.js"
     },
     "./browser-font-replay.js": {
-      "default": "./core/measurement/browser-font-replay.js"
+      "default": "./src/measurement/browser-font-replay.js"
     },
     "./layout-worker": {
-      "default": "./core/engine/layout-worker.js"
+      "default": "./src/engine/layout-worker.js"
     },
     "./layout-worker.js": {
-      "default": "./core/engine/layout-worker.js"
+      "default": "./src/engine/layout-worker.js"
     },
     "./browser-fonts": {
-      "default": "./core/measurement/browser-fonts.js"
+      "default": "./src/measurement/browser-fonts.js"
     },
     "./browser-fonts.js": {
-      "default": "./core/measurement/browser-fonts.js"
+      "default": "./src/measurement/browser-fonts.js"
     },
     "./viewport-anchor": {
-      "default": "./core/engine/coordination/viewport-anchor.js"
+      "default": "./src/engine/coordination/viewport-anchor.js"
     },
     "./viewport-anchor.js": {
-      "default": "./core/engine/coordination/viewport-anchor.js"
+      "default": "./src/engine/coordination/viewport-anchor.js"
     },
     "./snapshot-source": {
-      "default": "./core/sampler/snapshot/snapshot-source.js"
+      "default": "./src/sampler/snapshot/snapshot-source.js"
     },
     "./snapshot-source.js": {
-      "default": "./core/sampler/snapshot/snapshot-source.js"
+      "default": "./src/sampler/snapshot/snapshot-source.js"
     },
     "./worker-layout": {
-      "default": "./core/engine/web-worker/worker-channel.js"
+      "default": "./src/engine/web-worker/worker-channel.js"
     },
     "./worker-layout.js": {
-      "default": "./core/engine/web-worker/worker-channel.js"
+      "default": "./src/engine/web-worker/worker-channel.js"
     },
     "./precomputed": {
-      "default": "./core/sampler/snapshot/precomputed.js"
+      "default": "./src/sampler/snapshot/precomputed.js"
     },
     "./precomputed.js": {
-      "default": "./core/sampler/snapshot/precomputed.js"
+      "default": "./src/sampler/snapshot/precomputed.js"
     },
     "./font-face-boundaries": {
-      "default": "./core/sampler/font-face-boundaries.js"
+      "default": "./src/sampler/font-face-boundaries.js"
     },
     "./font-face-boundaries.js": {
-      "default": "./core/sampler/font-face-boundaries.js"
+      "default": "./src/sampler/font-face-boundaries.js"
     },
     "./styles.css": {
       "default": "./styles.css"

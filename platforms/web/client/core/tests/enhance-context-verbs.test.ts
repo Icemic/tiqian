@@ -13,9 +13,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
-import { InvalidationReason } from "../core/engine/enhance/state.js";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
+import { InvalidationReason } from "../src/engine/enhance/state.js";
+import { initializeGlobalServices } from "../src/services/global-services.js";
 initializeGlobalServices();
 
 

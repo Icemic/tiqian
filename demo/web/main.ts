@@ -1,6 +1,6 @@
 import '@tiqian/prose/auto';
 import { registerTiqianProse } from '@tiqian/prose/element';
-import { createEnhanceContext } from '@tiqian/core/core/engine/context/enhance-context.js';
+import { createEnhanceContext } from '@tiqian/core/src/engine/context/enhance-context.js';
 
 interface MetricsEventDetail {
   durationMs?: number;

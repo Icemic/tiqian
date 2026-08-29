@@ -7,7 +7,7 @@ import {
   SnapshotSemanticError,
   snapshotSemanticMetricContractIssue,
   snapshotSourceArtifactString,
-} from "../core/sampler/snapshot/snapshot-source.js";
+} from "../src/sampler/snapshot/snapshot-source.js";
 
 interface SemanticSpanInput {
   start?: unknown;

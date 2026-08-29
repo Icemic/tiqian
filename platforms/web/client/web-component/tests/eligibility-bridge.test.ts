@@ -1,5 +1,5 @@
 // Unit tests for the eligibility engine module behind ts-runtime.
-// core/core/engine/eligibility.js exports the eligibility predicates as
+// core/src/engine/eligibility.js exports the eligibility predicates as
 // plain named functions; these tests drive them directly.
 
 import assert from "node:assert/strict";
@@ -12,8 +12,8 @@ import {
   isNonTextInlineTag,
   isOpaqueInlineDisplay,
   isOpaqueInlineLevelDisplay,
-} from "@tiqian/core/core/engine/eligibility.js";
-import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+} from "@tiqian/core/src/engine/eligibility.js";
+import { initializeGlobalServices } from "@tiqian/core/src/services/global-services.js";
 initializeGlobalServices();
 
 
