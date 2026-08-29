@@ -5,11 +5,11 @@
 // minimum that keeps createRoot/render/act running without touching the
 // engine's fixture surface.
 
-import { FakeElement, FakeText } from "../../npm/tests/snapshot-dom-fixtures.js";
+import { FakeElement, FakeText } from "../../web-component/tests/snapshot-dom-fixtures.js";
 import {
   drainMicrotasks,
   flushAllTestAnimationFrames,
-} from "../../npm/tests/runtime-host.js";
+} from "../../web-component/tests/runtime-host.js";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 

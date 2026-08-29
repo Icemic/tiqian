@@ -113,8 +113,8 @@ async function prepareRelease(versionInput: string | null | undefined): Promise<
     .filter(Boolean)
     .sort();
   const expectedChangedFiles: readonly string[] = [
-    "frontend/web/npm/package-lock.json",
-    "frontend/web/npm/package.json",
+    "platforms/web/client/web-component/package-lock.json",
+    "platforms/web/client/web-component/package.json",
   ];
   const untrackedFiles: string = git(["ls-files", "--others", "--exclude-standard"], { capture: true });
   const stagedFiles: string = git(["diff", "--cached", "--name-only"], { capture: true });
@@ -124,7 +124,7 @@ async function prepareRelease(versionInput: string | null | undefined): Promise<
   ) {
     throw new Error("ReleaseVerificationChangedUnexpectedFiles");
   }
-  git(["add", "frontend/web/npm/package.json", "frontend/web/npm/package-lock.json"]);
+  git(["add", "platforms/web/client/web-component/package.json", "platforms/web/client/web-component/package-lock.json"]);
   git(["diff", "--cached", "--check"]);
   git(["commit", "-m", subject]);
   const commit: string = git(["rev-parse", "HEAD"], { capture: true });

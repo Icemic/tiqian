@@ -250,7 +250,7 @@ fn run_rust_side(font_bytes: &[u8], plan: &Json) -> Vec<String> {
         Ok(_) => panic!("bad selector creation unexpectedly succeeded"),
     }
 
-    let style_path = repo_root().join("frontend/web/core/styles.css");
+    let style_path = repo_root().join("platforms/web/client/core/styles.css");
     let shared_style = std::fs::read_to_string(&style_path).expect("core styles.css reads");
     let mut main = create_html_preparer(HtmlPreparerOptions {
         precomputer: None,

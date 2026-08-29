@@ -387,7 +387,7 @@ function startDemoServer(port: number, pkgDir: string, label: string): Promise<S
       if (urlPath === "/") {
         const html: string = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/platforms/web/client/web-component/element.js","@tiqian/prose/":"/platforms/web/client/web-component/","@tiqian/prose":"/platforms/web/client/web-component/element.js"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -398,8 +398,8 @@ function startDemoServer(port: number, pkgDir: string, label: string): Promise<S
       if (urlPath === "/main.js" || urlPath === "/main.ts" || urlPath === "/index.css") {
         file = join(webDemoDir, urlPath.slice(1));
         if (urlPath.endsWith(".css")) type = "text/css";
-      } else if (urlPath.startsWith("/frontend/web/npm/")) {
-        const rest: string = urlPath.slice("/frontend/web/npm/".length);
+      } else if (urlPath.startsWith("/platforms/web/client/web-component/")) {
+        const rest: string = urlPath.slice("/platforms/web/client/web-component/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
       }
@@ -686,7 +686,7 @@ try {
 
   const base: CaptureSideResult = await captureSide({
     label: "base",
-    pkgDir: join(baseDir, "frontend/web/npm"),
+    pkgDir: join(baseDir, "platforms/web/client/web-component"),
     port: 9321,
     cdpPort: 9931,
     plans: null,
@@ -697,7 +697,7 @@ try {
   );
   const head: CaptureSideResult = await captureSide({
     label: "head",
-    pkgDir: join(headDir, "frontend/web/npm"),
+    pkgDir: join(headDir, "platforms/web/client/web-component"),
     port: 9323,
     cdpPort: 9933,
     plans: headPlans,

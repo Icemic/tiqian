@@ -3,12 +3,12 @@
   "private": true,
   "workspaces": [
     "ffi/js/npm",
-    "frontend/web/core",
-    "frontend/web/npm",
-    "frontend/web/react",
+    "platforms/web/client/core",
+    "platforms/web/client/web-component",
+    "platforms/web/client/react",
     "frontend/web-precompute/npm",
-    "frontend/web/integrations/astro",
-    "frontend/web/integrations/sveltekit",
+    "platforms/web/client/astro",
+    "platforms/web/client/sveltekit",
     "demo/web"
   ]
 }

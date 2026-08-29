@@ -1,7 +1,7 @@
 // Prepared DOM lowering parity (ADR 0050 Verification).
 //
 // The committed corpus is shared with the js lane
-// `frontend/web/npm/tests/prepared-dom-corpus.test.mjs`; both sides assert the same
+// `platforms/web/client/web-component/tests/prepared-dom-corpus.test.mjs`; both sides assert the same
 // bytes. Regenerate the fixture with
 // `node scripts/build-prepared-dom-corpus.ts` from frontend/web-precompute
 // after changing either implementation, then review the diff.
@@ -14,7 +14,7 @@ use tiqian_precompute::prepared_dom::{render_prepared_paragraph_artifact, Prepar
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../frontend/web/npm/tests/prepared-dom-corpus.fixture.json")
+        .join("../../../../platforms/web/client/web-component/tests/prepared-dom-corpus.fixture.json")
 }
 
 fn field<'a>(value: &'a Json, key: &str) -> Option<&'a Json> {

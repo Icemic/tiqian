@@ -41,8 +41,8 @@
 ./gradlew :ffi:js:jsNodeTest
 ./gradlew :ffi:js:assembleNpmPackage
 npm install --no-audit --no-fund
-(cd frontend/web/core && npm test)
-(cd frontend/web/npm && npm test)
+(cd platforms/web/client/core && npm test)
+(cd platforms/web/client/web-component && npm test)
 (cd ffi/js/npm && npm test)
 ```
 

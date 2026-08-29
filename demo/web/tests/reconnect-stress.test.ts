@@ -35,8 +35,8 @@ import type {
 } from "./types.js";
 
 const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
-const npmDir: string = join(repoRoot, "frontend/web/npm");
-const npmCoreDir: string = join(repoRoot, "frontend/web/core");
+const npmDir: string = join(repoRoot, "platforms/web/client/web-component");
+const npmCoreDir: string = join(repoRoot, "platforms/web/client/core");
 const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 
 const demoPort: number = 8994;

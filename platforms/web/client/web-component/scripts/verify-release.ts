@@ -76,7 +76,7 @@ try {
     "--json",
     "--pack-destination",
     consumerRoot,
-  ], { cwd: resolve(packageRoot, "../../../ffi/js/npm"), capture: true })) as PackedList;
+  ], { cwd: resolve(packageRoot, "../../../../ffi/js/npm"), capture: true })) as PackedList;
   const ffiFilename: string | undefined = packedFfi?.[0]?.filename;
   if (!ffiFilename) throw new Error("ReleaseConsumerPackFailed: npm pack returned no ffi filename");
 

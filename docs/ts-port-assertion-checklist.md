@@ -277,7 +277,7 @@ ProgressiveRelayoutTest 另有局部断言辅助 assertStaleAt。
 
 ## 附录 C：node 宿主校准
 
-断言移植依赖 frontend/web/npm/runtime-host.mjs 内置 canvas 与级联替身的三项
+断言移植依赖 platforms/web/client/web-component/runtime-host.mjs 内置 canvas 与级联替身的三项
 校准，记录于此供后续维护对照：
 
 - 假 canvas 的标点墨迹窗口按 Noto Sans CJK SC 实测值建模：全宽开引号类

@@ -1,6 +1,6 @@
 //! Precomputer parity against the js oracle (ADR 0050 amendment
 //! `PrecomputeInRust`). The oracle is `createPrecomputer` from
-//! `frontend/web/npm/precompute.js` over the fixture font; every case dumps
+//! `platforms/web/client/web-component/precompute.js` over the fixture font; every case dumps
 //! `stableStringify(entry)` (or `ERROR:<message>` for throws). The one exempt
 //! engine-identity field, `fontEvidence.harfbuzzVersion`, is aligned before
 //! the byte comparison. The engine archive must be linked.

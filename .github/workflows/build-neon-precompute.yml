@@ -142,7 +142,7 @@ jobs:
         # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
       - name: Emit the prose packages
-        working-directory: frontend/web/npm
+        working-directory: platforms/web/client/web-component
         shell: bash
         run: npx tsc -b --noCheck
       - name: Install npm dependencies
@@ -212,7 +212,7 @@ jobs:
         # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
       - name: Emit the prose packages
-        working-directory: frontend/web/npm
+        working-directory: platforms/web/client/web-component
         run: npx tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm

@@ -16,14 +16,14 @@ import {
   mount,
   probe,
   setElementRect,
-} from "../../npm/tests/runtime-host.js";
+} from "../../web-component/tests/runtime-host.js";
 import {
   createReactHarness,
   deepGeometry,
   settleEnhanced,
 } from "./react-dom-fake-host.js";
-import type { FakeElement } from "../../npm/tests/snapshot-dom-fixtures.js";
-import type { TiqianProseElement } from "../../npm/element.js";
+import type { FakeElement } from "../../web-component/tests/snapshot-dom-fixtures.js";
+import type { TiqianProseElement } from "../../web-component/element.js";
 
 // Demo corpus excerpt: the node-stack counterpart of demo/web's paragraphs,
 // shared verbatim between the two enhancement paths under test.

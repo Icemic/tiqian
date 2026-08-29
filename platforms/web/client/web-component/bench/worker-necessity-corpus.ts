@@ -10,7 +10,7 @@
 //   requests.json  - one layout-worker request object per corpus paragraph
 //   meta.json      - font, counts, bucket sizes and file sizes
 //
-// Run from the npm package root (frontend/web/npm):  node bench/worker-necessity-corpus.ts
+// Run from the npm package root (platforms/web/client/web-component):  node bench/worker-necessity-corpus.ts
 //
 // Only files under bench/ are written; the source page and the font directory
 // are read-only inputs.
@@ -347,7 +347,7 @@ function requestForParagraph(text: string, prepared: PrecomputerInstance, reques
 
 async function createProducer(fontDirectory: string, font: SelectedFont, typography: ProducerTypography): Promise<PrecomputerInstance> {
   const bytes: Uint8Array = new Uint8Array(readFileSync(join(fontDirectory, font.fileName)));
-  const precomputePath: string = new URL("../../../web-precompute/npm/lib/precompute.js", import.meta.url).href;
+  const precomputePath: string = new URL("../../../../../frontend/web-precompute/npm/lib/precompute.js", import.meta.url).href;
   const precomputeModule: PrecomputerModule = (await import(precomputePath)) as PrecomputerModule;
   let created: PrecomputerInstance;
   try {
@@ -420,7 +420,7 @@ async function main(): Promise<void> {
     firstLineIndentIc: PRODUCER_FIRST_LINE_INDENT_IC,
   };
   const precomputer: PrecomputerInstance = await createProducer(fontDirectory, font, producerTypography);
-  const htmlPreparerPath: string = new URL("../../../web-precompute/npm/lib/precompute-html.js", import.meta.url).href;
+  const htmlPreparerPath: string = new URL("../../../../../frontend/web-precompute/npm/lib/precompute-html.js", import.meta.url).href;
   const htmlPreparerModule: HtmlPreparerModule = (await import(htmlPreparerPath)) as HtmlPreparerModule;
   const preparer: HtmlPreparerInstance = await htmlPreparerModule.createHtmlPreparer({ precomputer });
   let prepared: PreparedHtml;

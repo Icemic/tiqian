@@ -7,7 +7,7 @@
 
 ## 1. element.js 现状
 
-`frontend/web/npm/element.js` 共 3441 行，含三段：
+`platforms/web/client/web-component/element.js` 共 3441 行，含三段：
 
 | 段 | 行 | 内容 |
 |---|---|---|
@@ -158,7 +158,7 @@ plan JSON 往返。
 
 ### 首测结果（2026-08-22）
 
-bench 与语料已入库：`frontend/web/npm/bench/worker-necessity.ts`（测量）与
+bench 与语料已入库：`platforms/web/client/web-component/bench/worker-necessity.ts`（测量）与
 `bench/worker-necessity-corpus.ts`（语料生成，取 sveltekit 站点 oh-my-2019 页 55 段
 4684 字符；5 段 emoji/颜文字因 producer 冻结 firstLineIndentIc 剔除，清单在
 `bench/fixtures/corpus/meta.json`）。复现：先运行语料生成脚本刷新
@@ -284,7 +284,7 @@ coordinator 路径（直调、测试、detach 收尾）的上限。准入检查�
 ## 7. 目标目录结构
 
 ```
-frontend/web/npm/            @tiqian/prose 拆为 core 与 web-component 两个 npm 包
+platforms/web/client/web-component/            @tiqian/prose 拆为 core 与 web-component 两个 npm 包
                               （连同 ffi 包共三个，依赖方向 web-component → core → ffi
                                 单向；ffi 包独立发布，见 ADR 0053 A4）
   core/                        独立 npm 包，依赖 ffi 包
@@ -530,7 +530,7 @@ tiqian:error 与 tiqian:relayout-error 由运行时宿主派发（WebEnhancerSup
 
 1. package.json exports 保持根路径，转发到新位置。demo/web 测试的 importmap 写的是字面
    路径（npm-published-vs-dev.test.mjs:225 与 ab/compare-refs.ts:259 带
-   `/frontend/web/npm/` 前缀；framework-commit-conflict.test.mjs:397–398 写 `/npm/`
+   `/platforms/web/client/web-component/` 前缀；framework-commit-conflict.test.mjs:397–398 写 `/npm/`
    前缀，由测试服务器映射到包目录），根路径模块必须
    实际存在；demo/web 生产消费只有 main.js:1 的 `import '@tiqian/prose/element'` 与
    package.json 的 `file:` 依赖。
@@ -548,7 +548,7 @@ tiqian:error 与 tiqian:relayout-error 由运行时宿主派发（WebEnhancerSup
 ## 12. 验证命令
 
 ```shell
-cd frontend/web/npm && nix develop -c npm test
+cd platforms/web/client/web-component && nix develop -c npm test
 nix develop -c ./gradlew :frontend:web:jsBrowserTest
 nix develop -c ./gradlew :ffi:js:jsNodeTest
 ```

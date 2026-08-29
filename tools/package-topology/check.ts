@@ -8,8 +8,8 @@
 // ci-ts-discipline.yml.)
 //
 // Packages and the only allowed dependency edges:
-//   @tiqian/prose      (frontend/web/npm)       web-component layer
-//   @tiqian/core (frontend/web/core)  core layer
+//   @tiqian/prose      (platforms/web/client/web-component)       web-component layer
+//   @tiqian/core (platforms/web/client/core)  core layer
 //   @tiqian/ffi        (ffi/js/npm)             ffi layer
 //   @tiqian/prose      -> @tiqian/core
 //   @tiqian/prose      -> @tiqian/ffi
@@ -73,8 +73,8 @@ interface SpecifierHit {
 }
 
 const PACKAGES: readonly Package[] = [
-  { name: "@tiqian/prose", dir: "frontend/web/npm" },
-  { name: "@tiqian/core", dir: "frontend/web/core" },
+  { name: "@tiqian/prose", dir: "platforms/web/client/web-component" },
+  { name: "@tiqian/core", dir: "platforms/web/client/core" },
   { name: "@tiqian/ffi", dir: "ffi/js/npm" },
 ];
 

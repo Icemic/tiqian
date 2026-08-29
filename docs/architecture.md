@@ -203,11 +203,11 @@ TalkBack character-location 能力不属于当前静态正文路径。
 
 ### Web
 
-`frontend/web` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
+`platforms/web/client` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
 HTML 先保持可读，TS runtime（`@tiqian/core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
 inline 与 CSS 仍由宿主持有；引擎只写入断行和 spacing geometry。
 
-同仓库的 `frontend/web/integrations/sveltekit` 与 `frontend/web/integrations/astro` 分别发布
+同仓库的 `platforms/web/client/sveltekit` 与 `platforms/web/client/astro` 分别发布
 `@tiqian/sveltekit` 和 `@tiqian/astro`。它们只把框架的 SSR、静态构建、head 资产与客户端导航生命周期
 接到 `@tiqian/prose`，不拥有另一份 HTML 投影或排版规则。最低配置的组件输出 semantic SSR，浏览器按
 实时 content width 增强；构建字体证据不要求宽度，只有显式 fixed-measure snapshot 需要
@@ -273,7 +273,7 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
   `platforms/android/shaping` 是 Compose Android 默认的公开平台 run 后端，
   `platforms/android/native-font` 持有宿主可显式选择的共享字体源、受控 face、
   HarfBuzz / FreeType 与同源 outline replay。
-- `platforms/compose/compose`、`frontend/web`、`platforms/android/view`：前端
+- `platforms/compose/compose`、`platforms/web/client`、`platforms/android/view`：前端
   lowering 与呈现。
 - `platforms/apple/frontend/coretext-render`：Apple 内部 Core Text renderer 与 paragraph backend。
 - `platforms/apple/frontend`：生产 Swift facade、静态 XCFramework、`AttributedString` authoring 与 Apple
@@ -282,7 +282,7 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 - `ffi/js`：引擎的 Kotlin/JS 门面（`@JsExport` wire 与 HarfBuzz session 后端）；不拥有排版规则。
 - `frontend/web-precompute`：Rust workspace（`tiqian-precompute`、`tiqian-precompute-neon`）与
   `@tiqian/precompute` npm 包；Node exact-font session 与构建期编排；不拥有排版规则。
-- `frontend/web/integrations/*`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
+- `platforms/web/client/astro`、`platforms/web/client/sveltekit`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
   HTML prepare 与 snapshot contract，不拥有排版或字体 policy。
 - `demo`：Desktop / Android 共用的 Compose 示例界面与 Desktop 启动入口。
 - `demo/android`：只负责 Android 应用打包和启动的薄外壳。

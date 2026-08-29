@@ -3,8 +3,8 @@
 // Origin: ADR 0053 (StrictTsDiscipline)
 //
 // This configuration enforces a strict type discipline across the three npm packages:
-//   - frontend/web/npm
-//   - frontend/web/core
+//   - platforms/web/client/web-component
+//   - platforms/web/client/core
 //   - ffi/js/npm
 //
 // Policy:
@@ -48,9 +48,9 @@ function findRepoRoot(): string {
 const repoRoot: string = findRepoRoot();
 
 const targetPackages: readonly string[] = [
-  "frontend/web/npm",
-  "frontend/web/core",
-  "frontend/web/react",
+  "platforms/web/client/web-component",
+  "platforms/web/client/core",
+  "platforms/web/client/react",
   "ffi/js/npm",
   "demo/web/tests",
 ];
@@ -114,7 +114,8 @@ const ignores: readonly string[] = [
   "ffi/schema/**",
   "ffi/rust/**",
   "frontend/web-precompute/**",
-  "frontend/web/integrations/**",
+  "platforms/web/client/astro/**",
+  "platforms/web/client/sveltekit/**",
 ];
 
 export default tseslint.config(

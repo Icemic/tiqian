@@ -194,14 +194,14 @@ jobs:
         # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
       - name: Build the TypeScript packages
-        working-directory: frontend/web/npm
+        working-directory: platforms/web/client/web-component
         run: npx tsc -b --noCheck
       - name: Regenerate the fixture and fail on drift
         run: |
           node frontend/web-precompute/scripts/build-prepared-dom-corpus.ts
-          git diff --exit-code frontend/web/npm/tests/prepared-dom-corpus.fixture.json
+          git diff --exit-code platforms/web/client/web-component/tests/prepared-dom-corpus.fixture.json
       - name: Replay the fixture through the js corpus test
-        run: node --test frontend/web/npm/tests/prepared-dom-corpus.test.js
+        run: node --test platforms/web/client/web-component/tests/prepared-dom-corpus.test.js
 
   # ADR 0050 Verification: the native lane must reproduce the js oracle's plan
   # JSON byte for byte. The Gradle tasks build both sides of the comparison
@@ -269,10 +269,10 @@ jobs:
         # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
       - name: Build core with full type checks
-        working-directory: frontend/web/core
+        working-directory: platforms/web/client/core
         run: npx tsc -b
       - name: Emit the prose package
-        working-directory: frontend/web/npm
+        working-directory: platforms/web/client/web-component
         run: npx tsc -b --noCheck
       - name: Run the npm suite engine-linked
         working-directory: frontend/web-precompute/npm

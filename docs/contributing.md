@@ -58,7 +58,7 @@ roadmap 不是贡献许可清单。修复明确的 bug、增加测试或改善�
 修改 npm 包的公开 exports、构建或打包流程时，还应验证实际 tarball，而不只检查工作目录：
 
 ```shell
-(cd frontend/web/npm && npm run verify:release)
+(cd platforms/web/client/web-component && npm run verify:release)
 ```
 
 该命令会重建 browser 与 precompute Kotlin/JS runtime、运行 npm 测试，再把 tarball 安装到临时 consumer

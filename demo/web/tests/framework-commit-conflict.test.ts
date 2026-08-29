@@ -58,8 +58,8 @@ import type {
 
 const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
-const npmDir: string = join(repoRoot, "frontend/web/npm");
-const npmCoreDir: string = join(repoRoot, "frontend/web/core");
+const npmDir: string = join(repoRoot, "platforms/web/client/web-component");
+const npmCoreDir: string = join(repoRoot, "platforms/web/client/core");
 const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 // The npm workspace installs shared packages (react, scheduler, react-dom,
 // svelte, clsx) into the repo-root node_modules rather than demo/web's own,

@@ -4,7 +4,7 @@
   "range": "wc-s5/s6 era .. HEAD",
   "entry": "@tiqian/prose/element (registerTiqianProse) + @tiqian/core prose-host-session",
   "adapter": "adapters/host-session.js",
-  "stylesheet": "frontend/web/core/styles.css",
+  "stylesheet": "platforms/web/client/core/styles.css",
   "importMap": {
     "imports": {
       "@tiqian/prose/element": "/prose/element.js",
@@ -14,13 +14,13 @@
     }
   },
   "static": {
-    "/prose": "frontend/web/npm",
-    "/core": "frontend/web/core",
+    "/prose": "platforms/web/client/web-component",
+    "/core": "platforms/web/client/core",
     "/ffi": "ffi/js/npm"
   },
   "build": [
     "./gradlew :ffi:js:assembleNpmPackage",
-    "npx tsc -b frontend/web/npm"
+    "npx tsc -b platforms/web/client/web-component"
   ],
   "engineNote": "Kotlin/JS engine via :ffi:js:assembleNpmPackage into ffi/js/npm/runtime/"
 }

@@ -3,16 +3,16 @@ name: TS discipline CI
 on:
   pull_request:
     paths:
-      - 'frontend/web/npm/**'
-      - 'frontend/web/core/**'
+      - 'platforms/web/client/web-component/**'
+      - 'platforms/web/client/core/**'
       - 'ffi/js/npm/**'
       - 'tools/ts-discipline/**'
       - '.github/workflows/ci-ts-discipline.yml'
   push:
     branches: [main]
     paths:
-      - 'frontend/web/npm/**'
-      - 'frontend/web/core/**'
+      - 'platforms/web/client/web-component/**'
+      - 'platforms/web/client/core/**'
       - 'ffi/js/npm/**'
       - 'tools/ts-discipline/**'
       - '.github/workflows/ci-ts-discipline.yml'
@@ -42,7 +42,7 @@ jobs:
         run: npx --prefix tools/ts-discipline eslint --config tools/ts-discipline/eslint.config.ts .
       - name: Verify zero eslint-disable directives
         run: |
-          ! grep -rn "eslint-disable" frontend/web/npm frontend/web/core ffi/js/npm \
+          ! grep -rn "eslint-disable" platforms/web/client/web-component platforms/web/client/core ffi/js/npm \
             --include="*.js" --include="*.mjs" --include="*.ts" \
             --exclude-dir=node_modules --exclude-dir=runtime
       # eslint's TS-syntax rules cannot see JSDoc type annotations in plain
@@ -51,6 +51,6 @@ jobs:
       # annotation position is a failure.
       - name: Verify zero any types including JSDoc
         run: |
-          ! grep -rnE '\{[^}]*\bany\b[^}]*\}|: any\b|any\[\]' frontend/web/npm frontend/web/core ffi/js/npm \
+          ! grep -rnE '\{[^}]*\bany\b[^}]*\}|: any\b|any\[\]' platforms/web/client/web-component platforms/web/client/core ffi/js/npm \
             --include="*.js" --include="*.mjs" --include="*.ts" \
             --exclude-dir=node_modules --exclude-dir=runtime

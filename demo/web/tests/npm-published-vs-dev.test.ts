@@ -31,12 +31,12 @@ import type {
 
 const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot: string = fileURLToPath(new URL("../../../", import.meta.url));
-const devPkgDir: string = join(repoRoot, "frontend/web/npm");
+const devPkgDir: string = join(repoRoot, "platforms/web/client/web-component");
 const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 
 // The published release and the working tree are served through the same
 // static server and import map, so the only variable between the two pages is
-// which @tiqian/prose directory /frontend/web/npm/ resolves to. Both sides run
+// which @tiqian/prose directory /platforms/web/client/web-component/ resolves to. Both sides run
 // as native ESM; neither goes through parcel.
 const devPort: number = 9002;
 const pubPort: number = 9004;
@@ -239,9 +239,9 @@ function compareScreenshots(a: Buffer, b: Buffer): ScreenshotComparison {
 // "@tiqian/prose/element" resolves to the chosen package directory. The dev
 // side also maps "@tiqian/core/" to the core working tree, from
 // which the dev layout worker loads. The stylesheet link
-// "../../frontend/web/npm/styles.css" resolves from the page root to the same
+// "../../platforms/web/client/web-component/styles.css" resolves from the page root to the same
 // directory, so published CSS pairs with published JS. The prefix entry alone
-// maps "@tiqian/prose/auto" onto the extensionless URL /frontend/web/npm/auto,
+// maps "@tiqian/prose/auto" onto the extensionless URL /platforms/web/client/web-component/auto,
 // which the file server below cannot answer, so the auto entry carries its
 // own exact mapping.
 function startDemoServer(port: number, pkgDir: string): Promise<DemoServerHandle> {
@@ -252,7 +252,7 @@ function startDemoServer(port: number, pkgDir: string): Promise<DemoServerHandle
       if (path === "/") {
         const html: string = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/auto":"/frontend/web/npm/auto.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js","@tiqian/core/":"/frontend/web/core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/platforms/web/client/web-component/element.js","@tiqian/prose/auto":"/platforms/web/client/web-component/auto.js","@tiqian/prose/":"/platforms/web/client/web-component/","@tiqian/prose":"/platforms/web/client/web-component/element.js","@tiqian/core/":"/platforms/web/client/core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -272,18 +272,18 @@ function startDemoServer(port: number, pkgDir: string): Promise<DemoServerHandle
         // precompute-runtime import.
         const rest: string = path.slice("/ffi/".length);
         file = join(ffiRuntimeDir, rest);
-      } else if (path.startsWith("/frontend/web/npm/")) {
-        const rest: string = path.slice("/frontend/web/npm/".length);
+      } else if (path.startsWith("/platforms/web/client/web-component/")) {
+        const rest: string = path.slice("/platforms/web/client/web-component/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
-      } else if (path.startsWith("/frontend/web/core/")) {
-        const rest: string = path.slice("/frontend/web/core/".length);
-        file = join(repoRoot, "frontend/web/core", rest);
+      } else if (path.startsWith("/platforms/web/client/core/")) {
+        const rest: string = path.slice("/platforms/web/client/core/".length);
+        file = join(repoRoot, "platforms/web/client/core", rest);
         if (rest.endsWith(".css")) type = "text/css";
       }
       const data: Buffer | null = file ? await readFile(file).catch(() => null) : null;
       if (data) {
-        if (path === "/frontend/web/core/layout-worker.js") {
+        if (path === "/platforms/web/client/core/layout-worker.js") {
           const source: string = data.toString("utf8");
           const occurrences: number = source.split('from "@tiqian/ffi"').length - 1;
           if (occurrences > 1) throw new Error(`unexpected engine import count ${occurrences}`);

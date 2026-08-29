@@ -14,8 +14,8 @@
 //       `let`, top-level `const ... = new Map/WeakMap`, top-level closure
 //       singletons (`const x[: T] = createX()`), and globalThis registry
 //       writes. Allowed without exemption only in:
-//         - frontend/web/core/core/services/ (the ServiceDirectoryRule home)
-//         - frontend/web/core/core/engine/layout-worker.ts (worker world:
+//         - platforms/web/client/core/core/services/ (the ServiceDirectoryRule home)
+//         - platforms/web/client/core/core/engine/layout-worker.ts (worker world:
 //           runs in its own JS global scope, not the document's)
 //   S2  Every exemption entry lists the exact declaration names it covers.
 //       A name that disappears without its exemption entry being deleted
@@ -47,10 +47,10 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT: string = findRepoRoot();
-const SCAN_ROOTS: readonly string[] = ["frontend/web/core/core", "frontend/web/npm"];
+const SCAN_ROOTS: readonly string[] = ["platforms/web/client/core/core", "platforms/web/client/web-component"];
 const SANCTIONED_PREFIXES: readonly string[] = [
-  "frontend/web/core/core/services/",
-  "frontend/web/core/core/engine/layout-worker.ts",
+  "platforms/web/client/core/core/services/",
+  "platforms/web/client/core/core/engine/layout-worker.ts",
 ];
 
 interface Exemption {
@@ -61,15 +61,15 @@ interface Exemption {
 
 // file (repo-relative) -> { names: string[], reason: string, task?: string }
 const EXEMPTIONS: ReadonlyMap<string, Exemption> = new Map([
-  ["frontend/web/core/core/sampler/snapshot/snapshot-manifest.ts", {
+  ["platforms/web/client/core/core/sampler/snapshot/snapshot-manifest.ts", {
     names: ["replayMetricsByView"],
     reason: "pure-memo: WeakMap keyed by immutable table view; input-deterministic, no teardown, derivation cache",
   }],
-  ["frontend/web/core/core/sampler/snapshot/precomputed.ts", {
+  ["platforms/web/client/core/core/sampler/snapshot/precomputed.ts", {
     names: ["unicodeRangeCache"],
     reason: "pure-memo: bounded Map cache of parsed CSS unicode-range descriptors; input-deterministic, no lifecycle",
   }],
-  ["frontend/web/core/core/engine/markdown-lowering.ts", {
+  ["platforms/web/client/core/core/engine/markdown-lowering.ts", {
     names: ["graphemeSegmenter"],
     reason: "pure-memo: one stateless Intl.Segmenter instance; input-deterministic, no teardown",
   }],

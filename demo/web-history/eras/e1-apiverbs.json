@@ -4,17 +4,17 @@
   "range": "876612ef .. before e8752ae4 port completion",
   "entry": "@tiqian/prose api.js verbs (enhanceProgressively/enhance), Kotlin/JS engine",
   "adapter": "adapters/api-verbs.js",
-  "stylesheet": "frontend/web/npm/styles.css",
+  "stylesheet": "platforms/web/client/web-component/styles.css",
   "importMap": {
     "imports": {
       "@tiqian/prose": "/pkg/api.js"
     }
   },
   "static": {
-    "/pkg": "frontend/web/npm"
+    "/pkg": "platforms/web/client/web-component"
   },
   "build": [
     "./gradlew :frontend:web:assembleNpmPackage"
   ],
-  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into frontend/web/npm/runtime/tiqian-web.js"
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into platforms/web/client/web-component/runtime/tiqian-web.js"
 }

@@ -4,7 +4,7 @@
   "range": "af4f310f (declare WorkerLayoutRequest and PrepareParagraphRequest DTOs) .. window C probe",
   "entry": "@tiqian/prose api.ts verbs over @tiqian/core TS modules, root npm workspace",
   "adapter": "adapters/api-verbs.js",
-  "stylesheet": "frontend/web/core/styles.css",
+  "stylesheet": "platforms/web/client/core/styles.css",
   "importMap": {
     "imports": {
       "@tiqian/prose": "/pkg/api.js",
@@ -13,14 +13,14 @@
     }
   },
   "static": {
-    "/pkg": "frontend/web/npm",
-    "/core": "frontend/web/core",
+    "/pkg": "platforms/web/client/web-component",
+    "/core": "platforms/web/client/core",
     "/ffi": "ffi/js/npm"
   },
   "build": [
     "npm install --no-audit --no-fund",
-    "cd frontend/web/core && npx tsc",
-    "npx tsc -b frontend/web/npm"
+    "cd platforms/web/client/core && npx tsc",
+    "npx tsc -b platforms/web/client/web-component"
   ],
   "engineNote": "Compiled core .js is gitignored from 4818b3f3 on; the era build compiles core (tsc) and the prose package (tsc -b) inside the workspace"
 }

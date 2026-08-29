@@ -4,8 +4,8 @@ import test from "node:test";
 
 test("published package ships the TS runtime modules and no repository-only bin", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  const rootLock = JSON.parse(await readFile(new URL("../../../../package-lock.json", import.meta.url), "utf8"));
-  const lock = rootLock.packages["frontend/web/npm"];
+  const rootLock = JSON.parse(await readFile(new URL("../../../../../package-lock.json", import.meta.url), "utf8"));
+  const lock = rootLock.packages["platforms/web/client/web-component"];
 
   assert.equal(manifest.name, "@tiqian/prose");
   assert.equal(lock.version, manifest.version);
@@ -87,7 +87,7 @@ test("the release helper derives the repository tag and commit subject from one 
 
 test("the ffi release workflow mirrors the prose one for the engine package", async () => {
   const workflow = await readFile(
-    new URL("../../../../.github/workflows/publish-ffi.yml", import.meta.url),
+    new URL("../../../../../.github/workflows/publish-ffi.yml", import.meta.url),
     "utf8",
   );
 
@@ -102,7 +102,7 @@ test("the ffi release workflow mirrors the prose one for the engine package", as
 
 test("the release workflow publishes one verified artifact and synchronizes both dist-tags", async () => {
   const workflow = await readFile(
-    new URL("../../../../.github/workflows/publish-prose.yml", import.meta.url),
+    new URL("../../../../../.github/workflows/publish-prose.yml", import.meta.url),
     "utf8",
   );
 

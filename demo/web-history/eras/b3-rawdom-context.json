@@ -4,7 +4,7 @@
   "range": "d0c5f50f (move raw-DOM paragraph state onto the enhance context) .. window B probe",
   "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core TS modules; engine installed by ts-runtime.js from @tiqian/ffi (Kotlin bundle retired in the 3-commit window e8752ae4..11067981, browser-unrenderable)",
   "adapter": "adapters/api-verbs.js",
-  "stylesheet": "frontend/web/npm-core/styles.css",
+  "stylesheet": "platforms/web/client/web-component-core/styles.css",
   "importMap": {
     "imports": {
       "@tiqian/prose": "/pkg/api.js",
@@ -13,12 +13,12 @@
     }
   },
   "static": {
-    "/pkg": "frontend/web/npm",
-    "/corepkg": "frontend/web/npm-core",
+    "/pkg": "platforms/web/client/web-component",
+    "/corepkg": "platforms/web/client/web-component-core",
     "/ffi": "ffi/js/npm"
   },
   "build": [
     "./gradlew :ffi:js:assembleNpmPackage"
   ],
-  "engineNote": "TS host engine scripts in frontend/web/npm-core; layout engine from ffi/js/npm/runtime built by :ffi:js:assembleNpmPackage"
+  "engineNote": "TS host engine scripts in platforms/web/client/web-component-core; layout engine from ffi/js/npm/runtime built by :ffi:js:assembleNpmPackage"
 }

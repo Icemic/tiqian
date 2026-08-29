@@ -86,7 +86,7 @@ CjkText(
 ```
 
 安装、命令式 API、构建期预排与运行环境见
-[`@tiqian/prose` 使用文档](frontend/web/npm/README.md)。
+[`@tiqian/prose` 使用文档](platforms/web/client/web-component/README.md)。
 
 ## 体验与构建
 
@@ -108,7 +108,7 @@ demo 覆盖 Compose density，例如 Plasma 的 150% 缩放使用：
 
 ## 文档
 
-- [`@tiqian/prose` 使用文档](frontend/web/npm/README.md) 说明 Web 安装、接入方式与构建期预排。
+- [`@tiqian/prose` 使用文档](platforms/web/client/web-component/README.md) 说明 Web 安装、接入方式与构建期预排。
 - [Roadmap](docs/roadmap.md) 记录当前进度、已经完成的切片与下一步工作。
 - [当前架构](docs/architecture.md) 说明 pipeline、模块边界与平台接入方式。
 - [ADR 索引](docs/adr/README.md) 记录已经确定的架构和排版取舍。

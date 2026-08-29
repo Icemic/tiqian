@@ -10,16 +10,16 @@ name: Package topology CI
 on:
   pull_request:
     paths:
-      - 'frontend/web/npm/**'
-      - 'frontend/web/core/**'
+      - 'platforms/web/client/web-component/**'
+      - 'platforms/web/client/core/**'
       - 'ffi/js/npm/**'
       - 'tools/package-topology/**'
       - '.github/workflows/ci-package-topology.yml'
   push:
     branches: [main]
     paths:
-      - 'frontend/web/npm/**'
-      - 'frontend/web/core/**'
+      - 'platforms/web/client/web-component/**'
+      - 'platforms/web/client/core/**'
       - 'ffi/js/npm/**'
       - 'tools/package-topology/**'
       - '.github/workflows/ci-package-topology.yml'

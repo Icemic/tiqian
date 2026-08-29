@@ -2,7 +2,7 @@
 //
 // Builds the shared fixture consumed by BOTH parity lanes: the Rust
 // integration test `rust/tiqian-precompute/tests/prepared_dom_corpus.rs` and
-// the js test `frontend/web/npm/tests/prepared-dom-corpus.test.mjs`. The js module
+// the js test `platforms/web/client/web-component/tests/prepared-dom-corpus.test.mjs`. The js module
 // `prepared-dom.js` is the oracle; regenerating the fixture is deliberate:
 //
 //   node scripts/build-prepared-dom-corpus.ts   (from frontend/web-precompute)
