@@ -2,7 +2,25 @@
 
 package org.tiqian.shaping
 
-import kotlinx.cinterop.* // ktlint-disable
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CPointer
+import kotlinx.cinterop.CPointerVar
+import kotlinx.cinterop.DoubleVar
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.allocPointerTo
+import kotlinx.cinterop.cstr
+import kotlinx.cinterop.get
+import kotlinx.cinterop.invoke
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.pointed
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.toKString
+import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import org.tiqian.core.Cluster
 import org.tiqian.core.Glyph
 import org.tiqian.core.GlyphRun
@@ -138,15 +156,11 @@ private fun <R> withFamilyArray(
     families: List<String>,
     block: (familyArray: CPointer<CPointerVar<ByteVar>>, familyCount: Int) -> R,
 ): R = memScoped {
-    val cStrings = families.map { it.cstr.ptr }
-    val count = cStrings.size
-    val rawArr = allocArray<ByteVar>(count * 8)!!
-    for (i in cStrings.indices) {
-        val target = (rawArr + (i * 8).toLong())!!
-            .reinterpret<CPointerVar<ByteVar>>()
-        target.pointed.value = cStrings[i]
+    val familyArray = allocArray<CPointerVar<ByteVar>>(families.size)
+    families.forEachIndexed { index, family ->
+        (familyArray + index.toLong())!!.pointed.value = family.cstr.ptr
     }
-    block(rawArr.reinterpret<CPointerVar<ByteVar>>(), count)
+    block(familyArray, families.size)
 }
 
 /** GSUB can emit more glyphs than code points; double the length plus slack. */
@@ -201,7 +215,7 @@ private fun tiqian_font_backend_vtable_t.invokeShape(
     sourceText: String,
     sessionId: String,
     buffer: ByteArray,
-    errorSlot: kotlinx.cinterop.CPointerVar<ByteVar>,
+    errorSlot: CPointerVar<ByteVar>,
 ): Long = memScoped {
     buffer.usePinned { pinned ->
         shape!!.invoke(
@@ -253,7 +267,7 @@ private fun tiqian_font_backend_vtable_t.metricsPacked(
 }
 
 private fun tiqian_font_backend_vtable_t.checkError(
-    errorSlot: kotlinx.cinterop.CPointerVar<ByteVar>,
+    errorSlot: CPointerVar<ByteVar>,
     needed: Long,
 ) {
     if (needed < 0) throwNamedError(errorSlot.value)
