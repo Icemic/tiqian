@@ -7,11 +7,11 @@ import test from "node:test";
 import { transform } from "@astrojs/compiler-rs";
 import { build } from "astro";
 
-import { tiqian } from "./integration.js";
+import { tiqian } from "./dist/integration.js";
 import {
   hoistTiqianAstroAssets,
   renderAstroSnapshotAssets,
-} from "./transport.js";
+} from "./dist/transport.js";
 
 // The real-site build prerenders snapshot assets through the native addon.
 // A checkout without an addon build cannot exercise that path. The suite for
@@ -41,6 +41,7 @@ test("package manifest publishes only the integration surface", async () => {
   assert.equal(manifest.engines.node, prose.engines.node);
   assert.deepEqual(Object.keys(manifest.exports).sort(), [".", "./TiqianProse.astro"]);
   assert.ok(manifest.files.includes("TiqianProse.astro"));
+  assert.ok(manifest.files.includes("dist"));
 });
 
 test("Astro component compiles", async () => {
@@ -54,37 +55,66 @@ test("integration exposes width-free preparation unless snapshot is explicit", (
     fontStylesheets: [{ source: "/tmp/article.css", publicUrl: "/article.css" }],
     typography: { fontFamilies: ["Article Sans"], fontSizePx: 18, lineHeightPx: 32 },
   });
-  let vitePlugin;
-  integration.hooks["astro:config:setup"]({
-    updateConfig(config) {
-      vitePlugin = config.vite.plugins[0];
+  interface MockPlugin {
+    resolveId(id: string): string | null;
+    load(id: string | null): string | null;
+  }
+  interface MockViteConfig {
+    vite?: {
+      plugins?: readonly MockPlugin[];
+    };
+  }
+  let vitePlugin: MockPlugin | undefined;
+  const configSetup = integration.hooks["astro:config:setup"];
+  assert.ok(configSetup);
+  (configSetup as (options: { updateConfig: (config: MockViteConfig) => void }) => void)({
+    updateConfig(config: MockViteConfig) {
+      vitePlugin = config.vite?.plugins?.[0];
     },
   });
+  assert.ok(vitePlugin);
   const resolved = vitePlugin.resolveId("virtual:@tiqian/astro/preparer");
+  assert.ok(resolved);
   const source = vitePlugin.load(resolved);
+  assert.ok(source);
   assert.match(source, /const defaultSnapshot = null/u);
   assert.doesNotMatch(source, /maxWidthPx/u);
 });
 
 test("runtime-only Astro integration needs no typography or maximum width", () => {
   const integration = tiqian();
-  let vitePlugin;
-  integration.hooks["astro:config:setup"]({
-    updateConfig(config) {
-      vitePlugin = config.vite.plugins[0];
+  interface MockPlugin {
+    resolveId(id: string): string | null;
+    load(id: string | null): string | null;
+  }
+  interface MockViteConfig {
+    vite?: {
+      plugins?: readonly MockPlugin[];
+    };
+  }
+  let vitePlugin: MockPlugin | undefined;
+  const configSetup = integration.hooks["astro:config:setup"];
+  assert.ok(configSetup);
+  (configSetup as (options: { updateConfig: (config: MockViteConfig) => void }) => void)({
+    updateConfig(config: MockViteConfig) {
+      vitePlugin = config.vite?.plugins?.[0];
     },
   });
+  assert.ok(vitePlugin);
   const resolved = vitePlugin.resolveId("virtual:@tiqian/astro/preparer");
+  assert.ok(resolved);
   const source = vitePlugin.load(resolved);
+  assert.ok(source);
   assert.match(source, /html: String\(html\)/u);
   assert.doesNotMatch(source, /createHtmlPreparer|maxWidthPx/u);
 });
 
 test("Astro check may configure the integration without a build output", () => {
   const hook = tiqian().hooks["astro:config:done"];
-  assert.doesNotThrow(() => hook({ buildOutput: undefined, injectTypes() {} }));
+  assert.ok(hook);
+  assert.doesNotThrow(() => (hook as (options: { buildOutput: undefined; injectTypes(): void }) => void)({ buildOutput: undefined, injectTypes() {} }));
   assert.throws(
-    () => hook({ buildOutput: "server", injectTypes() {} }),
+    () => (hook as (options: { buildOutput: string; injectTypes(): void }) => void)({ buildOutput: "server", injectTypes() {} }),
     /TiqianAstroStaticOutputRequired/u,
   );
 });
@@ -109,23 +139,29 @@ test("static transport preserves JavaScript replacement tokens in snapshot asset
 
 test("the tables middleware serves transport URLs and passes others through", async () => {
   const { normalizeTiqianAstroTablesOptions, tiqianAstroTables, tiqianAstroTableMiddleware } =
-    await import("./tables.js");
+    await import("./dist/tables.js");
   const root = await mkdtemp(path.join(process.cwd(), ".astro-tables-"));
   try {
     const sha = "1".repeat(64);
     const transport = tiqianAstroTables(
       normalizeTiqianAstroTablesOptions({ directory: path.join(root, "tables") }),
     );
+    assert.ok(transport);
     transport.write({ bytes: Buffer.from("TIQTBL03-fixture"), sha256: sha });
     const middleware = tiqianAstroTableMiddleware(transport);
-    const serve = (url) => new Promise((resolve) => {
-      const chunks = [];
+    interface ServeResult {
+      readonly body?: string;
+      readonly passed?: boolean;
+    }
+    const serve = (url: string): Promise<ServeResult> => new Promise((resolve) => {
+      const chunks: string[] = [];
       middleware(
         { method: "GET", url },
         {
-          setHeader() {},
-          end(body) { resolve({ body: chunks.join("") + (body ?? "") }); },
-          write(chunk) { chunks.push(String(chunk)); },
+          setHeader(): void {},
+          end(body?: Buffer | string): void {
+            resolve({ body: chunks.join("") + (body ? String(body) : "") });
+          },
         },
         () => resolve({ passed: true }),
       );
@@ -141,12 +177,13 @@ test("the tables middleware serves transport URLs and passes others through", as
 
 test("a tables-only integration ships referenced tables and sweeps stale ones", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, async () => {
   const { shipTiqianAstroTables, normalizeTiqianAstroTablesOptions, tiqianAstroTables } =
-    await import("./tables.js");
+    await import("./dist/tables.js");
   const root = await mkdtemp(path.join(process.cwd(), ".astro-tables-ship-"));
   try {
     const transport = tiqianAstroTables(
       normalizeTiqianAstroTablesOptions({ directory: path.join(root, "cache") }),
     );
+    assert.ok(transport);
     const live = "3".repeat(64);
     const stale = "4".repeat(64);
     transport.write({ bytes: Buffer.from("live"), sha256: live });
@@ -157,10 +194,10 @@ test("a tables-only integration ships referenced tables and sweeps stale ones", 
       path.join(output, "index.html"),
       `<html><head></head><body><tiqian-prose tq-tables="/tiqian-tables/${live}.tiqtbl"></tiqian-prose></body></html>`,
     );
-    const logs = [];
+    const logs: string[] = [];
     const result = await shipTiqianAstroTables(transport, output, {
-      info(message) { logs.push(message); },
-      error(message) { logs.push(message); },
+      info(message: string) { logs.push(message); },
+      error(message: string) { logs.push(message); },
     });
     assert.deepEqual(result, { shipped: 1, swept: 1, missing: [] });
     assert.deepEqual(await readFile(path.join(output, "tiqian-tables", `${live}.tiqtbl`), "utf8"), "live");

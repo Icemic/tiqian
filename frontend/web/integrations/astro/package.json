@@ -10,14 +10,12 @@
     "README.md",
     "TiqianProse.astro",
     "index.d.ts",
-    "integration.js",
-    "tables.js",
-    "transport.js"
+    "dist"
   ],
   "exports": {
     ".": {
       "types": "./index.d.ts",
-      "default": "./integration.js"
+      "default": "./dist/integration.js"
     },
     "./TiqianProse.astro": "./TiqianProse.astro"
   },
@@ -40,7 +38,7 @@
     "astro": "7.0.7"
   },
   "scripts": {
-    "test": "node --test *.test.mjs",
-    "prepack": "npm test"
+    "test": "node --test *.test.ts",
+    "prepack": "tsc -p . && npm test"
   }
 }
