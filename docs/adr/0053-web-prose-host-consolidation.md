@@ -836,8 +836,10 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   verify:package（runtime 标记与 wasm 禁令随产物迁入 prose-core 侧）全部
   通过；跨包相对导入与反向依赖 grep 零命中。测试文件
   browser-fonts-fixtures.mjs 与 snapshot-dom-fixtures.mjs 两侧各有消费者，
-  各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
-  消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
+  各留一份副本。待办：kotlin-js-store 归位已于 2026-08-29 完成（git mv 至
+  ffi/js/kotlin-js-store，root build.gradle.kts 经 kotlinYarn.lockFileDirectory
+  固定；:ffi:js:jsNodeTest 通过，kotlinStoreYarnLock 回写与迁移前字节一致）；
+  demo/web 消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
   F3 配置。
   进度（拓扑 CI，2026-08-23）：e2123ca。tools/package-topology/check.mjs
   （零依赖 node 脚本）查两件事：三包 package.json 的 @tiqian/* 边只允许
