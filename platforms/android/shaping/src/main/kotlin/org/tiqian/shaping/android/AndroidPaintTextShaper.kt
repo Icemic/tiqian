@@ -190,19 +190,42 @@ class AndroidPaintTextShaper(
             paint.getRunAdvance(displayText, 0, displayText.length, 0, displayText.length, false, displayText.length)
         val shaped =
             TextRunShaper.shapeTextRun(displayText, 0, displayText.length, 0, displayText.length, 0f, 0f, false, paint)
-        val ids = IntArray(shaped.glyphCount()) { shaped.getGlyphId(it) }
-        val xs = FloatArray(shaped.glyphCount()) { shaped.getGlyphX(it) }
-        val ys = FloatArray(shaped.glyphCount()) { shaped.getGlyphY(it) }
-        val bounds = List(shaped.glyphCount()) { shaped.glyphBounds(it, paint) }
-        val fonts = List(shaped.glyphCount()) { index ->
-            AndroidPositionedGlyphFontRegistry.keyFor(shaped.getFont(index))
+        val glyphCount = shaped.glyphCount()
+        val ids = IntArray(glyphCount) { shaped.getGlyphId(it) }
+        val xs = FloatArray(glyphCount) { shaped.getGlyphX(it) }
+        val ys = FloatArray(glyphCount) { shaped.getGlyphY(it) }
+        // RepeatedGlyphMetricReuse: glyph bounds and the font-registry key are pure in
+        // (font, glyph id) under this call's fixed paint, and long runs repeat a small glyph
+        // alphabet. Per-call memoisation with one JNI read per glyph keeps a 100K-char
+        // pathological token at a few dozen metric calls.
+        val boundsByFont = HashMap<android.graphics.fonts.Font, HashMap<Int, Rect?>>()
+        val fontKeyByFont = HashMap<android.graphics.fonts.Font, String?>()
+        val bounds = ArrayList<Rect?>(glyphCount)
+        val fonts = ArrayList<String?>(glyphCount)
+        for (index in 0 until glyphCount) {
+            val font = shaped.getFont(index)
+            val glyphId = ids[index]
+            val perFont = boundsByFont.getOrPut(font) { HashMap() }
+            bounds += if (glyphId in perFont) {
+                perFont.getValue(glyphId)
+            } else {
+                font.glyphLocalBounds(glyphId, paint).also { perFont[glyphId] = it }
+            }
+            fonts += if (font in fontKeyByFont) {
+                fontKeyByFont.getValue(font)
+            } else {
+                AndroidPositionedGlyphFontRegistry.keyFor(font).also { fontKeyByFont[font] = it }
+            }
         }
         return MeasuredRun(advance, ids, xs, ys, fonts, bounds)
     }
 
-    private fun PositionedGlyphs.glyphBounds(index: Int, paint: TextPaint): Rect? {
+    private fun PositionedGlyphs.glyphBounds(index: Int, paint: TextPaint): Rect? =
+        getFont(index).glyphLocalBounds(getGlyphId(index), paint)
+
+    private fun android.graphics.fonts.Font.glyphLocalBounds(glyphId: Int, paint: TextPaint): Rect? {
         val bounds = AndroidRectF()
-        getFont(index).getGlyphBounds(getGlyphId(index), paint, bounds)
+        getGlyphBounds(glyphId, paint, bounds)
         return bounds.toGlyphLocalRectOrNull()
     }
 
