@@ -12,7 +12,7 @@ import {
   rawDomTake,
 } from "../core/engine/raw-dom.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import { FakeElement, FakeFragment, FakeNode, FakeText, styleDeclaration } from "./snapshot-dom-fixtures.mjs";
+import { FakeElement, FakeFragment, FakeNode, FakeText, styleDeclaration } from "./snapshot-dom-fixtures.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
 import type { DiagnosisIssueRecord } from "../core/engine/context/diagnosis-manager.js";

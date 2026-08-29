@@ -7,8 +7,8 @@ import { createEnhanceContext } from "../core/engine/context/enhance-context.js"
 import { optionsFromJs } from "../core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import { installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
-import { FakeElement, FakeFragment, FakeNode, FakeText, asElement, asFakeElement, asNodeConstructor } from "./snapshot-dom-fixtures.mjs";
+import { installThrowingFontBackend } from "../test-support/fixture-font-backend.js";
+import { FakeElement, FakeFragment, FakeNode, FakeText, asElement, asFakeElement, asNodeConstructor } from "./snapshot-dom-fixtures.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import type { TiqianLayoutWorkerInstance } from "../core/engine/coordination/coordination-service.js";
 import type { ReplayProbe, ReplayRegistry } from "../core/measurement/browser-font-replay.js";

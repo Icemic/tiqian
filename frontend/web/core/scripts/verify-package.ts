@@ -20,12 +20,19 @@ const REQUIRED_FILES = [
   "core/sampler/snapshot/table-binary-writer.mjs",
 ];
 
-function fail(message) {
+function fail(message: string): never {
   throw new Error(`PackageVerificationFailed: ${message}`);
 }
 
-export async function verifyPackage(packageRoot = new URL("../", import.meta.url)) {
-  const manifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
+interface PackageManifest {
+  name: string;
+  license: string;
+  dependencies?: Record<string, string>;
+  files: string[];
+}
+
+export async function verifyPackage(packageRoot: URL = new URL("../", import.meta.url)): Promise<void> {
+  const manifest: PackageManifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
   if (manifest.name !== EXPECTED_NAME) fail(`expected ${EXPECTED_NAME}, found ${manifest.name}`);
   if (manifest.license !== "MPL-2.0") fail("manifest must declare MPL-2.0");
   if (manifest.dependencies?.["@tiqian/prose"]) {

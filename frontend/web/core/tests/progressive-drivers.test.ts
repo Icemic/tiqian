@@ -11,8 +11,8 @@ import {
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
-import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
-import type { FixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { installFixtureFontBackend } from "../test-support/fixture-font-backend.js";
+import type { FixtureFontBackend } from "../test-support/fixture-font-backend.js";
 import {
   FakeElement,
   FakeFragment,
@@ -20,7 +20,7 @@ import {
   FakeText,
   asNodeConstructor,
   emptyDomRectList,
-} from "./snapshot-dom-fixtures.mjs";
+} from "./snapshot-dom-fixtures.js";
 import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
 import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";

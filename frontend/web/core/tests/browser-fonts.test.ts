@@ -13,8 +13,8 @@ import {
   getCurrentTable,
   harness,
   manifestWithFaces,
-} from "./browser-fonts-fixtures.mjs";
-import { emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
+} from "./browser-fonts-fixtures.js";
+import { emptyDomRectList } from "./snapshot-dom-fixtures.js";
 import { optionsFromJs } from "../core/engine/lifecycle.js";
 import { workerLayoutRequestForRoot } from "../core/engine/worker-request.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
@@ -33,7 +33,7 @@ import type {
   IsCurrentPredicate,
   PrepareJobOptions,
 } from "../core/engine/web-worker/worker-channel.js";
-import type { SnapshotRootDocumentOverrides } from "./browser-fonts-fixtures.mjs";
+import type { SnapshotRootDocumentOverrides } from "./browser-fonts-fixtures.js";
 import type { Thunk } from "./types.js";
 
 type NodeListOfElement = NodeListOf<Element>;

@@ -6,8 +6,8 @@ import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-reconcile.js";
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
-import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
-import { FakeElement, FakeFragment, FakeNode, FakeText, asNode, asNodeConstructor, emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
+import { installFixtureFontBackend } from "../test-support/fixture-font-backend.js";
+import { FakeElement, FakeFragment, FakeNode, FakeText, asNode, asNodeConstructor, emptyDomRectList } from "./snapshot-dom-fixtures.js";
 import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
@@ -15,7 +15,7 @@ import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/life
 import type { BrowserFallbackDescriptor } from "../core/engine/enhance/typography.js";
 import type { DiagnosisIssueRecord } from "../core/engine/context/diagnosis-manager.js";
 import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
-import type { FixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import type { FixtureFontBackend } from "../test-support/fixture-font-backend.js";
 import type { CoordinationPoolSlot, GlobalEntry, Thunk } from "./types.js";
 initializeGlobalServices();
 

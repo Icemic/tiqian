@@ -14,7 +14,7 @@ import {
   sha256,
   styleDeclaration,
   type FixtureComputedStyleOverrides,
-} from "./snapshot-dom-fixtures.mjs";
+} from "./snapshot-dom-fixtures.js";
 import {
   adoptedPrecomputedSnapshotLiveIssue,
   cssFaceContract,

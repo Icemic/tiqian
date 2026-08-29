@@ -14,14 +14,63 @@
 
 const MISSING_GLYPH_MARKER = "\u22ef"; // "⋯"
 
-function makeFixtureCallbacks() {
+export type ShapeJsonFn = (requestJson: string) => string;
+export type MetricsJsonFn = (requestJson: string) => string;
+export type UninstallFn = () => void;
+
+export interface FixtureFontCallbacks {
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
+}
+
+export interface FixtureFontBackend {
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
+  uninstall: UninstallFn;
+}
+
+interface ShapeRequestStyle {
+  fontSize: number;
+  locale?: string;
+}
+
+interface ShapeRequestRange {
+  start: number;
+  end: number;
+}
+
+interface ShapeRequestFontDecision {
+  candidateKey: string;
+}
+
+interface ShapeRequest {
+  displayText: string;
+  text: string;
+  range: ShapeRequestRange;
+  style: ShapeRequestStyle;
+  fontDecision: ShapeRequestFontDecision;
+}
+
+interface MetricsRequest {
+  fontSize: number;
+}
+
+interface InternalGlyph {
+  id: number;
+  advance: number;
+  x: number;
+  y: number;
+  bounds: [number, number, number, number];
+}
+
+function makeFixtureCallbacks(): FixtureFontCallbacks {
   return {
-    shapeJson: (requestJson) => {
-      const request = JSON.parse(requestJson);
+    shapeJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson) as ShapeRequest;
       const displayText = request.displayText;
       const fontSize = request.style.fontSize;
       const missing = String(displayText).includes(MISSING_GLYPH_MARKER);
-      const glyphs = [];
+      const glyphs: InternalGlyph[] = [];
       let index = 0;
       for (const _point of displayText) {
         glyphs.push({
@@ -73,8 +122,8 @@ function makeFixtureCallbacks() {
         }],
       });
     },
-    metricsJson: (requestJson) => {
-      const request = JSON.parse(requestJson);
+    metricsJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson) as MetricsRequest;
       const fontSize = request.fontSize;
       return JSON.stringify({
         ascent: fontSize * 1.04,
@@ -88,10 +137,10 @@ function makeFixtureCallbacks() {
   };
 }
 
-function installFixtureFontBackend() {
+function installFixtureFontBackend(): FixtureFontBackend {
   const callbacks = makeFixtureCallbacks();
   return {
-    uninstall() {
+    uninstall(): void {
       // Retained for the try/finally shape of the callers; nothing to undo.
     },
     shapeJson: callbacks.shapeJson,
@@ -102,13 +151,13 @@ function installFixtureFontBackend() {
 // A throwing backend variant: every shape request throws the given error.
 // This is how tests force the snapshot-session capability-failure retry and the
 // rethrow path through the real precompute exports.
-function installThrowingFontBackend(error) {
+function installThrowingFontBackend(error: Error): FixtureFontBackend {
   return {
-    uninstall() {
+    uninstall(): void {
       // No globals to restore
     },
-    shapeJson: () => { throw error; },
-    metricsJson: () => { throw error; },
+    shapeJson: (): string => { throw error; },
+    metricsJson: (): string => { throw error; },
   };
 }
 

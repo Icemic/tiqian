@@ -3,9 +3,9 @@ import test from "node:test";
 
 import { prepareParagraphLayout, wireArguments } from "../core/engine/prepare-paragraph-layout.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
-import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
-import { emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
-import type { FixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.js";
+import { emptyDomRectList } from "./snapshot-dom-fixtures.js";
+import type { FixtureFontBackend } from "../test-support/fixture-font-backend.js";
 import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle, DomInlineObject } from "../core/engine/lowered-paragraph.js";
 import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
 

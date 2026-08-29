@@ -32,7 +32,7 @@
     "build": "tsc",
     "pretest": "npm run build",
     "test": "node --test tests/*.test.js",
-    "verify:package": "node ./scripts/verify-package.mjs",
+    "verify:package": "node ./scripts/verify-package.ts",
     "preverify:package": "npm run build"
   },
   "files": [
