@@ -454,6 +454,18 @@ jobs:
         working-directory: platforms/web/server/core
         run: npm run build
 
+      # The published artifact of both integrations is the tsc dist output
+      # (files list dist, the export map points into it), and both test
+      # suites import their own dist modules, so build it before the tests.
+      # The pack step below skips prepack, whose test half would fail on
+      # the swapped manifests, so the dist output also has to exist on disk
+      # before the swap.
+      - name: Build the integration dist outputs
+        working-directory: platforms/web/client
+        run: |
+          (cd astro && npx tsc -p .)
+          (cd sveltekit && npx tsc -p .)
+
       # The integration suites assert the canonical manifest set (peer
       # versions against the precompute and prose manifests), so they run
       # before the swap flips names and versions.
@@ -468,17 +480,6 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm test
-
-      # The published artifact of both integrations is the tsc dist output
-      # (files list dist, the export map points into it). The pack step
-      # below skips prepack, whose test half would fail on the swapped
-      # manifests, so the dist output has to exist on disk before the swap
-      # and be collected from there.
-      - name: Build the integration dist outputs
-        working-directory: platforms/web/client
-        run: |
-          (cd astro && npx tsc -p .)
-          (cd sveltekit && npx tsc -p .)
 
       - name: Apply the snapshot manifest swap
         id: swap
