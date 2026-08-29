@@ -32,6 +32,10 @@ WORDS = [
     "门槛", "毕业门", "硬门", "CI 门",
     # bookkeeping and finance metaphors
     "闭环", "台账", "账", "账目", "兑现", "零钱", "流失",
+    # coined self-reference for the coordinating session (2026-08-29 correction)
+    "中央裁定", "中央收尾", "中央复核", "中央实测", "中央独立",
+    # campaign shorthand for unreachable-line proofs (2026-08-29 correction)
+    "判死", "死臂", "清零", "残差",
     # targeting and pinning
     "钉在", "钉住", "钉死", "锁死", "写死", "绑死",
     # motion and body metaphors
