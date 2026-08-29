@@ -161,10 +161,47 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
       - name: Build and test both workspaces
         run: |
-          cargo build --manifest-path frontend/rust/Cargo.toml
-          cargo test --manifest-path frontend/rust/Cargo.toml
-          cargo build --manifest-path frontend/web-precompute/rust/Cargo.toml
-          cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
+          cargo build --manifest-path ffi/rust/Cargo.toml
+          cargo test --manifest-path ffi/rust/Cargo.toml
+          cargo build --manifest-path platforms/web/server/precompute/Cargo.toml
+          cargo test --manifest-path platforms/web/server/precompute/Cargo.toml
+
+  # ADR 0053 F4 (DualLoweringStance): the shared golden corpus binds both
+  # prepared-dom implementations to the same bytes. The rust lane runs inside
+  # the rust job above; this job regenerates the fixture from the js oracle and
+  # fails on drift, then replays the same fixture through the js test.
+  # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+  # prose and precompute resolve them without link scripts.
+  prepared-dom-corpus:
+    name: Shared prepared-dom corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+      # Workspace install hoists @tiqian/* packages as symlinks; prose and
+      # precompute resolve them without link scripts. The build runs with
+      # --noCheck: the @tiqian/ffi type declarations are gradle products
+      # (ffi/js/npm/runtime) that a fresh checkout does not have, and this
+      # lane verifies corpus bytes, not types. Full type checking requires
+      # the ffi runtime build and stays with the local package suites (npm
+      # test in both packages) and the release lanes.
+      - name: Install workspace dependencies
+        working-directory: .
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
+      - name: Build the TypeScript packages
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
+      - name: Regenerate the fixture and fail on drift
+        run: |
+          node platforms/web/server/core/scripts/build-prepared-dom-corpus.ts
+          git diff --exit-code platforms/web/client/web-component/tests/prepared-dom-corpus.fixture.json
+      - name: Replay the fixture through the js corpus test
+        run: node --test platforms/web/client/web-component/tests/prepared-dom-corpus.test.js
 
   # ADR 0050 Verification: the native lane must reproduce the js oracle's plan
   # JSON byte for byte. The Gradle tasks build both sides of the comparison
@@ -206,28 +243,42 @@ jobs:
           ./gradlew
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:js:compileProductionExecutableKotlinJs
+          :ffi:js:assembleNpmPackage
       - name: Dump the js oracle
-        run: node frontend/web-precompute/scripts/plan-parity-oracle.mjs
+        run: node platforms/web/server/core/scripts/plan-parity-oracle.ts
       - name: Compare the native lane against the oracle
         run: >
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic
           TIQIAN_REQUIRE_PARITY_ORACLE=1
-          cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
+          cargo test --manifest-path platforms/web/server/precompute/Cargo.toml
       # The npm loader over an engine-linked addon; the font-dependent lanes
       # self-skip on runners without fonts, so this exercises the wiring and
       # the pure entries, while the parity tests above exercise the engine.
+      # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+      # the redirect order (core full checks -> prose --noCheck -> precompute)
+      # preserves the ffi declarations prerequisite from commit 81d2330c.
       - name: Set up Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           package-manager-cache: false
-      - name: Install npm dependencies
-        working-directory: frontend/web-precompute/npm
+      - name: Install workspace dependencies
+        working-directory: .
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
+      - name: Build core with full type checks
+        working-directory: platforms/web/client/core
+        run: npx tsc -b
+      - name: Emit the prose package
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
       - name: Run the npm suite engine-linked
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         env:
           TIQIAN_NATIVE_LIB_DIR: ${{ github.workspace }}/ffi/native/build/bin/linuxX64/releaseStatic
         run: |
           npm run debug:native
           npm test
+          npm run typecheck

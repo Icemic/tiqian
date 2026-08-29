@@ -2,24 +2,7 @@
 
 package org.tiqian.shaping
 
-import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.CPointerVar
-import kotlinx.cinterop.DoubleVar
-import kotlinx.cinterop.UByteVar
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.allocPointerTo
-import kotlinx.cinterop.cstr
-import kotlinx.cinterop.get
-import kotlinx.cinterop.invoke
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.pointed
-import kotlinx.cinterop.reinterpret
-import kotlinx.cinterop.toKString
-import kotlinx.cinterop.usePinned
-import kotlinx.cinterop.value
+import kotlinx.cinterop.* // ktlint-disable
 import org.tiqian.core.Cluster
 import org.tiqian.core.Glyph
 import org.tiqian.core.GlyphRun
@@ -35,7 +18,7 @@ import org.tiqian.shaping.backend.tiqian_font_backend_vtable_t
  * Vtable consumer for native hosts (ADR 0050 PackedFfiCalls). The Rust font
  * session installs its callbacks through `tiqian_install_font_backend`; this
  * shaper maps one packed segment buffer onto the same `ShapingResult` the JS
- * lane builds from `__TiqianFontBackend`, so the engine sees identical
+ * lane builds from its shaping callbacks, so the engine sees identical
  * evidence on both sides of the snapshot boundary.
  */
 class NativeFontBackendTextShaper(
@@ -43,12 +26,11 @@ class NativeFontBackendTextShaper(
 ) : TextShaper {
     override fun shape(input: ShapingInput): ShapingResult {
         val source = input.text.substring(input.range.start, input.range.end)
-        val families = input.style.fontFamilies.joinToString(FAMILY_SEPARATOR)
         val backend = NativeFontBackendRegistry.require()
         val buffer = backend.shapePacked(
             sessionId = sessionId,
             displayText = input.displayText,
-            serializedFamilies = families,
+            fontFamilies = input.style.fontFamilies,
             fontSize = input.style.fontSize.toDouble(),
             fontWeight = input.style.fontWeight,
             italic = input.style.italic,
@@ -125,7 +107,7 @@ class NativeFontBackendFontMetricsResolver(
         val backend = NativeFontBackendRegistry.require()
         val values = backend.metricsPacked(
             sessionId = sessionId,
-            serializedFamilies = request.fontFamilies.joinToString(FAMILY_SEPARATOR),
+            fontFamilies = request.fontFamilies,
             fontSize = request.fontSize.toDouble(),
             fontWeight = request.fontWeight,
             italic = request.italic,
@@ -144,22 +126,40 @@ class NativeFontBackendFontMetricsResolver(
 }
 
 /** Offsets and sizes from tiqian_font_backend.h; all targets are LE. */
-private const val FAMILY_SEPARATOR = "\u001F"
 private const val SHAPE_HEADER_BYTES = 64
 private const val SHAPE_RECORD_BYTES = 64
 private const val SHAPE_BUFFER_MAGIC = 0x54515053
 
+/**
+ * Allocates a contiguous `const char* const*` array from a list of strings inside [block].
+ * The pointers are only valid within [block] (all C strings are pinned via [memScoped]).
+ */
+private fun <R> withFamilyArray(
+    families: List<String>,
+    block: (familyArray: CPointer<CPointerVar<ByteVar>>, familyCount: Int) -> R,
+): R = memScoped {
+    val cStrings = families.map { it.cstr.ptr }
+    val count = cStrings.size
+    val rawArr = allocArray<ByteVar>(count * 8)!!
+    for (i in cStrings.indices) {
+        val target = (rawArr + (i * 8).toLong())!!
+            .reinterpret<CPointerVar<ByteVar>>()
+        target.pointed.value = cStrings[i]
+    }
+    block(rawArr.reinterpret<CPointerVar<ByteVar>>(), count)
+}
+
 /** GSUB can emit more glyphs than code points; double the length plus slack. */
-private fun estimatedShapeBufferSize(displayTextLength: Int, serializedFamilies: String): Int {
+private fun estimatedShapeBufferSize(displayTextLength: Int, families: List<String>): Int {
     val glyphSlots = maxOf(16, displayTextLength * 2)
-    val stringArea = 384 + serializedFamilies.encodeToByteArray().size
+    val stringArea = 384 + families.sumOf { it.encodeToByteArray().size } + families.size * 4
     return SHAPE_HEADER_BYTES + glyphSlots * SHAPE_RECORD_BYTES + stringArea
 }
 
 private fun tiqian_font_backend_vtable_t.shapePacked(
     sessionId: String,
     displayText: String,
-    serializedFamilies: String,
+    fontFamilies: List<String>,
     fontSize: Double,
     fontWeight: Int,
     italic: Boolean,
@@ -169,29 +169,30 @@ private fun tiqian_font_backend_vtable_t.shapePacked(
 ): ByteArray = memScoped {
     val errorSlot = allocPointerTo<ByteVar>()
     errorSlot.value = null
-    var buffer = ByteArray(estimatedShapeBufferSize(displayText.length, serializedFamilies))
-    var needed = invokeShape(
-        displayText, serializedFamilies, fontSize, fontWeight, italic, locale, role, sourceText,
-        sessionId, buffer, errorSlot,
-    )
-    if (needed > buffer.size) {
-        // Capacity contract from the ADR: one retry after the backend reports
-        // the required size; a second shortfall is a backend contract break.
-        checkError(errorSlot, needed)
-        buffer = ByteArray(needed.toInt())
-        needed = invokeShape(
-            displayText, serializedFamilies, fontSize, fontWeight, italic, locale, role, sourceText,
+    var buffer = ByteArray(estimatedShapeBufferSize(displayText.length, fontFamilies))
+    return@memScoped withFamilyArray(fontFamilies) { familyArray, familyCount ->
+        var needed = invokeShape(
+            displayText, familyArray, familyCount, fontSize, fontWeight, italic, locale, role, sourceText,
             sessionId, buffer, errorSlot,
         )
-        if (needed > buffer.size) error("FontBackendBufferOverflow")
+        if (needed > buffer.size) {
+            checkError(errorSlot, needed)
+            buffer = ByteArray(needed.toInt())
+            needed = invokeShape(
+                displayText, familyArray, familyCount, fontSize, fontWeight, italic, locale, role, sourceText,
+                sessionId, buffer, errorSlot,
+            )
+            if (needed > buffer.size) error("FontBackendBufferOverflow")
+        }
+        checkError(errorSlot, needed)
+        buffer
     }
-    checkError(errorSlot, needed)
-    buffer
 }
 
 private fun tiqian_font_backend_vtable_t.invokeShape(
     displayText: String,
-    serializedFamilies: String,
+    families: CPointer<CPointerVar<ByteVar>>,
+    familyCount: Int,
     fontSize: Double,
     fontWeight: Int,
     italic: Boolean,
@@ -206,7 +207,8 @@ private fun tiqian_font_backend_vtable_t.invokeShape(
         shape!!.invoke(
             sessionId.cstr.ptr,
             displayText.cstr.ptr,
-            serializedFamilies.cstr.ptr,
+            families,
+            familyCount.toUInt(),
             fontSize,
             fontWeight,
             if (italic) 1 else 0,
@@ -222,7 +224,7 @@ private fun tiqian_font_backend_vtable_t.invokeShape(
 
 private fun tiqian_font_backend_vtable_t.metricsPacked(
     sessionId: String,
-    serializedFamilies: String,
+    fontFamilies: List<String>,
     fontSize: Double,
     fontWeight: Int,
     italic: Boolean,
@@ -232,19 +234,22 @@ private fun tiqian_font_backend_vtable_t.metricsPacked(
     val errorSlot = allocPointerTo<ByteVar>()
     errorSlot.value = null
     val out = allocArray<DoubleVar>(5)
-    val status = metrics!!.invoke(
-        sessionId.cstr.ptr,
-        serializedFamilies.cstr.ptr,
-        fontSize,
-        fontWeight,
-        if (italic) 1 else 0,
-        role.cstr.ptr,
-        faceSelectionText.cstr.ptr,
-        out,
-        errorSlot.ptr,
-    )
-    if (status != 0L) throwNamedError(errorSlot.value)
-    doubleArrayOf(out[0], out[1], out[2], out[3], out[4])
+    return@memScoped withFamilyArray(fontFamilies) { familyArray, familyCount ->
+        val status = metrics!!.invoke(
+            sessionId.cstr.ptr,
+            familyArray,
+            familyCount.toUInt(),
+            fontSize,
+            fontWeight,
+            if (italic) 1 else 0,
+            role.cstr.ptr,
+            faceSelectionText.cstr.ptr,
+            out,
+            errorSlot.ptr,
+        )
+        if (status != 0L) throwNamedError(errorSlot.value)
+        doubleArrayOf(out[0], out[1], out[2], out[3], out[4])
+    }
 }
 
 private fun tiqian_font_backend_vtable_t.checkError(
@@ -278,7 +283,7 @@ private class ShapeBufferReader(private val bytes: ByteArray) {
     fun script(): String = utf8At(u32At(48), u32At(52))
 
     fun features(): List<String> =
-        utf8At(u32At(56), u32At(60)).split(FAMILY_SEPARATOR).filter(String::isNotBlank)
+        utf8At(u32At(56), u32At(60)).split("\u001F").filter(String::isNotBlank)
 
     fun glyphId(index: Int): Int = recordField(index, 0).toInt()
     fun glyphAdvance(index: Int): Double = recordField(index, 1)

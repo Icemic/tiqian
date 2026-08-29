@@ -45,16 +45,24 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   `@tiqian/precompute` 等包迁入统一 workspace，集中管理版本号、bump、lock 更新与发版，
   以 blurest 的 workspace 组织为参照；`frontend/web` 的 `src`、`npm`、`integrations`
   三目录收拢为对等源码布局；Rust 侧按 `tiqian-precompute-core` / `tiqian-precompute-binding`
-  命名分层。分层不变式：precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定；
-  Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 契约与
-  snapshot revision / replay 契约独立为 web-core，prose 与 precompute 共同依赖，
-  消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`frontend/rust` 同时
+  命名分层。分层不变式：precompute 域对引擎的全部访问只经 `ffi/rust` 的绑定；
+  Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 格式与
+  snapshot revision / replay 定义独立为 web-core，prose 与 precompute 共同依赖，
+  消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`ffi/rust` 同时
   绑定引擎与 web-core，ABI 携带 web plan JSON 由此合法；除此之外各层不得互串，
-  `frontend/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
-  契约散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
+  `ffi/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
+  格式定义散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
   ADR 0050 随重组出修订段。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录
   布局与命名不受它强制。动工时机随 Slice 39 收尾确定，先于 Neon 编排接入可避免
-  在旧布局上加建。
+  在旧布局上加建。2026-08-29 状态：物理重组已在 integrate/platforms-web 分支执行
+  （71945498、6b29aa13、d4e070c0 三提交，待合并）：`frontend/web` 五包迁至
+  `platforms/web/client/{core,web-component,react,astro,sveltekit}`，core 包内层
+  `core/` 改名 `src/`，test-support 并入 `tests/`；`frontend/web-precompute` 迁至
+  `platforms/web/server`，npm 包在 `server/core`，Rust workspace 在
+  `server/precompute/{engine,binding}`，crate 名不变（见 ADR 0050 的 2026-08-29 修订段）。
+  分层不变式中的 web-core 独立（plan JSON 格式与 snapshot revision / replay 定义
+  单点、revision 常量去重）与 `ffi/rust` 行使 web-core 绑定许可两项尚未执行，
+  仍为候选。
 - `LayeredCacheAndBatchRenderer`：precompute 缓存分层、批量渲染器与二进制过桥协议
   （2026-08-21，ADR 0052，承接 0050 未实施的缓存设计）。三层缓存（FontContracts、
   Paragraph、Article 索引）用内容哈希键，桶失效取全部现存文章哈希并集的反连接；
@@ -63,7 +71,7 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   宿主用运行时内建函数计算，已知哈希的请求不再传输正文；bundle 渲染拆站级表、
   篇级 manifest 与呈现字段，表经根属性按需加载；npm 侧提供 node / bun / Deno
   内建 SQLite 参考实现。
-  blog3 缓存按附录测量预计从 115.2 MB 降到约 50 MB。实施分三批：协议与批量渲染器、
+  sveltekit 站点缓存按附录测量预计从 115.2 MB 降到约 50 MB。实施分三批：协议与批量渲染器、
   缓存分层与 bundle 拆分、表传输与 SQLite 封装。2026-08-21 状态：批次一（协议、
   批量渲染器、过桥）与批次二的 TS 持久化 SDK 已实现，规范形式的 golden 向量在
   Rust 与 TS 两侧固定同一组字节，持久化命中经本地副本校验后不再过桥正文。批次三的
@@ -81,6 +89,23 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   换运行仓库 owner 的 scope（GitHub Packages 要求 npm scope 等于 owner，canonical
   仓库为 @tiqian-cjk）发到 GitHub Packages 的 snapshot dist-tag，发布后还原 manifest；
   npmjs.org 的 release 流程不变。
+- `MeasureIntervalPlanTable`：断点集随行长的阶跃表与换带活 DOM 增量补丁（2026-08-22
+  设计讨论，取舍与开工门槛见
+  [ADR 0054](adr/0054-measure-quantization-and-band-table.md)）。plan 对行长的依赖是
+  阶跃函数：格开启时区间由字格量化给定（每行字数 N，
+  理论范围 3..48 字，可达集由版心 CSS 决定）；格关闭（精确像素行长、拉丁正文）时区间
+  边界是临界宽度，即令前缀能否容纳下一 token 发生改变的宽度值，上界 O(断点数)；贪心断行的
+  断点随行长单调前移，每个后缀起点的可达行长集是单区间，可编码为临界宽度区间树套
+  共享后缀 DAG；DP 断行（ADR 0041）是确定性函数，阶跃划分保留，单调性不保证，
+  DAG 状态数上界放宽。构建期为可达区间全集预计算断点集，每区间紧凑编码 O(行数)
+  （断点差分 varint 加行数据），编码方向与 ADR 0052 二进制站级表一致；两端对齐的
+  拉伸量是行长的连续函数，运行时按行算术。换带不重跑断行、不付 worker 往返：给定
+  宽度二分定区间，跳表把 source 坐标换算到活 DOM 偏移（copy.js 对引擎标记的跳过
+  走查是同型逻辑），原地补丁（文本 node 拆分合并、tq-line 几何标记与断行标记
+  重写），替代整段 replaceChildren。connect 校验由 digest 校验覆盖；prepared-dom 已是
+  插入数据到 DOM 的扫描器，缺紧凑区间表与增量补丁两件。开工条件（任务 #6 的
+  bench）：可达区间全集的表体积；区间命中后同步产 DOM 的成本；增量补丁对整段
+  重建的差值。
 
 当前并行推进 **Slice 37：Compose 静态正文 selection**：只读 `CjkText` 已接入源忠实拖选、
 双击选词、三击选段、触摸长按、Foundation 平台手柄、Android 文本放大镜、系统 `ActionMode`
@@ -104,8 +129,8 @@ metrics / ink / outline replay，但不再传递进 Compose artifact。两条路
 [ADR 0050](adr/0050-native-precompute-rust-bindings.md)）。Node precompute 从 Kotlin/JS 与
 WASM 运行时迁往 Kotlin/Native 静态库与 Rust 编排：`ffi/native` 以 linuxX64、linuxArm64、
 macosArm64、mingwX64 四个目标暴露引擎级 packed C ABI，js 门面迁入 `ffi/js` 服务浏览器回退与
-parity oracle；Rust 侧分两个 workspace，`frontend/rust` 持有 `tiqian` sys 绑定，
-`frontend/web-precompute/rust` 持有 `tiqian-precompute` 与 `tiqian-precompute-neon`；npm 侧
+parity oracle；Rust 侧分两个 workspace，`ffi/rust` 持有 `tiqian` sys 绑定，
+`platforms/web/server/precompute` 持有 `tiqian-precompute` 与 `tiqian-precompute-neon`；npm 侧
 precompute 迁入独立的 `@tiqian/precompute` 包，现有导出同名同签名保留。实现按四个切片推进：
 A 目标与 workspace 骨架，B 字体会话，C 编排与 Neon，D 平台包发布与 legacy 移除。A、B、C
 已完成：批处理入口（`prepareParagraphs`、`prepareFontContracts`、`prepareHtml` 文档循环）
@@ -120,6 +145,16 @@ snapshotId 采用 context 复合形式，宿主的同步内容判断与其分离
 tight/normal/generous 档位声明，默认 normal。同语料从空缓存
 构建 56.5 s 对 54.0 s，产物按内容逐份配对比较零差异；测量见 0050 第三、四轮
 附录，接入形态见 0052 第二批附录。
+
+当前并行推进 **Web prose 宿主收敛**（2026-08-22 起，
+[ADR 0053](adr/0053-web-prose-host-consolidation.md)）。`@tiqian/prose` 的
+Kotlin/JS 宿主层替换为 TS：npm 桥测试先行承接 jsTest 断言，实现随后抽取，
+Kotlin 侧收敛为薄接线直至删除。已并入 main：A1 双侧类型生成、A2 双实现
+语料、B 组断言与实现迁移（custody、eligibility、responsive、
+content-reconcile、progressive、copy、markdown-lowering、prepared 路由）、
+B10 引擎策略经 ABI 输出（run 降级判定与 dash 命名入 font 模块策略）、
+C 组调度合并、F4 双实现 CI 比对、F2 第一步 @tiqian/core 拆分。
+jsMain 自 5669 行降至 2943 行；进度与 KPI 以 ADR 清单为准。
 
 最近完成的是 **Slice 35：Web 真实站点宿主接入**（2026-07-11）。`@tiqian/prose` 以
 ESM 包和 light-DOM `<tiqian-prose>` 接入真实博客；SSR、无 JavaScript、Pagefind、宿主 CSS、
@@ -145,10 +180,10 @@ Last QA:        **宿主语义与未知 inline**。一个源链接跨软换行�
 之前:          **Android Compose gallery**（2026-06-22，ADR 0035）。`frontend/compose` 从 Desktop/JVM-only 升为 Android + JVM：公共 Compose API 下沉到 `commonMain`，平台 actual 分别提供默认 measurer 与 renderer；当时 Android 端走 `AndroidPaintTextShaper` + `AndroidFontMetricsResolver` + `Canvas.drawTextRun`，其历史边界已经由 Slice 28、再由 Slice 38 的 API 23+ native shape-once/replay 路径取代。最初的独立 gallery 后来收拢为共享 `demo` + 薄 `demo/android` 启动壳。AGP 9 采用官方 `com.android.kotlin.multiplatform.library`，Android app 与 KMP library 分模块。Android 默认西文断词与 JVM 共用 bundled en-US TeX/Liang `EnglishHyphenation.enUs`，保证能枚举完整词内候选；公开 `LineBreaker` 的 width-specific hyphen edit 不进入默认 pipeline。
 之前:          **Compose API 收口**（2026-06-21，两轮 Codex 评审）。作者面定形：**`CjkTextStyle`**（Compose 原生 `.sp`/`Color`/`FontFamily`，composable 边界用 `LocalDensity` 降成引擎 px——不再手乘 density；窄而诚实，不复用 Compose 30 字段 TextStyle）；富文本进**多段/列表**（`CjkBlock.Paragraph`/`List` 承载 `AnnotatedString`，`String` 留便捷）；出口 `onTextLayout`(段) + `onParagraphLayout`(文档逐段/项) + `measure(AnnotatedString)`(预排版)；wire-protocol（tag/extractor）转 `internal`、builder（`emphasis`/`ruby`/`bopomofo`/`properNoun`/`mourning`/`bookTitle`）public 去前缀；`ColorSpan` 进 core、`compose.runtime`/`ui` 改 `api`、`clipToBounds`（高度约束=绘制一致）、`measurer` 独占 profile 源、`.sp` 经 density 正确转 px、命名收口 `CjkParagraph`/`CjkText`。**未做（引擎阶段过早）**：a11y semantics、baseline alignment line
 之前:          **注音 ruby**（2026-06-20，ADR 0033）+ **字身框度量 BASE ideo/idtp**（ADR 0002 amend）+ **`ic` 字身框单位**（2026-06-21，ADR 0034）。`ic` = W3C CSS 表意字身 advance，提椠用 BASE ideo/idtp 解析；`ParagraphStyle.firstLineIndent/blockIndent`、`CjkBlock.List.indent`、`ParagraphIndent`、`Float.ic/Int.ic` 全改用 `Ic`（段级锚段落 fontSize；数值同旧 em，零 golden 漂移）。内部 CLREQ/ruby em 常量暂留 Float（概念上 ic，待行内锚点收口）
-之前:          富文本 per-span 样式（2026-06-19）——ADR 0030 **A 档颜色** + **B 档 字号/字重/斜体**：`TiqianTextContent.spans`（拍平成无重叠、整解析的 `TextSpan`，字号/字重/斜体/颜色可叠加）进引擎，span 边界切 cluster，per-segment shaping（按 `FontStyle(weight, slant)` 选真粗体/斜体 typeface，advance 真）+ per-cluster 度量；renderer 同样按 per-cluster `FontStyle`+字号取 styled typeface 绘制。混排 em 按「空白归属者字号」（中西间距=汉字、标点=标点、grid/缩进=段落，边角取小）。粗/斜共用纵向度量 → 行高不变。v1 限定：行高取整段 max、边界 em 仍段落基准、基线共享。无 span 时逐字节同旧 golden（默认 `(400,upright)`==`FontStyle.NORMAL`）
+之前:          富文本 per-span 样式（2026-06-19）——ADR 0030 **A 档颜色** + **B 档字号/字重/斜体**：`TiqianTextContent.spans`（拍平成无重叠、整解析的 `TextSpan`，字号/字重/斜体/颜色可叠加）进引擎，span 边界切 cluster，per-segment shaping（按 `FontStyle(weight, slant)` 选真粗体/斜体 typeface，advance 真）+ per-cluster 度量；renderer 同样按 per-cluster `FontStyle`+字号取 styled typeface 绘制。混排 em 按「空白归属者字号」（中西间距=汉字、标点=标点、grid/缩进=段落，边角取小）。粗/斜共用纵向度量 → 行高不变。v1 限定：行高取整段 max、边界 em 仍段落基准、基线共享。无 span 时逐字节同旧 golden（默认 `(400,upright)`==`FontStyle.NORMAL`）
 Last（同日）:    **行调整方向**（ADR 0031）落地：CLREQ §6.2.2「先挤进/后推出」+「先挤压/后拉伸」。`Justifier.compress`（压缩档序分配器）+ `LineAdjustmentStrategy{Auto/PushInFirst/PushOutFirst/PushOutOnly}`（默认 Auto，`compressBias`=2）+ `applyFillPushIn`（复用 `tryPushIn`，避头尾 PushIn 的兄弟 pass）：短行不再一律拉伸，越界字「挤一挤放得下」且压缩偏差更小（bias 加权）时推入压缩。选择性非全行（避开 ADR 0022 否决的 floor 填行）；守 unbreakable/forbidden/已修复行。golden 重生成（dump 区分 `LineAdjustmentPushIn` vs `ForbiddenAtLineStart`）
 之前（同日）:   **列表**（CLREQ §6.2.1.1 凸排）：`CjkBlock.List` + `ListMarker`（`1.`/`一、`/`①`/`•`），标记左对齐顶格、正文固定列缩进续行对齐（Compose 双列，引擎零改动），列宽默认 1 字、自动按最宽标记升整字数（`10.`→2 字）、`indent` 可覆盖
-行间注 第一刀: **拼音 ruby**（ADR 0032）落地——`RubySpan(baseRange, text, fontFamilies)` 进 `LayoutInput.rubySpans`；注文居中基字上方、注文专用字体、基文不可拆。垂直方向先使用既有行间空间，只有放不下时才补差额；默认单行加高，也可用 `RubyLineHeightMode.UniformParagraph` 整段统一。**避让**（CLREQ §罗马拼音）：相邻注文留「一个注文词空格」(≈0.25×注文字号)，注文宽实测、只在不够时补最小字距（结构性 advance，断行前注入）、够了悬出不撑；注文字号 0.5em（CLREQ 振假名 1/2 惯例）；垂直摆位让降部越过字身顶。作者面 `cjkRuby("北京","Běijīng"[, fontFamily])`（注文不进源）。无 ruby 时零漂移。**第二刀 注音**（右侧竖排 ㄅㄆㄇ+调号+半字预留）= 下一个 ADR。
+行间注第一刀: **拼音 ruby**（ADR 0032）落地——`RubySpan(baseRange, text, fontFamilies)` 进 `LayoutInput.rubySpans`；注文居中基字上方、注文专用字体、基文不可拆。垂直方向先使用既有行间空间，只有放不下时才补差额；默认单行加高，也可用 `RubyLineHeightMode.UniformParagraph` 整段统一。**避让**（CLREQ §罗马拼音）：相邻注文留「一个注文词空格」(≈0.25×注文字号)，注文宽实测、只在不够时补最小字距（结构性 advance，断行前注入）、够了悬出不撑；注文字号 0.5em（CLREQ 振假名 1/2 惯例）；垂直摆位让降部越过字身顶。作者面 `cjkRuby("北京","Běijīng"[, fontFamily])`（注文不进源）。无 ruby 时零漂移。**第二刀注音**（右侧竖排 ㄅㄆㄇ+调号+半字预留）= 下一个 ADR。
 富文本完结:    color / 字号 / 字重 / 斜体 / 双语强调 / **字体 family**（generic，role-aware；自定义字体待接）/ 列表——全部落地（ADR 0030）。剩：列表续档；per-cluster 度量随族/字重变（行高）。
 ```
 
@@ -181,12 +216,12 @@ Last（同日）:    **行调整方向**（ADR 0031）落地：CLREQ §6.2.2「�
 | 19 | — | 行长字号整数倍量化：`LineLengthGridQuantization` 向下取整 maxWidth 到 N×fontSize 版心，`GridBodyAlignment` 用余量按末行对齐在容器内摆放正文，默认开、可 `LineLengthGrid(enabled=false)` 旁路 | `lineLengthGridFloorsMeasure…` / `…CanBeBypassed` 单测；非整数倍 fixture golden | golden diff review + playground 目检 | done (默认开=响应式常态；纯汉字行落格后 justify 余量归零；决策入 dump；ADR 0028) |
 | 20 | — | 段首缩进随行长自适应（`MeasureAdaptiveFirstLineIndent`）：窄行<14 字缩 1 字、宽行 2 字，阈值独立于悬挂、`Fixed` 下仍生效；`firstLineIndentEm` 改 `Float?` 显式覆盖 | `firstLineIndentAdaptsToMeasure…` 单测；`adaptive-short-line-indent` fixture golden | golden diff + playground 目检 | done (ADR 0021 amendment；决策入 dump) |
 | 21 | — | 中西混排西文音节连字：`linebreak` `Hyphenator`/`LiangHyphenator` + 内置 en-US TeX 模式；引擎 `LineEndHangingHyphen` 拆音节 cluster、行尾连字符默认占版心宽、放不下才悬挂；`LatinForcedHyphenBreak` 超宽片段补连字符硬断（前二后三）；**默认启用**（`defaultHyphenator()` expect/actual，JVM/Android=bundled en-US） | `LiangHyphenatorTest`/`EnglishHyphenationTest`/`HyphenationLayoutTest`；`western-hyphenation` / `latin-hard-break` fixture golden | golden + `:linebreak:jvmTest` + playground 目检 | done (确定性测试 pin `NoHyphenator` ⇒ 既有 golden 零漂移；源文本不动；ADR 0029) |
-| 22 | — | §6.2.1 段落调整：`ParagraphStyle.blockIndentEm`（整段缩进，`firstLineIndentEm` 相对叠加、可负）覆盖 段首缩进/不缩/凸排/段落缩排；Compose `CjkText` 块/节文档模型（`CjkBlock.Paragraph(indent)`/`Section`，空行=节，每段独立 `ParagraphIndent`，跨段行距一致） | `blockIndentInsetsEveryLine`/`hangingIndentFlushesFirstLineAndInsetsRest` 单测；`CjkTextRenderTest`（凸排+段落缩排+节 同屏 PNG） | `:layout:jvmTest` + `:frontend:compose:jvmTest` + PNG 目检 | done (breaker 零改动——喂正文宽+相对首行缩进，`block=0` golden 零漂移；唯凸排「人名不足三字补空白」niche 未做) |
-| 23 | — | 富文本 per-span 样式（ADR 0030）：**A 档颜色**（`SpanStyle.color` 纯渲染、零引擎）+ **B 档 字号/字重/斜体**（`SpanStyle.fontSize/fontWeight/fontStyle`：`TiqianTextContent.spans`〔Compose 侧拍平成无重叠整解析 `TextSpan`，四样可叠加〕进引擎，span 边界切 cluster，per-segment shaping〔`FontStyle(weight,slant)` 选真粗/斜 typeface，advance 真〕+ per-cluster 度量，renderer 同样按 per-cluster `FontStyle`+字号取 styled typeface；`.em` 相对段落基准）；混排 em 按归属者字号 | `colorSpansExtractedFromSpanStyle`/`spanColorsPaintTheirClusters`/`sizedSpanScalesAdvanceAndLineHeight`/`boldSpanWidensLatinWord` | `:frontend:compose:jvmTest` + 全量 golden 零漂移 + PNG 目检（粗/斜/大/色叠加） | done (无 span 时逐字节同旧 golden〔默认 `(400,upright)`==`FontStyle.NORMAL`〕；粗/斜共用纵向度量→行高不变；v1 限定：行高整段 max、边界 em 段落基准、基线共享；字体 family 续档) |
+| 22 | — | §6.2.1 段落调整：`ParagraphStyle.blockIndentEm`（整段缩进，`firstLineIndentEm` 相对叠加、可负）覆盖段首缩进/不缩/凸排/段落缩排；Compose `CjkText` 块/节文档模型（`CjkBlock.Paragraph(indent)`/`Section`，空行=节，每段独立 `ParagraphIndent`，跨段行距一致） | `blockIndentInsetsEveryLine`/`hangingIndentFlushesFirstLineAndInsetsRest` 单测；`CjkTextRenderTest`（凸排+段落缩排+节同屏 PNG） | `:layout:jvmTest` + `:frontend:compose:jvmTest` + PNG 目检 | done (breaker 零改动——喂正文宽+相对首行缩进，`block=0` golden 零漂移；唯凸排「人名不足三字补空白」niche 未做) |
+| 23 | — | 富文本 per-span 样式（ADR 0030）：**A 档颜色**（`SpanStyle.color` 纯渲染、零引擎）+ **B 档字号/字重/斜体**（`SpanStyle.fontSize/fontWeight/fontStyle`：`TiqianTextContent.spans`〔Compose 侧拍平成无重叠整解析 `TextSpan`，四样可叠加〕进引擎，span 边界切 cluster，per-segment shaping〔`FontStyle(weight,slant)` 选真粗/斜 typeface，advance 真〕+ per-cluster 度量，renderer 同样按 per-cluster `FontStyle`+字号取 styled typeface；`.em` 相对段落基准）；混排 em 按归属者字号 | `colorSpansExtractedFromSpanStyle`/`spanColorsPaintTheirClusters`/`sizedSpanScalesAdvanceAndLineHeight`/`boldSpanWidensLatinWord` | `:frontend:compose:jvmTest` + 全量 golden 零漂移 + PNG 目检（粗/斜/大/色叠加） | done (无 span 时逐字节同旧 golden〔默认 `(400,upright)`==`FontStyle.NORMAL`〕；粗/斜共用纵向度量→行高不变；v1 限定：行高整段 max、边界 em 段落基准、基线共享；字体 family 续档) |
 | 24 | — | 凸排列表（CLREQ §6.2.1.1）：`CjkBlock.List(items, marker, indent?, start)` + `ListMarker`（`Decimal 1.`/`CjkNumber 一、`/`Circled ①`/`Bullet •`）。标记左对齐顶格于固定宽「标记列」，正文整列缩进、续行同列对齐（Compose 双列 gutter `Box`+正文 `Row.weight`，引擎零改动）；列宽默认 1 字、自动按最宽标记升最小整字数（`10.`→2 字，`autoListGutterEm` 实测裸宽非数位），`indent` 覆盖；marker/正文零段首缩进 | `markersFormatPerKind`/`gutterDefaultsToOneZiAndBumpsForTwoDigits`/`explicitIndentOverridesAuto` | `:frontend:compose:jvmTest` + 全量 golden 零漂移 + PNG 目检（续行对齐 + `10.` 升列） | done (纯 `CjkText` 组合糖，引擎零改动；嵌套/富文本项续档) |
 | 25 | — | Android Compose frontend：`frontend/compose` 提供 Android target，公共 Compose API 进入 `commonMain`，Android backend 走 `TextPaint`/`Canvas.drawTextRun` 与 `AndroidPaintTextShaper` 同源；共享 Demo 可由 Desktop 与 Android 启动 | `demo/android` debug app | `:frontend:compose:compileAndroidMain` + `:demo:android:assembleDebug` + `:frontend:compose:jvmTest` | done (ADR 0035；示例界面后来收拢到 `demo`，Android app 只保留启动壳；默认断词与 JVM 共用 bundled en-US TeX/Liang，公开 `LineBreaker` 不进默认 pipeline) |
 | 26 | — | Compose Text interop：从真实应用的 `AnnotatedString + androidx.compose.ui.text.TextStyle` 迁移到 Tiqian，不在 Markdown AST/HTML 层重建富文本；新增 Compose `style` overload、`TextStyle.toCjkTextStyle()`、`AnnotatedString.cjkTextCompatibility(style)` 结构化 capability issue | `CjkTextCompatibilityTest`（支持子集无 issue；inline placeholder/未知 annotation/字距/段落控制触发 capability issue；background/text decoration 由 Slice 29 接上；LinkAnnotation click 由 Slice 33 接上） | `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextCompatibilityTest'` | done (ADR 0036；窄 `CjkTextStyle` 继续作为作者面，Compose interop 作为迁移面；report 不驱动库内回退) |
-| 27 | — | Compose 迁移契约止偏：`cjkTextCompatibility` 明确为 capability report 而非 host-renderer 路由；`CjkParagraph` 暴露 source `AnnotatedString` 到 semantics；`LayoutResult` 提供 line/offset/box/range/position 查询，Skia/Android renderer 共享同一 positioned-cluster 几何；撤销 Android dash renderer scaling | `LayoutQueriesTest` + `CjkTextCompatibilityTest` | `:core:jvmTest` + `:frontend:compose:jvmTest` + `:frontend:compose:compileAndroidMain` | done (2026-06-25；暴露出的 Android backend 同源绘制缺口已由 Slice 28 接上) |
+| 27 | — | Compose 迁移接口止偏：`cjkTextCompatibility` 明确为 capability report 而非 host-renderer 路由；`CjkParagraph` 暴露 source `AnnotatedString` 到 semantics；`LayoutResult` 提供 line/offset/box/range/position 查询，Skia/Android renderer 共享同一 positioned-cluster 几何；撤销 Android dash renderer scaling | `LayoutQueriesTest` + `CjkTextCompatibilityTest` | `:core:jvmTest` + `:frontend:compose:jvmTest` + `:frontend:compose:compileAndroidMain` | done (2026-06-25；暴露出的 Android backend 同源绘制缺口已由 Slice 28 接上) |
 | 28 | — | Android backend 同源绘制：`Glyph` 承载 glyph origin 与 opaque platform font key；Android shaper 保存 `PositionedGlyphs` 的 id/x/y/Font；Android renderer 在 API 31+ 用 `Canvas.drawGlyphs` 重放 `LayoutResult.glyphRuns`，避免 draw 阶段二次 shaping 分叉 | `AndroidDashPunctuationReproTest.androidLayoutKeepsGlyphFontAndPlacementForDashRendering` | `:frontend:compose:compileAndroidMain` + `:shaping:android-adapter:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.tiqian.shaping.android.AndroidDashPunctuationReproTest` | done (2026-06-25 的平台路径；当时诚实边界为 API 31+，2026-08-05 已由 Slice 38 的 API 23+ native backend 取代其正确性边界) |
 | 29 | — | Compose rich-text render roles：background、普通 underline/line-through、link range、inline code role 从 `AnnotatedString` 进入 `RichTextSpan`；渲染复用 `LayoutResult.positionedRichTextSegments`，underline 复用 skip-ink；compatibility report 移除 background/text decoration 缺口 | `CjkAnnotatedTextTest` / `LayoutQueriesTest` / `CjkTextCompatibilityTest` / `RichTextRenderTest` | `:core:jvmTest --tests 'org.tiqian.core.LayoutQueriesTest'` + `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkAnnotatedTextTest' --tests 'org.tiqian.compose.CjkTextCompatibilityTest' --tests 'org.tiqian.compose.RichTextRenderTest'` + `:frontend:compose:compileAndroidMain` | done (2026-06-27；link 点击另起 Slice 33；有 metrics 的 inline object 于 2026-07-28 接通，未建模 placeholder 仍报告缺口) |
 | 30 | — | Compose Text replacement facade：`CjkText(String/AnnotatedString, ...)` 从结构化文档模型分离为 Compose `Text` 风格迁移入口，默认无段首缩进，常用样式参数降到内部 layout node；多段中文文档只保留显式 `CjkText(blocks = ...)`，避免同名 API 语义错位 | `CjkTextRenderTest.composeTextReplacementRendersSingleUnindentedParagraph` | `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextRenderTest'` + `:frontend:compose:compileAndroidMain` | done (2026-06-27；“单段”说法已由 ADR 0037 / Slice 32 修正为源忠实纯文本；不做 host-renderer fallback，不修改第三方 Markdown renderer) |
@@ -194,8 +229,8 @@ Last（同日）:    **行调整方向**（ADR 0031）落地：CLREQ §6.2.2「�
 | 32 | — | Source-faithful mandatory breaks：`CjkText(String/AnnotatedString, ...)` 按 ADR 0037 忠实保留源码 `\n` / CRLF / UAX#14 mandatory breaks；控制符零宽、不 shape、不出 tofu；连续/尾随断行保留空行；强制断行边界截断避头尾修复、fill PushIn 与 justification，长源码行仍自动换行；public `CjkParagraph` 删除 | `mandatory-single-newline` / `mandatory-blank-lines` / `mandatory-leading-trailing-newline` / `mandatory-crlf` / `mandatory-wraps-long-line`；`mandatoryLineBreakClustersAreZeroWidthAndNotShaped` | `:linebreak:jvmTest` + `:layout:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'` + `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextRenderTest'` | done (2026-06-28；Compose public 入口只保留 `CjkText`) |
 | 33 | — | Compose LinkAnnotation click actions：`CjkText(AnnotatedString)` 用 Tiqian `LayoutResult` 几何命中链接；`LinkInteractionListener` 优先，`LinkAnnotation.Url` 回退 `LocalUriHandler`；annotation-only 重组不强制重排也能复用当前布局命中 | `CjkTextLinkClickTest`（listener、URL router、正文不变只增加 annotation）+ `CjkTextCompatibilityTest`（LinkAnnotation 不再报 capability issue） | `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextLinkClickTest' --tests 'org.tiqian.compose.CjkTextCompatibilityTest'` + `:frontend:compose:compileAndroidMain` | done (2026-07-07；当时未声明 selection/TalkBack 几何，静态 selection 后由 Slice 37 接入) |
 | 34 | — | Web 端引擎跑通（ADR 0039，第二阶段起步）：引擎链（core→layout）提供 browser Kotlin/JS target；`shaping/web-adapter`（`OffscreenMeasureTextShaping`）；`frontend/web`（`PreBrokenLineDom` + `ReflowByRebreak` + `CopyTransparentSpacingSpans` + `EngineOwnedHyphenation`）；引擎自持全部行布局（推入推出照跑），DOM 只画预断行的文本节点，不把断行/断词交给浏览器 | `:frontend:web` 浏览器内真机验收（半宽标点/两端对齐/邻行均摊/`⸺`/中西间距/首行缩进/选中复制源忠实）；JVM golden 零漂移 | `:frontend:web:jsBrowserTest` + `:frontend:web:jsBrowserProductionWebpack` + `:layout:jvmTest`（portability 零漂移） | done (2026-07-08；2026-07-15 由 Wasm 迁移到纯 Kotlin/JS；命名降级：`halt`/`locl` 未接走 policy、web 默认 `NoHyphenator`、替换字符复制为显示形、`ReflowByRebreak` 暂重跑整趟) |
-| 35 | — | Web 真实站点宿主接入（ADR 0039 amendment）：`@tiqian/prose` ESM package + light-DOM `<tiqian-prose>`；原 `<p>`/语义 inline/CSS 仍由宿主持有；纯文本 formatting context 保真 lower；可测量非交互对象以 `MeasurableOpaqueInlineObject` 进入 core 断行与行高，原 DOM 深克隆；U+200B 以 `ZeroWidthSpaceSoftBreakNoShape` 进入结构断行而非字体 shaping；比例宽中文标点按 profile 补盒并输出 glyph shift；不合格 U+2E3A 按两字宽目标回滚；其余情况具名原生回退；custom element 自管连接/断开与 Swup；viewport 优先逐段原子增强；源忠实复制区分软折行/强制换行 | neo-blog 全文章 dogfood；未知 `inline-block`/`img`/裸 SVG；U+200B 不回退且复制保真；中文/英文上下文弯引号；缺 U+2E3A 字体的 `——` 回滚；链接跨行与 hover；宿主字体/颜色/伪类；stateful unsupported 原生；桌面/移动 resize；Swup 前进后退不重复增强；复制无 U+FFFC、无软换行且保留 `<br>` | `:frontend:web:jsBrowserTest` + `:frontend:web:assembleNpmPackage` + `:layout:jvmTest`；neo-blog `pnpm check && pnpm build`；真实浏览器 QA | done (2026-07-11；已命名后续：`WidthIndependentAnnotationCache`、`OpaqueInlineObjectGeometryInvalidation`) |
-| 36 | — | 构建期 Web font evidence + 最大版心 snapshot（ADR 0040）：独立 Node Kotlin/JS runtime 以 exact WOFF2/SFNT + HarfBuzz 跑当前 segment 语义的真实 pipeline；`PreparedParagraphV1` 绑定 source / semantic artifact / typography / font / width contract；受控链接、强调进入同一预排 pipeline，行内代码仅在宿主显式提供 exact 等宽 face、完整字体 span 与 box contract 时进入，否则该段保留 runtime source；snapshot 级 `renderFontFamilies` 让 prepared DOM 与 exact browser Kotlin/JS runtime 使用同一绘制字体；弯引号按 core role 选择 Hani/default 或 Latn+`pwid,palt` 并随 plan 重放；canonical prepared DOM 的固定几何声明由共享 CSS 持有，动态数值与 manifest 证据用 root-scoped style / shared table 去重；SSR 始终保留可响应的 native source，prepared DOM 留在 inert template；manifest 内 keyed candidate 严格整批校验，命中后采用其快照并由 runtime 只补齐 unkeyed candidate | 固定授权 webfont 下纯文本 / mandatory break / 链接；exact host mono + 完整 inline-code contract；缺等宽字体时整段 native；`contextual-curly-quotes`；最大版心命中；source / semantics / width / typography / face / probe 逐项 miss；混合 snapshot/runtime 接管；cold reload / client navigation；最大→窄→最大；copy / no-JS / Pagefind | `:ffi:js:jsNodeTest` + `:frontend:web:jsBrowserTest` + `:frontend:web:assembleNpmPackage` + `:layout:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'` + `(cd frontend/web/npm && npm test)` | wip |
+| 35 | — | Web 真实站点宿主接入（ADR 0039 amendment）：`@tiqian/prose` ESM package + light-DOM `<tiqian-prose>`；原 `<p>`/语义 inline/CSS 仍由宿主持有；纯文本 formatting context 保真 lower；可测量非交互对象以 `MeasurableOpaqueInlineObject` 进入 core 断行与行高，原 DOM 深克隆；U+200B 以 `ZeroWidthSpaceSoftBreakNoShape` 进入结构断行而非字体 shaping；比例宽中文标点按 profile 补盒并输出 glyph shift；不合格 U+2E3A 按两字宽目标回滚；其余情况具名原生回退；custom element 自管连接/断开与 Swup；viewport 优先逐段原子增强；源忠实复制区分软折行/强制换行 | astro 站点全文章 dogfood；未知 `inline-block`/`img`/裸 SVG；U+200B 不回退且复制保真；中文/英文上下文弯引号；缺 U+2E3A 字体的 `——` 回滚；链接跨行与 hover；宿主字体/颜色/伪类；stateful unsupported 原生；桌面/移动 resize；Swup 前进后退不重复增强；复制无 U+FFFC、无软换行且保留 `<br>` | `:frontend:web:jsBrowserTest` + `:frontend:web:assembleNpmPackage` + `:layout:jvmTest`；astro 站点 `pnpm check && pnpm build`；真实浏览器 QA | done (2026-07-11；已命名后续：`WidthIndependentAnnotationCache`、`OpaqueInlineObjectGeometryInvalidation`) |
+| 36 | — | 构建期 Web font evidence + 最大版心 snapshot（ADR 0040）：独立 Node Kotlin/JS runtime 以 exact WOFF2/SFNT + HarfBuzz 跑当前 segment 语义的真实 pipeline；`PreparedParagraphV1` 绑定 source / semantic artifact / typography / font / width contract；受控链接、强调进入同一预排 pipeline，行内代码仅在宿主显式提供 exact 等宽 face、完整字体 span 与 box contract 时进入，否则该段保留 runtime source；snapshot 级 `renderFontFamilies` 让 prepared DOM 与 exact browser Kotlin/JS runtime 使用同一绘制字体；弯引号按 core role 选择 Hani/default 或 Latn+`pwid,palt` 并随 plan 重放；canonical prepared DOM 的固定几何声明由共享 CSS 持有，动态数值与 manifest 证据用 root-scoped style / shared table 去重；SSR 始终保留可响应的 native source，prepared DOM 留在 inert template；manifest 内 keyed candidate 严格整批校验，命中后采用其快照并由 runtime 只补齐 unkeyed candidate | 固定授权 webfont 下纯文本 / mandatory break / 链接；exact host mono + 完整 inline-code contract；缺等宽字体时整段 native；`contextual-curly-quotes`；最大版心命中；source / semantics / width / typography / face / probe 逐项 miss；混合 snapshot/runtime 接管；cold reload / client navigation；最大→窄→最大；copy / no-JS / Pagefind | `:ffi:js:jsNodeTest` + `:layout:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'` + `(cd platforms/web/client/web-component && npm test)` | wip |
 | 37 | — | Compose 静态正文 selection：`CjkSelectionContainer` 直接消费 Tiqian `LayoutResult` 的 UTF-16 source range、caret 与 occupied box；支持鼠标拖选/双击/三击、触摸长按、Foundation 平台手柄与 Android 文本放大镜、Android 系统 `ActionMode`/`PROCESS_TEXT` 与 Desktop 右键文本菜单、快捷键、selection semantics、跨 `CjkText` source-faithful copy；interaction endpoint 不切开已覆盖的组合/emoji 序列；拖选与链接点击正确竞争；普通点按容器空白会释放既有 Tiqian 选区，和可编辑 Compose 文本互换焦点时只保留当前选区；replay index、节点顺序/range 缓存与按变化节点失效约束拖选热路径；连续 `ScrollState` 宿主在真实拖动进入边缘后逐帧滚动并刷新 endpoint，菜单锚点与非拖动手柄跟随祖先裁剪后的可见视口，静止长按和 slop 内抖动不启动；完整 `AnnotatedString` 语义保留 link/URL/TTS annotation，非空选区才发布 copy action，容器不再产生空白 a11y focus stop | `LayoutQueriesTest`（interaction boundary、跨 engine cluster、word boundary）+ `CjkSelectionTest`（拖选/绘制/复制/双击/三击/触摸/手柄交叉/跨节点/链接竞争/点按外部释放/系统菜单/菜单滚动锚点/边缘滚动/a11y semantics）+ `CjkTextLinkClickTest` 回归 | `:core:jvmTest --tests 'org.tiqian.core.LayoutQueriesTest'` + `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkSelectionTest' --tests 'org.tiqian.compose.CjkTextLinkClickTest'` + `:frontend:compose:compileAndroidMain` | wip (2026-08-10 Pixel 9 Pro XL Android beta 真机已验证：长按只读 `CjkText` 出现系统浮动菜单“复制/全选/朗读”，其中“朗读”为 `PROCESS_TEXT`；此前 Pixel 10 Pro Android 37 AVD 已验证静止长按、边缘滚动、无障碍节点与性能。Compose Android 只在拿到真实 `TextLayoutResult` 时提供逐字符屏幕框；该项、lazy selection 与 editor/IME 仍未并入) |
 | 38 | — | Android 字体与同源重放后端：Compose 默认 API 31+ shape-once / `drawGlyphs`，API 23–30 用 `LegacyPlatformRunReplay` 重放同一平台 run；受控 native 模块另行提供平台无关 replayable face contract、宿主 file / `ByteArray` / asset catalog、有序 family fallback + catalog revision、HarfBuzz cluster/glyph/advance/placement/features 与同 face FreeType metrics/ink/outline；两者都只产生 `LayoutResult` 证据，Compose 不路由回旧 renderer | `AndroidPaintTextShaperTest` + `AndroidLegacyTextShaperTest` + `AndroidFontCatalogContractTest` + `LegacyFontConfigParserTest` + `AndroidNativeFontBackendTest`（平台 run 上下文、字体源身份、有序 fallback、revision、旧结果重放、locl/halt、missing glyph、outline、长文）及同字体 native/platform 对照 + 共享 Compose Demo 截图 | `:shaping:android-adapter:connectedDebugAndroidTest` on API 23/30/31/current + `:shaping:android-native-font:testDebugUnitTest` + 按需运行 native connected tests + `:frontend:compose:compileAndroidMain` + `:demo:android:assembleDebug` + layout golden/report | wip (2026-08-13：Compose 默认依赖已移除 native ABI；API 31+ 保留平台 glyph/font 重放；API 23–30 改用具名的平台 run replay；受控 native backend 仍作为独立可选模块保留) |
 
@@ -219,7 +254,7 @@ Slice 15 的依据（CLREQ 原文）：
 - 编辑器、IME 与 TalkBack 真机字符框审计（静态只读 selection 与 Android 放大镜见 Slice 37）。
 - 完整 CSS Text 兼容。
 
-这些能力需要新的 writing mode、页面模型或前端契约，不应作为现有横排实现上的局部补丁加入。
+这些能力需要新的 writing mode、页面模型或前端接口，不应作为现有横排实现上的局部补丁加入。
 
 ## 怎么用这张表
 

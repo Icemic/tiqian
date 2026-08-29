@@ -1,0 +1,16 @@
+{
+  "references": [{ "path": "../core" }],
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "noEmit": false
+  },
+  "include": ["binding.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -18,7 +18,7 @@ Slice 6 开始前，`shaping/api` 只有极薄的 `TextShaper` 接口，layout �
 
 ## Decision
 
-`TextShaper` 的契约如下：
+`TextShaper` 的接口定义如下：
 
 1. `ShapingInput` 接收 source `text` / `range`、`TextStyle`、已完成的 `FontDecision`，以及 layout/profile 已决定好的 `displayText`。
 2. `TextShaper` 返回 `Cluster`、`GlyphRun` 和结构化 `ShapingDecisionInfo`。
@@ -44,3 +44,13 @@ Slice 6 开始前，`shaping/api` 只有极薄的 `TextShaper` 接口，layout �
 - 为 `shaping/android-adapter` / `shaping/skia` 单列模块和 adapter。
 - 增加 golden fixture，固定 source/display/glyph advance/debug decision。
 - 将真实 glyph ink bounds 接入 `PunctuationAtomBuilder`，替代当前 policy-derived body width。
+
+## Amendment（2026-08-25）：`ExplainableStubParagraphLayoutEngine` 改名裁定
+
+该名字出自 2026-06-06 的 scaffold 提交（1a37d54a，Claude session 写入），早于
+本 ADR。本 ADR 把 Stub 族记录为 pipeline 占位时，该引擎此后已接入真实 shaping、
+字体度量与断行，名字中的 Stub 与运行现状不符。2026-08-25 ffi 边界复审
+（ADR 0053）裁定：生产路径类名不得保留 Stub，改名
+`TiqianParagraphLayoutEngine`，旧名不再并存；`ExplainableStubTextShaper` 等
+只服务测试与确定性 fixture 的 stub 命名不在本裁定范围。改名由引擎侧主责者
+执行，ffi 边界纠偏队列只记录裁定，不携带该波。

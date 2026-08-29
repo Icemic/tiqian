@@ -1,0 +1,24 @@
+{
+  "label": "A2-engine-ts-port",
+  "commit": "9f799c97",
+  "range": "9f799c97 (TiqianEngine entry ported to TS) .. before e8752ae4 port completion",
+  "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core modules incl. TS engine entry; Kotlin/JS engine bundle",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "platforms/web/client/web-component/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/prose-core/": "/corepkg/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component",
+    "/corepkg": "platforms/web/client/web-component-core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :frontend:web:assembleNpmPackage"
+  ],
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into platforms/web/client/web-component/runtime/tiqian-web.js; engine-entry.js ported to TS at this commit but still consumed through the Kotlin host"
+}

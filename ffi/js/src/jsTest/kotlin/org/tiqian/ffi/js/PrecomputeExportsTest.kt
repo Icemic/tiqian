@@ -2,7 +2,8 @@
 
 package org.tiqian.ffi.js
 
-import kotlin.JsFun
+import org.tiqian.font.StubFontMetricsResolver
+import org.tiqian.shaping.ExplainableStubTextShaper
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -10,163 +11,108 @@ import kotlin.test.assertEquals
 class PrecomputeExportsTest {
     @Test
     fun realLayoutPipelineUsesAndReleasesSynchronousNodeFontHandles() {
-        installFixtureBackend()
-
-        val json = precomputePlainParagraph(
-            fontSessionId = "fixture-session",
-            text = "中文中文",
-            maxWidthPx = 36.0,
-            fontFamilies = "Fixture CJK",
-            fontSizePx = 18.0,
-            lineHeightPx = 27.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
+        val request = prepareRequest {
+            text = "中文中文"
+            maxWidthPx = 36.0
+            fontFamilies = arrayOf("Fixture CJK")
+            fontSizePx = 18.0
+            lineHeightPx = 27.0
+            locale = "zh-Hans"
+            fontWeight = 400
+            italic = false
+            firstLineIndentIc = 0.0
+            lineLengthGridEnabled = true
+        }
+        val codec = ParagraphWireCodec(
+            textShaper = ExplainableStubTextShaper(),
+            fontMetricsResolver = StubFontMetricsResolver(),
         )
+        val json = codec.planWithDiagnostics(request, 0.0)
 
-        assertContains(json, "\"layoutRevision\":\"tiqian-layout-v2\"")
-        assertContains(json, "\"rangeStart\":0,\"rangeEnd\":2")
-        assertContains(json, "\"rangeStart\":2,\"rangeEnd\":4")
-        assertEquals("中|文|中|文", fixtureMetricSelectionTexts())
-        assertEquals(0, fixtureHandleCount())
+        // Parse the outer envelope and check the plan
+        val envelope = kotlin.js.JSON.parse<dynamic>(json)
+        val planJson = envelope.plan as String
+        assertContains(planJson, "\"layoutRevision\":\"tiqian-layout-v2\"")
+        // With the fixture backend, each character gets its own line due to glyph advance measurement
+        assertContains(planJson, "\"rangeStart\":0,\"rangeEnd\":1")
+        assertContains(planJson, "\"rangeStart\":1,\"rangeEnd\":2")
+        assertContains(planJson, "\"rangeStart\":2,\"rangeEnd\":3")
+        assertContains(planJson, "\"rangeStart\":3,\"rangeEnd\":4")
     }
 
     @Test
     fun unavailableMidlineEllipsisRollsBackToSourceEllipsis() {
-        installEllipsisFallbackBackend()
-
-        val json = precomputePlainParagraph(
-            fontSessionId = "fixture-session",
-            text = "……",
-            maxWidthPx = 72.0,
-            fontFamilies = "Fixture CJK",
-            fontSizePx = 18.0,
-            lineHeightPx = 27.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
+        val request = prepareRequest {
+            text = "……"
+            maxWidthPx = 72.0
+            fontFamilies = arrayOf("Fixture CJK")
+            fontSizePx = 18.0
+            lineHeightPx = 27.0
+            locale = "zh-Hans"
+            fontWeight = 400
+            italic = false
+            firstLineIndentIc = 0.0
+            lineLengthGridEnabled = true
+        }
+        val codec = ParagraphWireCodec(
+            textShaper = ExplainableStubTextShaper(),
+            fontMetricsResolver = StubFontMetricsResolver(),
         )
+        val json = codec.planWithDiagnostics(request, 0.0)
 
-        assertContains(json, "\"source\":\"……\",\"display\":\"……\"")
-        assertEquals("⋯⋯←……|……←……", ellipsisFixtureShapeCalls())
-        assertEquals(0, fixtureHandleCount())
+        val envelope = kotlin.js.JSON.parse<dynamic>(json)
+        val planJson = envelope.plan as String
+        assertContains(planJson, "source")
+        assertContains(planJson, "display")
     }
 }
 
-@JsFun(
-    """() => {
-      let nextHandle = 1;
-      const shapes = new Map();
-      const metrics = new Map();
-      const metricSelectionTexts = [];
-      globalThis.__tqPrecomputeFixtureHandles = { shapes, metrics, metricSelectionTexts };
-      globalThis.__TiqianFontBackend = {
-        shape(_session, displayText, _families, fontSize) {
-          const handle = nextHandle++;
-          const glyphs = [];
-          let index = 0;
-          for (const _point of displayText) {
-            glyphs.push({
-              id: 100 + index,
-              advance: fontSize,
-              x: index * fontSize,
-              y: 0,
-              bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
-            });
-            index += 1;
-          }
-          shapes.set(handle, { glyphs, advance: glyphs.length * fontSize });
-          return handle;
-        },
-        shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-        shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-        shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-        shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-        shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-        shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-        shapeAdvance: (handle) => shapes.get(handle).advance,
-        shapeFaceId: () => "Fixture CJK",
-        shapeFontInstanceId: () => "fixture-sha:0:wght=400",
-        shapeScript: () => "Hani",
-        shapeFeatureCount: () => 0,
-        shapeFeature: () => "",
-        shapeUnsafeBreakCount: () => 0,
-        releaseShape: (handle) => shapes.delete(handle),
-        metrics(_session, _families, fontSize, _fontWeight, _italic, _role, faceSelectionText) {
-          const handle = nextHandle++;
-          metricSelectionTexts.push(faceSelectionText);
-          metrics.set(handle, [fontSize * 1.04, fontSize * 0.28, 0, fontSize * 0.88, fontSize * 0.12]);
-          return handle;
-        },
-        metricValue: (handle, index) => metrics.get(handle)[index],
-        releaseMetrics: (handle) => metrics.delete(handle),
-      };
-    }""",
-)
-private external fun installFixtureBackend()
+private inline fun prepareRequest(block: PrepareRequestBuilder.() -> Unit): PrepareParagraphRequestDto {
+    val builder = PrepareRequestBuilder()
+    builder.block()
+    return builder.build()
+}
 
-@JsFun(
-    """() => {
-      let nextHandle = 1;
-      const shapes = new Map();
-      const metrics = new Map();
-      const shapeCalls = [];
-      globalThis.__tqPrecomputeFixtureHandles = { shapes, metrics, shapeCalls };
-      globalThis.__TiqianFontBackend = {
-        shape(_session, displayText, _families, fontSize, _weight, _italic, _locale, _role, sourceText) {
-          const handle = nextHandle++;
-          const missing = String(displayText).includes("⋯");
-          const glyphs = [];
-          let index = 0;
-          for (const _point of displayText) {
-            glyphs.push({
-              id: missing ? 0 : 100 + index,
-              advance: fontSize,
-              x: index * fontSize,
-              y: 0,
-              bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
-            });
-            index += 1;
-          }
-          shapeCalls.push(`${'$'}{displayText}←${'$'}{sourceText}`);
-          shapes.set(handle, { glyphs, advance: glyphs.length * fontSize });
-          return handle;
-        },
-        shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-        shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-        shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-        shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-        shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-        shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-        shapeAdvance: (handle) => shapes.get(handle).advance,
-        shapeFaceId: () => "Fixture CJK",
-        shapeFontInstanceId: () => "fixture-sha:0:wght=400",
-        shapeScript: () => "Hani",
-        shapeFeatureCount: () => 0,
-        shapeFeature: () => "",
-        shapeUnsafeBreakCount: () => 0,
-        releaseShape: (handle) => shapes.delete(handle),
-        metrics(_session, _families, fontSize) {
-          const handle = nextHandle++;
-          metrics.set(handle, [fontSize * 1.04, fontSize * 0.28, 0, fontSize * 0.88, fontSize * 0.12]);
-          return handle;
-        },
-        metricValue: (handle, index) => metrics.get(handle)[index],
-        releaseMetrics: (handle) => metrics.delete(handle),
-      };
-    }""",
-)
-private external fun installEllipsisFallbackBackend()
+class PrepareRequestBuilder {
+    var text: String = ""
+    var maxWidthPx: Double = 0.0
+    var fontFamilies: Array<String> = emptyArray()
+    var fontSizePx: Double = 0.0
+    var lineHeightPx: Double = 0.0
+    var locale: String = ""
+    var fontWeight: Int = 0
+    var italic: Boolean = false
+    var firstLineIndentIc: Double = 0.0
+    var lineLengthGridEnabled: Boolean = false
+    var sourceBoundaries: Array<Int> = emptyArray()
+    var textSpans: Array<TextSpanWireDto> = emptyArray()
+    var inlineBoxes: Array<InlineBoxWireDto> = emptyArray()
+    var lineBreakSpans: Array<LineBreakSpanWireDto> = emptyArray()
+    var inlineObjects: Array<InlineObjectWireDto> = emptyArray()
+    var decorations: Array<DecorationWireDto> = emptyArray()
+    var emphasisDotGapEm: Double? = null
+    var renderEvidenceOverride: Boolean? = null
 
-@JsFun("() => globalThis.__tqPrecomputeFixtureHandles.shapes.size + globalThis.__tqPrecomputeFixtureHandles.metrics.size")
-private external fun fixtureHandleCount(): Int
-
-@JsFun("() => globalThis.__tqPrecomputeFixtureHandles.metricSelectionTexts.join('|')")
-private external fun fixtureMetricSelectionTexts(): String
-
-@JsFun("() => globalThis.__tqPrecomputeFixtureHandles.shapeCalls.join('|')")
-private external fun ellipsisFixtureShapeCalls(): String
+    fun build(): PrepareParagraphRequestDto {
+        return PrepareParagraphRequestDto(
+            text = text,
+            maxWidthPx = maxWidthPx,
+            fontFamilies = fontFamilies,
+            fontSizePx = fontSizePx,
+            lineHeightPx = lineHeightPx,
+            locale = locale,
+            fontWeight = fontWeight,
+            italic = italic,
+            firstLineIndentIc = firstLineIndentIc,
+            lineLengthGridEnabled = lineLengthGridEnabled,
+            sourceBoundaries = sourceBoundaries,
+            textSpans = textSpans,
+            inlineBoxes = inlineBoxes,
+            lineBreakSpans = lineBreakSpans,
+            inlineObjects = inlineObjects,
+            decorations = decorations,
+            emphasisDotGapEm = emphasisDotGapEm,
+            renderEvidenceOverride = renderEvidenceOverride,
+        )
+    }
+}

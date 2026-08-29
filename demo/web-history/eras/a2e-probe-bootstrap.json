@@ -1,0 +1,24 @@
+{
+  "label": "A2e-probe-bootstrap",
+  "commit": "de926c85",
+  "range": "de926c85 (probe-bootstrap worker session and plan parity test) .. A2 window bisect",
+  "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core modules; Kotlin/JS engine bundle",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "platforms/web/client/web-component-core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/prose-core/": "/corepkg/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component",
+    "/corepkg": "platforms/web/client/web-component-core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :frontend:web:assembleNpmPackage"
+  ],
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into platforms/web/client/web-component/runtime/tiqian-web.js; core JS modules split into platforms/web/client/web-component-core at this commit"
+}

@@ -1,0 +1,20 @@
+{
+  "label": "E0-alpha3",
+  "commit": "b6498412",
+  "range": "b649841 .. before 2c3f7daf demo era stack",
+  "entry": "@tiqian/prose 0.1.0-alpha.3 api entry (platforms/web/client/web-component): published verbs enhance/enhanceProgressively in api.js over the Kotlin/JS runtime",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "platforms/web/client/web-component/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component"
+  },
+  "build": [
+    "./gradlew :frontend:web:assembleNpmPackage"
+  ],
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into platforms/web/client/web-component/runtime/tiqian-web.js"
+}

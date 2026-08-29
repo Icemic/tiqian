@@ -1,0 +1,71 @@
+---
+import "@tiqian/core/styles.css";
+import { renderSnapshotServerAssets } from "@tiqian/precompute/precompute-html";
+import type { SnapshotServerAssets } from "@tiqian/precompute/precompute-html";
+import { prepareTiqianHtml } from "virtual:@tiqian/astro/preparer";
+
+import { renderAstroSnapshotAssets } from "./dist/transport.js";
+
+interface Props {
+  prepared?: {
+    readonly html: string;
+    readonly rootAttributes: Readonly<Record<string, string>>;
+    readonly serverAssets: SnapshotServerAssets | null;
+  };
+  class?: string;
+  disabled?: boolean;
+  strongAsEmphasisMarks?: boolean;
+  emphasisDotGapEm?: number;
+  snapshotId?: string;
+  snapshotMaxWidthPx?: number;
+  [attribute: string]: unknown;
+}
+
+const {
+  prepared: suppliedPrepared,
+  class: className,
+  disabled = false,
+  strongAsEmphasisMarks = false,
+  emphasisDotGapEm,
+  snapshotId,
+  snapshotMaxWidthPx,
+  ...attributes
+} = Astro.props;
+if (suppliedPrepared && (snapshotId != null || snapshotMaxWidthPx != null)) {
+  throw new Error("TiqianAstroPreparedInputOwnsSnapshotOptions");
+}
+const prepared = suppliedPrepared ?? await prepareTiqianHtml(
+  await Astro.slots.render("default"),
+  {
+    ...(snapshotId == null ? {} : { id: snapshotId }),
+    ...(snapshotMaxWidthPx == null ? {} : { snapshot: { maxWidthPx: snapshotMaxWidthPx } }),
+  },
+);
+const assetsHtml = renderAstroSnapshotAssets(
+  prepared.serverAssets?.id,
+  renderSnapshotServerAssets(prepared.serverAssets),
+);
+const booleanAttributes = {
+  ...(disabled ? { disabled: "" } : {}),
+  ...(strongAsEmphasisMarks ? { "strong-as-emphasis-marks": "" } : {}),
+};
+---
+
+<tiqian-prose
+  {...attributes}
+  {...prepared.rootAttributes}
+  {...booleanAttributes}
+  class={className}
+  emphasis-dot-gap-em={emphasisDotGapEm}
+>
+  <Fragment set:html={prepared.html} />
+</tiqian-prose>
+{assetsHtml && <Fragment set:html={assetsHtml} />}
+
+<script>
+  import "@tiqian/prose/element";
+</script>
+
+<style is:global>
+  tiqian-prose { display: block; }
+</style>

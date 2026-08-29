@@ -1,0 +1,27 @@
+{
+  "label": "E5-apidissolved",
+  "commit": "acdce952",
+  "range": "acdce952 (npm api entry dissolved) .. HEAD",
+  "entry": "@tiqian/prose/element (registerTiqianProse) + @tiqian/core prose-host-session",
+  "adapter": "adapters/host-session.js",
+  "stylesheet": "platforms/web/client/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose/element": "/pkg/element.js",
+      "@tiqian/prose/auto": "/pkg/auto.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component",
+    "/core": "platforms/web/client/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "npm install --no-audit --no-fund",
+    "cd platforms/web/client/core && npx tsc",
+    "npx tsc -b platforms/web/client/web-component"
+  ],
+  "engineNote": "Post api-dissolution era; identical public surface to HEAD"
+}

@@ -50,7 +50,7 @@ evidence 标签（几何不变，字节比对不等）；以及下述 extents �
 本篇矩阵时，按「方法」节列出的版本来源、调用序列、语料与字段清单重建。
 
 未覆盖面：静态字体（语料字体均无可变轴，`setVariations` wght clamp 路径未测）、
-Zyyy script 覆盖、collection face（契约本就拒绝）。
+Zyyy script 覆盖、collection face（校验本就拒绝）。
 
 ### rustybuzz 0.20.1：shaping 完全一致，extents 有语义缺口
 

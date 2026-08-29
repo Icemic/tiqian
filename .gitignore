@@ -17,5 +17,19 @@ layout/src/jvmTest/resources/lit-zh-corpus.txt
 .claude/launch.json
 
 # Rust
-frontend/rust/target/
-frontend/web-precompute/rust/target/
+ffi/rust/target/
+platforms/web/server/precompute/target/
+
+# Agent working artifacts (specs, reports, logs, baselines; kept on disk, never committed)
+.agent-specs/
+.b2-tmp/
+
+# npm workspace root install output
+/node_modules/
+/.parcel-cache/
+
+# demo web-history compiled artifacts
+demo/web-history/.dist-adapters/
+demo/web-history/*.js
+demo/web-history/*.d.ts
+demo/web-history/*.tsbuildinfo

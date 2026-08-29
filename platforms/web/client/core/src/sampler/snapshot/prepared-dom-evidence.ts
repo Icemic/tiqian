@@ -1,0 +1,385 @@
+// Render-evidence lowering (ADR 0053 SinglePlanLowerer step 2): annotation
+// spans, inline-object placeholders and SVG overlays built purely from the
+// prepared plan's evidence fields. Attribute names and geometry mirror
+// DomParagraphRenderer so the plan-driven DOM matches the Kotlin path.
+
+import {
+  applyDynamicStyles,
+  cssString,
+  px,
+  renderedContainer,
+  renderedElement,
+} from "./prepared-dom-markup.js";
+import type { MarkupAttributes, MarkupContainer, MarkupNode } from "./prepared-dom-markup.js";
+
+const SPACING_EPSILON = 0.01;
+// Fallback annotation ascent ratio, mirroring the Kotlin no-metrics branch.
+const RUBY_ASCENT_RATIO = 0.8;
+const BOPOMOFO_LANG = "zh-Hant-TW";
+const BOPOMOFO_TONE_TARGET_INK_WIDTH_SCALE = 0.82;
+const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR = 0.404;
+const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_SEMIBOLD = 0.446;
+const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR = 0.644;
+const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_SEMIBOLD = 0.682;
+const LINE_THICKNESS_EM = 0.08;
+const WAVY_HALF_WAVE_EM = 0.2;
+const WAVY_AMPLITUDE_EM = 0.06;
+const WAVY_ENDPOINT_EPSILON_PX = 0.01;
+
+type StyleClassResolver = (declaration: string) => string;
+type EmphasisDotColorResolver = (clusterRangeStart: number) => string | null;
+
+export interface InlineObjectPlaceholderCell {
+  naturalWidth: number;
+  rangeStart: number;
+  rangeEnd: number;
+  drawX: number;
+}
+
+export interface RubyAnnotation {
+  fontSize: number;
+  ascent: number;
+  fontFamilies: string[];
+  text: string;
+  fontWeight: number;
+  centerX: number;
+  baselineY: number;
+}
+
+export interface BopomofoPlacement {
+  text: string;
+  role: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface BopomofoZone {
+  text: string;
+  fontWeight: number;
+  fontFamilies: string[];
+  placements: BopomofoPlacement[];
+}
+
+interface BopomofoPlacementCss {
+  left: number;
+  top: number;
+  fontSize: number;
+  lineHeight: number;
+}
+
+export interface EvidenceDecorationSegment {
+  left: number;
+  top: number;
+  right: number;
+  kind: "ProperNoun" | "BookTitle";
+}
+
+export interface EvidenceEmphasisDot {
+  clusterRangeStart: number;
+  anchorX: number;
+  anchorY: number;
+  dotDiameter: number;
+}
+
+export interface EvidenceOverlayPlan {
+  decorationSegments?: EvidenceDecorationSegment[];
+  emphasisDots?: EvidenceEmphasisDot[];
+  fontSize: number;
+  overlayWidth: number;
+  height: number;
+}
+
+export interface EvidenceOverlayOptions {
+  emphasisDotColor?: EmphasisDotColorResolver;
+}
+
+// InlineObjectCloneSwap (ADR 0053 B7.3): the pending placeholder carries the
+// layout-owned trailing gap as an attribute so the live-DOM swap can rebuild
+// the renderer's margin (source marginRight + trailingGap) without parsing
+// serialized CSS. The attribute exists only in the margin branch, mirroring
+// appendInlineObject's spacing guard.
+export function inlineObjectPlaceholder(
+  cell: InlineObjectPlaceholderCell,
+  trailingGap: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupNode {
+  const carriesTrailingMargin = Math.abs(trailingGap) >= SPACING_EPSILON;
+  const attributes: MarkupAttributes = {
+    "data-tq-advance": String(cell.naturalWidth),
+    "data-tq-geometry": "true",
+    "data-tq-inline-object": "pending",
+    "data-tq-object-range": `${cell.rangeStart}-${cell.rangeEnd}`,
+    "data-tq-object-trailing-margin": carriesTrailingMargin ? String(trailingGap) : null,
+    "data-tq-x": String(cell.drawX),
+  };
+  applyDynamicStyles(attributes, [
+    "display:inline-block!important",
+    "box-sizing:border-box!important",
+    `inline-size:${px(cell.naturalWidth)}!important`,
+    ...(carriesTrailingMargin
+      ? [`margin-right:${px(trailingGap)}!important`]
+      : []),
+  ], styleClassFor);
+  return renderedElement("span", attributes);
+}
+
+export function rubyAnnotationSpan(
+  ruby: RubyAnnotation,
+  lineTop: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupNode {
+  const fontSize = Number(ruby.fontSize);
+  // RubyPlanAscent: the plan carries the declared ascent of the annotation
+  // face (RubyDecisionInfo.ascent). RubyAscentRatioFallback keeps the
+  // pre-ascent behavior for plans built before that field existed.
+  const planAscent = Number(ruby.ascent);
+  const ascent = Number.isFinite(planAscent)
+    ? planAscent
+    : fontSize * RUBY_ASCENT_RATIO;
+  const families = Array.from(ruby.fontFamilies ?? [], String);
+  const attributes: MarkupAttributes = {
+    "data-tq-geometry": "true",
+    "data-tq-src": `（${ruby.text}）`,
+  };
+  applyDynamicStyles(attributes, [
+    "color:currentColor!important",
+    ...(families.length > 0
+      ? [`font-family:${families.map(cssString).join(",")}!important`]
+      : []),
+    `font-size:${px(fontSize)}!important`,
+    `font-weight:${Number(ruby.fontWeight)}!important`,
+    `left:${px(Number(ruby.centerX))}!important`,
+    "line-height:1!important",
+    "position:absolute!important",
+    `top:${px(Number(ruby.baselineY) - lineTop - ascent)}!important`,
+    "transform:translateX(-50%)!important",
+    "white-space:pre!important",
+  ], styleClassFor);
+  return renderedElement("span", attributes, String(ruby.text));
+}
+
+function bopomofoToneInkWidthEm(text: string, fontWeight: number) {
+  const regular = text === "ˇ"
+    ? BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR
+    : BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR;
+  const semibold = text === "ˇ"
+    ? BOPOMOFO_TONE_CARON_INK_WIDTH_EM_SEMIBOLD
+    : BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_SEMIBOLD;
+  const t = Math.min(Math.max((fontWeight - 400) / 300, 0), 1);
+  return regular + (semibold - regular) * t;
+}
+
+function bopomofoCssPlacement(
+  text: string,
+  role: string,
+  fontWeight: number,
+  boxLeft: number,
+  boxTop: number,
+  boxWidth: number,
+  boxHeight: number,
+): BopomofoPlacementCss {
+  if (role === "Symbol") {
+    return { left: boxLeft, top: boxTop, fontSize: boxHeight, lineHeight: boxWidth };
+  }
+  if (role === "Neutral") {
+    const fontSize = boxWidth;
+    return {
+      left: boxLeft,
+      top: boxTop + (boxHeight - fontSize) / 2,
+      fontSize,
+      lineHeight: boxWidth,
+    };
+  }
+  const inkWidthEm = Math.max(
+    bopomofoToneInkWidthEm(text, fontWeight),
+    0.1,
+  );
+  const fontSize = boxWidth * BOPOMOFO_TONE_TARGET_INK_WIDTH_SCALE / inkWidthEm;
+  return {
+    left: boxLeft,
+    top: boxTop + (boxHeight - fontSize) / 2,
+    fontSize,
+    lineHeight: boxWidth,
+  };
+}
+
+function bopomofoZoneLeft(placements: BopomofoPlacement[]) {
+  const symbol = placements.find((placement) => String(placement.role) === "Symbol");
+  if (symbol) return Number(symbol.left) - Number(symbol.width) / 9;
+  if (placements.length === 0) return 0;
+  return Math.min(...placements.map((placement) => Number(placement.left)));
+}
+
+export function bopomofoAnnotationSpan(
+  z: BopomofoZone,
+  width: number,
+  lineTop: number,
+  lineHeight: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupContainer {
+  const fontWeight = Number(z.fontWeight);
+  const families = Array.from(z.fontFamilies ?? [], String);
+  const placements = Array.from(z.placements ?? []);
+  const attributes: MarkupAttributes = {
+    "data-tq-geometry": "true",
+    "data-tq-src": `（${z.text}）`,
+    lang: BOPOMOFO_LANG,
+  };
+  applyDynamicStyles(attributes, [
+    "box-sizing:border-box!important",
+    "display:inline-block!important",
+    `height:${px(lineHeight)}!important`,
+    `line-height:${px(lineHeight)}!important`,
+    "overflow:visible!important",
+    "position:relative!important",
+    "user-select:all!important",
+    "vertical-align:top!important",
+    "-webkit-user-select:all!important",
+    "white-space:pre!important",
+    `width:${px(width)}!important`,
+  ], styleClassFor);
+  const container = renderedContainer("span", attributes);
+  const zoneLeft = bopomofoZoneLeft(placements);
+  for (const placement of placements) {
+    const text = String(placement.text);
+    const css = bopomofoCssPlacement(
+      text,
+      String(placement.role),
+      fontWeight,
+      Number(placement.left),
+      Number(placement.top),
+      Number(placement.width),
+      Number(placement.height),
+    );
+    const glyphAttributes: MarkupAttributes = {
+      "data-tq-geometry": "true",
+      lang: BOPOMOFO_LANG,
+    };
+    applyDynamicStyles(glyphAttributes, [
+      "color:currentColor!important",
+      ...(families.length > 0
+        ? [`font-family:${families.map(cssString).join(",")}!important`]
+        : []),
+      "font-feature-settings:'vert' 1, 'vrt2' 1!important",
+      `font-size:${px(css.fontSize)}!important`,
+      "font-style:normal!important",
+      `font-weight:${fontWeight}!important`,
+      `left:${px(css.left - zoneLeft)}!important`,
+      `line-height:${px(css.lineHeight)}!important`,
+      "overflow:visible!important",
+      "pointer-events:none!important",
+      "position:absolute!important",
+      `top:${px(css.top - lineTop)}!important`,
+      "white-space:pre!important",
+      "display:inline-block!important",
+      "text-orientation:upright!important",
+      "writing-mode:vertical-rl!important",
+    ], styleClassFor);
+    container.children.push(renderedElement("span", glyphAttributes, text));
+  }
+  return container;
+}
+
+function wavyLinePath(left: number, right: number, y: number, fontSize: number) {
+  const halfWave = Math.max(fontSize * WAVY_HALF_WAVE_EM, 1);
+  const amplitude = fontSize * WAVY_AMPLITUDE_EM;
+  const path = [`M ${left} ${y}`];
+  let x = left;
+  let up = true;
+  while (x < right - WAVY_ENDPOINT_EPSILON_PX) {
+    const rawNextX = x + halfWave;
+    const nextX = rawNextX >= right - WAVY_ENDPOINT_EPSILON_PX ? right : rawNextX;
+    const controlY = up ? y - amplitude * 2 : y + amplitude * 2;
+    path.push(` Q ${(x + nextX) / 2} ${controlY} ${nextX} ${y}`);
+    x = nextX;
+    up = !up;
+  }
+  return path.join("");
+}
+
+function overlayAttributes(width: number, height: number): MarkupAttributes {
+  return {
+    "aria-hidden": "true",
+    "data-tq-copy-ignore": "true",
+    "data-tq-geometry": "true",
+    style: `--tq-overlay-width:${px(width)};--tq-overlay-height:${px(height)}`,
+  };
+}
+
+// Appends the engine-owned interlinear and emphasis overlays after the flow
+// content.
+export function appendEvidenceOverlays(
+  nodes: MarkupNode[],
+  plan: EvidenceOverlayPlan,
+  options: EvidenceOverlayOptions = {},
+) {
+  const segments = Array.from(plan.decorationSegments ?? []);
+  const dots = Array.from(plan.emphasisDots ?? []);
+  const emphasisDotColor = options.emphasisDotColor ?? null;
+  if (segments.length > 0) {
+    const fontSize = Number(plan.fontSize);
+    const width = Number(plan.overlayWidth);
+    const height = Number(plan.height);
+    if (!Number.isFinite(fontSize) || !Number.isFinite(width) || !Number.isFinite(height)) {
+      throw new Error("InvalidPreparedOverlayGeometry");
+    }
+    const strokeWidth = fontSize * LINE_THICKNESS_EM;
+    const svg = renderedContainer("svg", overlayAttributes(width, height));
+    for (const segment of segments) {
+      const left = Number(segment.left);
+      const top = Number(segment.top);
+      const right = Number(segment.right);
+      const style = `--tq-decoration-color:currentColor;--tq-decoration-stroke-width:${px(strokeWidth)}`;
+      if (segment.kind === "ProperNoun") {
+        svg.children.push(renderedElement("line", {
+          "data-tq-decoration-line": "true",
+          stroke: "currentColor",
+          style,
+          "stroke-linecap": "butt",
+          "stroke-width": String(strokeWidth),
+          x1: String(left),
+          x2: String(right),
+          y1: String(top),
+          y2: String(top),
+        }));
+      } else if (segment.kind === "BookTitle") {
+        svg.children.push(renderedElement("path", {
+          "data-tq-decoration-wave": "true",
+          d: wavyLinePath(left, right, top, fontSize),
+          fill: "none",
+          stroke: "currentColor",
+          style,
+          "stroke-linecap": "butt",
+          "stroke-linejoin": "round",
+          "stroke-width": String(strokeWidth),
+        }));
+      } else {
+        throw new Error(`UnsupportedPreparedDecorationSegment:${segment.kind}`);
+      }
+    }
+    nodes.push(svg);
+  }
+  if (dots.length > 0) {
+    const width = Number(plan.overlayWidth);
+    const height = Number(plan.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      throw new Error("InvalidPreparedOverlayGeometry");
+    }
+    const svg = renderedContainer("svg", overlayAttributes(width, height));
+    for (const dot of dots) {
+      const color = emphasisDotColor ? emphasisDotColor(dot.clusterRangeStart) : null;
+      const dotColor = color || "currentColor";
+      svg.children.push(renderedElement("circle", {
+        cx: String(Number(dot.anchorX)),
+        cy: String(Number(dot.anchorY)),
+        "data-tq-decoration-dot": "true",
+        fill: dotColor,
+        r: String(Number(dot.dotDiameter) / 2),
+        style: `--tq-decoration-color:${dotColor}`,
+      }));
+    }
+    nodes.push(svg);
+  }
+}

@@ -326,7 +326,7 @@ animation frame 的 leading edge；不能在 observer callback（包括其 micro
 插入测量节点，也不改变 source、复制、无障碍或 Pagefind 语义。
 
 复制 handler 从 Kotlin runtime 安装逻辑抽到独立小 JS；零 runtime 快照路径与现有 runtime 共用同一
-`data-tq-copy-ignore` / `data-tq-src` 契约，软折行不进入复制，mandatory break 仍保留源码换行。
+`data-tq-copy-ignore` / `data-tq-src` 语义，软折行不进入复制，mandatory break 仍保留源码换行。
 
 ## Consequences
 

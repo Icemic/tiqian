@@ -25,12 +25,12 @@ Maven 坐标和公共包边界，避免消费者同时依赖多个入口时出�
 Kotlin 包按领域和平台职责划分：
 
 - 数学公共包保持 `org.tiqian.math.*`；
-- Markdown 的平台无关文档模型、源码范围与高亮契约保持在 `org.tiqian.markdown`，Compose
+- Markdown 的平台无关文档模型、源码范围与高亮接口保持在 `org.tiqian.markdown`，Compose
   renderer、样式和交互入口放在 `org.tiqian.markdown.compose`；以后拆出 `markdown-core` 时
   中立模型无需再次迁移；
 - Android native font backend 使用 `org.tiqian.shaping.android.nativefont`，对应 Gradle 模块
   `:shaping:android-native-font` 和 artifact `tiqian-shaping-android-native-font`；
-- Android View 契约使用 `org.tiqian.android.view`；Apple Core Text renderer 使用
+- Android View 接口使用 `org.tiqian.android.view`；Apple Core Text renderer 使用
   `org.tiqian.apple.coretext`，与 `org.tiqian.shaping.coretext` 区分。
 
 Android namespace 跟随具体发布模块，不要求 `shaping/api` 等平台打包标识与所有 Kotlin

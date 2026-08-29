@@ -10,11 +10,11 @@
 ## Context
 
 0050 的缓存设计停留在文字，没有对应代码。`PreparedParagraphCache` trait 与其
-NoCache、Memory、Directory、SQLite 实现均未开工。两个接入站点（blog3 与 neo-blog）为此
+NoCache、Memory、Directory、SQLite 实现均未开工。两个接入站点（sveltekit 站点与 astro 站点）为此
 各自维护宿主侧缓存：context 指纹计算与并发去重在两个站点重复出现，compact 序列化、
 原子写、逐条失效只在其中一个站点实现。
 
-缓存条目的内容构成可以量化。blog3 一次完整构建的缓存共 306 个条目、115.2 MB，逐字段
+缓存条目的内容构成可以量化。sveltekit 站点一次完整构建的缓存共 306 个条目、115.2 MB，逐字段
 数据见附录。结构性事实有三条。第一，每篇产物的两个 template 各内嵌一份 manifest：
 clientTemplate 里是 FontContract manifest，inertTemplate 里是段落 manifest，两份又各自内嵌一份
 相同的 fontReplay 与 fontEvidence，等于每篇把字体回放与字体证据存了两遍，合计
@@ -31,11 +31,11 @@ Json DOM 后逐字段读取；结果沿同一路径返回。FontContract 批量�
 时，这段串行成本先成为固定下限。
 
 线程模型受调用边界限制。批处理入口按调用切批，线程池随调用结束解散；宿主走逐条入口
-时（neo-blog 的单段入口），并行度取决于宿主自身的并发组织。两个站点的构建内存峰值
+时（astro 站点的单段入口），并行度取决于宿主自身的并发组织。两个站点的构建内存峰值
 分别是 1.86–2.06 GiB 与 2.04–2.18 GiB（0050 附录），持久化写缓冲的预算有宿主余量可依。
 
 两个参考站点接入宿主缓存后的构建耗时对照见 0050 第三附录：相对各自 JS 引擎基线，
-从空缓存构建 blog3 为 263.3 s 对 55.0 s，neo-blog 为 137.3 s 对 29.3 s；缓存可
+从空缓存构建 sveltekit 站点为 263.3 s 对 55.0 s，astro 站点为 137.3 s 对 29.3 s；缓存可
 命中时分别为 14.3 s 与 9.2 s。
 
 ## Decision
@@ -64,7 +64,7 @@ render、backend revision、shaping 引擎与版本、face 集合指纹、typogr
 分割原则：一个 precomputer 一份配置一个 context。宿主按样式表中互不相同的排版配置
 各实例化一个 precomputer；页面类型（post、note、tweet）不参与分割，逐条目输入
 （文本、maxWidthPx）进内容哈希。引擎不读样式表，typography 配置是宿主从样式表抄录
-的数字；样式表与配置不一致的段落由 web 包的契约校验降级处理，不轮换 context。
+的数字；样式表与配置不一致的段落由 web 包的运行时校验降级处理，不轮换 context。
 
 ### `MemoryWriteThrough`：内存层写穿透
 
@@ -208,7 +208,7 @@ schema 自 1 升 2：读写两侧都只认识 schema 2，schema 1 的读取路�
 `renderSnapshotTemplate` 删除。HTML 预备 lane 在单次调用内部走同一条拆分路径，
 返回结果对象与表文件字节。
 
-按附录的字节构成重排，blog3 形态的缓存体积预计约 50 MB，为当前 115.2 MB 的 43%
+按附录的字节构成重排，sveltekit 站点形态的缓存体积预计约 50 MB，为当前 115.2 MB 的 43%
 左右；HTML 产物里内嵌的 manifest 同步变小。
 
 ### `TableTransport`：表经根属性按需加载
@@ -357,9 +357,9 @@ Deno 的模块，加载时探测。三张表：条目（层、键、context、�
   体积；当次构建内重复段落的命中计数。
 - 内存：写缓冲预算取保守值时，构建内存峰值不高于现状。
 
-## 附录（2026-08-21）：blog3 构建缓存输出测量
+## 附录（2026-08-21）：sveltekit 站点构建缓存输出测量
 
-对象为 blog3 一次完整构建的缓存目录：306 个 JSON 条目，磁盘 115,221,583 字节。字段
+对象为 sveltekit 站点一次完整构建的缓存目录：306 个 JSON 条目，磁盘 115,221,583 字节。字段
 字节数按条目反序列化后对各字段值单独以 UTF-8 编码统计；manifest 自 template 字段的
 `data-tq-snapshot-manifest` script 标记提取。同篇两个 manifest 中的 fontReplay 与
 fontEvidence 内容相同（抽验首 60 篇）。
@@ -415,7 +415,7 @@ context 指纹失效，结构不匹配时宿主可整文件重建。三张表设
 
 2026-08-22：文章表与文章哈希表已实施，结构版本升到 2，旧条目库原地迁移保留条目行。
 store 面按 context 记录、读取、删除文章行，行按文章 key 整体替换（重记录收缩的文章
-不再钉住旧哈希）；SDK 提供按文章记录哈希集合（`recordArticle`，快照与契约输入的
+不再钉住旧哈希）；SDK 提供按文章记录哈希集合（`recordArticle`，快照与校验输入的
 哈希由提交构造层同一函数派生，返回本次记录的哈希列表，宿主据此拼装桶列表，未改动
 文章的哈希可从文章行读回）、整篇预热（`warmArticle`，副本先过地址哈希与摘要
 校验再进内存层）、按桶的 prune（`pruneBucket`，桶 id 加该桶哈希列表：条目删除、
@@ -463,7 +463,7 @@ store 面按 context 记录、读取、删除文章行，行按文章 key 整体
 开始前吸收该构建的全部条目，冻结一次后逐篇拼装；拼装只解析引用，命中条目不进新表。
 写侧只产 schema 2，读侧保留 schema 1。
 
-### 宿主接入形态（blog3）
+### 宿主接入形态（sveltekit 站点）
 
 一次构建一组表，吸收该构建三个 precomputer 的段落与 FontContract 条目。表文件按内容
 哈希命名存入仓库目录，经预渲染路由 `/tiqian-tables/[sha].json` 带 immutable 缓存头
@@ -532,16 +532,16 @@ string、95 face、2 typography、95 fontPreload）在两种文件形态下的�
 解码时间（Node 22，20 次中位数）：二进制布局解码 0.12 ms，全部行物化 3.0 ms，
 文本形态 JSON.parse 3.1 ms。采纳路径按需读行，不做全量物化。
 
-构建与传输（blog3，306 条目）：全部条目重算的构建产出表 494,066 B；随后的全命中
+构建与传输（sveltekit 站点，306 条目）：全部条目重算的构建产出表 494,066 B；随后的全命中
 构建不写新表，条目与表字节不变，表 sha 两次一致。条目合计 63,418,450 B（第三批
 文本形态 63,426,406 B），计入表 63,912,516 B（第三批 64,492,061 B），条目 gzip
 合计 7,083,274 B。preview 实测一页：表请求 200，响应字节与表文件一致，传输
-133,189 B；该 Chrome 实例的字体契约不匹配（SnapshotExactFontContractMismatch），
+133,189 B；该 Chrome 实例的字体校验不匹配（SnapshotExactFontContractMismatch），
 根按设计回退活排版。
 
 ## 附录（2026-08-22 第五批）：持久存储的行压缩与初始化维护
 
-blog3 的引擎缓存文件长到 937,504,768 B。分解：三个 context（6,192 条 447.9 MB、
+sveltekit 站点的引擎缓存文件长到 937,504,768 B。分解：三个 context（6,192 条 447.9 MB、
 848 条 40.8 MB、71 条约 0）都是当次构建的活 lane，没有失效行；多余的是
 106,823 个空闲页（437 MB），来自历次 prune 与替换删除，文件内没有任何
 VACUUM。单条平均 69 KB，最大的 242,894 B。
@@ -550,17 +550,17 @@ VACUUM。单条平均 69 KB，最大的 242,894 B。
 
 - **`DeflatedStoreRecords`**：SDK 在 store 边界对整条记录做 deflate。外层是
   魔数 `TQZL` 加一个版本字节，解开后是原 `TQCR` 记录。选压缩而不是重排 JSON，
-  因为 artifact 字节产自 Rust，命中契约校验 sha256(artifact)，存储形态必须逐字节
+  因为 artifact 字节产自 Rust，命中校验 sha256(artifact)，存储形态必须逐字节
   还原；deflate 按构造满足。不带外层的旧行按明文读，命中路径不变，该行下次被
   引擎排出时落成压缩形态。未知版本字节视为 miss，内容路径重算并覆写。
 - **存储维护入口**：`createSqliteCacheStore(path, { contexts })`。`contexts`
-  声明该文件服务的全部 context（blog3 的三个 precomputer 会话共用一个文件，
+  声明该文件服务的全部 context（sveltekit 站点的三个 precomputer 会话共用一个文件，
   声明三个指纹；空列表不删任何行），打开时删去条目、文章行、哈希行里的其余
   context；随后读取空闲页计数，大于零才 VACUUM，没有声明时也执行这一步。
   VACUUM 拿不到锁时跳过，删除已经落盘，下次打开再回收。`dropOtherContexts`
   与 `compact` 保留为方法，给一次打开列不出全集的宿主在特殊时机调用。
 
-测量（blog3，同一语料）：
+测量（sveltekit 站点，同一语料）：
 
 | 时点 | 文件字节 | 空闲页 | 行形态 |
 | --- | --- | --- | --- |
@@ -574,6 +574,6 @@ VACUUM。单条平均 69 KB，最大的 242,894 B。
 命中，行集合与形态计数不变，构建产出的 tiqian 面（表 sha、144 个 snapshot id）
 与改动前的参照构建逐字节一致。
 
-neo-blog：文件 74,588,160 B，两个 context（1,258 条与 9 条）。初始化维护删去
+astro 站点：文件 74,588,160 B，两个 context（1,258 条与 9 条）。初始化维护删去
 9 条的旧 context 并回收，文件 73,801,728 B，空闲页 1。热构建没有排出写入，
 1,258 行保持明文，等下次 context 轮换或内容变化时转压缩。

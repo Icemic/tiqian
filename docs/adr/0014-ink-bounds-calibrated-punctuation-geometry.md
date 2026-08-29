@@ -10,7 +10,7 @@ ADR 0004 定了标点空间的加法模型：标点不是 `1em` 字符再做减�
 
 > 2026-08-06 的修订取代本文早期“profile 决定 glue 方向”以及
 > `ProfileAnchoredUnderwidthGlyphShift` / `InkContainmentGlyphShift` 的当前行为。
-> 这些旧段落只保留为决策演变记录，当前契约以下方最新 amendment 为准。
+> 这些旧段落只保留为决策演变记录，当前规格以下方最新 amendment 为准。
 
 ADR 0013 接入 `AwtTextShaper` 后，`Glyph.bounds` 已经能提供真实 glyph visual bounds。
 初版实现（已废弃）用 ink center 按比例分配 glue，并允许 ink width 撑大 body。

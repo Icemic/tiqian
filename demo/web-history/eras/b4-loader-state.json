@@ -1,0 +1,24 @@
+{
+  "label": "B4-loader-state",
+  "commit": "5c9d0a30",
+  "range": "5c9d0a30 (replace the engine global slots with loader state and options) .. window B probe",
+  "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core TS modules; engine installed by ts-runtime.js from @tiqian/ffi (Kotlin bundle retired in the 3-commit window e8752ae4..11067981, browser-unrenderable)",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "platforms/web/client/web-component-core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/prose-core/": "/corepkg/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component",
+    "/corepkg": "platforms/web/client/web-component-core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :ffi:js:assembleNpmPackage"
+  ],
+  "engineNote": "TS host engine scripts in platforms/web/client/web-component-core; layout engine from ffi/js/npm/runtime built by :ffi:js:assembleNpmPackage"
+}

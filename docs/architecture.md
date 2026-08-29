@@ -118,8 +118,7 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
   cache，旧 face 只为旧 `LayoutResult` 保留；
 - `platforms/android/shaping`：Compose 默认的 Android 公开平台后端。API 31+ 保留
   `TextRunShaper` 返回的 glyph id、placement 与 `Font`；API 23–30 以
-  `LegacyPlatformRunReplay` 保证测量与 `drawTextRun` 共用同一 run 契约；
-- `platforms/web/shaping`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据；
+  `LegacyPlatformRunReplay` 保证测量与 `drawTextRun` 共用同一 run 接口；
 - `platforms/apple/shaping`：Apple Core Text shaping、系统字体度量与 glyph ink。语言和显式 OpenType
   feature 进入同一条 `CTLine` 测绘路径；无法施加的 feature 以具名 capability issue 降级，不能
   只把请求原样写进 `GlyphRun`。
@@ -172,7 +171,7 @@ Android、JVM 或 JS 自带的 Unicode 表。
 Compose 前端把 `AnnotatedString` 与 `TextStyle` lowering 成核心输入，并用
 `cjkTextCompatibility()` 报告当前无法完整保真的能力。Skia 与 Android renderer 重放
 `LayoutResult` 的 glyph 和 annotation geometry，不自行重新排版。
-Android API 23+ 默认使用公开平台 run 契约。API 31+ 让平台 shape 当前请求，
+Android API 23+ 默认使用公开平台 run 接口。API 31+ 让平台 shape 当前请求，
 保留逐 glyph 位置和具体 `Font`，renderer 以 `Canvas.drawGlyphs` 重放；API 23–30
 无法读回物理 face，因此把每个 cluster 作为 `LegacyPlatformRunReplay`，由同一
 `TextPaint`、typeface、locale、OpenType feature 与上下文文本完成测量和
@@ -188,7 +187,7 @@ Compose artifact。capability report 不会把正文路由回 Compose Text。
 不会为此组合或测量全文。Compose Foundation 当前没有面向第三方布局结果的
 公开 `Selectable` 适配接口，因此前端用隔离、随版本编译验证的兼容层复用 Foundation 自己的
 平台手柄、手势状态机、文本上下文菜单与 Android 文本放大镜；Android 使用系统 `ActionMode`
-provider（含宿主菜单扩展和 `PROCESS_TEXT`），Desktop 使用当前 `LocalTextContextMenu` 右键契约。
+provider（含宿主菜单扩展和 `PROCESS_TEXT`），Desktop 使用当前 `LocalTextContextMenu` 右键接口。
 Compose Android artifact 同时合并 `ACTION_PROCESS_TEXT` / `text/plain` 的 `<queries>` 声明，避免
 Android 11+ 包可见性规则把其他应用注册的处理文本动作静默裁掉。
 兼容层只把坐标和 selection adjustment 翻译到 `LayoutResult` 查询，不引入第二份
@@ -204,11 +203,11 @@ TalkBack character-location 能力不属于当前静态正文路径。
 
 ### Web
 
-`frontend/web` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
-HTML 先保持可读，Kotlin/JS runtime 与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
+`platforms/web/client` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
+HTML 先保持可读，TS runtime（`@tiqian/core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
 inline 与 CSS 仍由宿主持有；引擎只写入断行和 spacing geometry。
 
-同仓库的 `frontend/web/integrations/sveltekit` 与 `frontend/web/integrations/astro` 分别发布
+同仓库的 `platforms/web/client/sveltekit` 与 `platforms/web/client/astro` 分别发布
 `@tiqian/sveltekit` 和 `@tiqian/astro`。它们只把框架的 SSR、静态构建、head 资产与客户端导航生命周期
 接到 `@tiqian/prose`，不拥有另一份 HTML 投影或排版规则。最低配置的组件输出 semantic SSR，浏览器按
 实时 content width 增强；构建字体证据不要求宽度，只有显式 fixed-measure snapshot 需要
@@ -218,7 +217,7 @@ Web 列表保留原生 marker 与语义，只把列表正文交给 Tiqian 排版
 回退为原生 DOM；无 JavaScript、异步加载失败、复制、Pagefind 和客户端路由都以原始语义 HTML
 为基础。详细边界见 [ADR 0039](adr/0039-web-rendering-path.md)。
 
-构建期 precompute 由 `frontend/web-precompute/rust` 的 Rust 编排承担：从站点明确发布的字体文件建立
+构建期 precompute 由 `platforms/web/server/precompute` 的 Rust 编排承担：从站点明确发布的字体文件建立
 HarfBuzz session，并调用同一个 `layout` 生成宽度无关的字体回放证据，以及可选的最大版心预排结果。
 引擎的 Kotlin/JS 出口在 `ffi/js` 编译，服务浏览器 exact-font 回退 worker 与 parity oracle；
 Kotlin/Native 出口在 `ffi/native`，以引擎级 C ABI 供 Rust 编排调用（ADR 0050）。纯文本与受控语义 inline
@@ -226,7 +225,7 @@ Kotlin/Native 出口在 `ffi/native`，以引擎级 C ABI 供 Rust 编排调用�
 template，SSR 正文始终是可响应的 native semantic backing。浏览器只有在 live width、字体与 artifact
 证据全部匹配时才整批采用快照；窄屏等 snapshot miss 使用构建期捕获的字号无关 shaping / metrics
 回放表继续运行 Kotlin/JS layout core，浏览器不加载 HarfBuzz / WOFF2 WASM。证据缺失时保留 source，
-再回到 Canvas host-font pipeline。完整契约见
+再回到 Canvas host-font pipeline。完整规格见
 [ADR 0040](adr/0040-build-time-web-font-snapshots.md)。
 
 引擎插入的视觉软换行不进入复制或无障碍语义；真实 mandatory break 保留。跨段复制同时提供
@@ -234,7 +233,7 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 
 ### Android View
 
-`platforms/android/view` 目前只保留前端契约，还不是与 Compose / Web 同等完整的可用入口。
+`platforms/android/view` 目前只保留前端接口，还不是与 Compose / Web 同等完整的可用入口。
 
 ### Apple
 
@@ -270,20 +269,20 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
   font contract、断行机会与西文断词、中文 profile / 标点分类 / 禁则 / 空间策略、段落布局 / 修复 /
   行调整与结构化 decision。
 - `platforms/jvm/{shaping,skia}`、`platforms/android/{shaping,native-font}`、
-  `platforms/web/shaping`、`platforms/apple/shaping`：各宿主的 shaping / replayable font 实现；
+  `platforms/apple/shaping`：各宿主的 shaping / replayable font 实现；
   `platforms/android/shaping` 是 Compose Android 默认的公开平台 run 后端，
   `platforms/android/native-font` 持有宿主可显式选择的共享字体源、受控 face、
   HarfBuzz / FreeType 与同源 outline replay。
-- `platforms/compose/compose`、`frontend/web`、`platforms/android/view`：前端
+- `platforms/compose/compose`、`platforms/web/client`、`platforms/android/view`：前端
   lowering 与呈现。
 - `platforms/apple/frontend/coretext-render`：Apple 内部 Core Text renderer 与 paragraph backend。
 - `platforms/apple/frontend`：生产 Swift facade、静态 XCFramework、`AttributedString` authoring 与 Apple
   原生 view package；不拥有示例内容或排版规则。
 - `ffi/native`：引擎级 packed C ABI 的 Kotlin/Native 门面；不拥有排版规则。
 - `ffi/js`：引擎的 Kotlin/JS 门面（`@JsExport` wire 与 HarfBuzz session 后端）；不拥有排版规则。
-- `frontend/web-precompute`：Rust workspace（`tiqian-precompute`、`tiqian-precompute-neon`）与
+- `platforms/web/server`：Rust workspace（`tiqian-precompute`、`tiqian-precompute-neon`）与
   `@tiqian/precompute` npm 包；Node exact-font session 与构建期编排；不拥有排版规则。
-- `frontend/web/integrations/*`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
+- `platforms/web/client/astro`、`platforms/web/client/sveltekit`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
   HTML prepare 与 snapshot contract，不拥有排版或字体 policy。
 - `demo`：Desktop / Android 共用的 Compose 示例界面与 Desktop 启动入口。
 - `demo/android`：只负责 Android 应用打包和启动的薄外壳。

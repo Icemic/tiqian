@@ -59,3 +59,10 @@ Web 前端迁回 `frontend/web`。按平台分组的迁移与 Losses 当时开�
 （web 平台集成架构重构，150 文件）冲突，且 web 栈被劈成 `frontend/`（precompute、rust）
 与 `platforms/web/` 两半。恢复后整个 web 域重新聚在 `frontend/` 下；web 域的最终布局
 （含 `platforms/web/shaping` 的去留）随 PR #10 的架构与 Losses 商定后另定。
+
+## Amendment (2026-08-24)
+
+`frontend/rust` 迁至 `ffi/rust`，与 `ffi/js`、`ffi/native` 同目录；CI、schema 生成器
+与 eslint ignore 的路径同步更新。`platforms/web/shaping` 退役：web 域的 Kotlin/JS
+target 已全部退役，canvas 度量由 npm 包内的 TS 实现提供，该模块无消费者。上文
+「web 域最终布局另定」的事项就此关闭。

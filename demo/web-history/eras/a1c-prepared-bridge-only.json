@@ -1,0 +1,20 @@
+{
+  "label": "A1c-prepared-bridge-only",
+  "commit": "5c76cf68",
+  "range": "5c76cf68 (render every paragraph via the prepared bridge, native renderer dropped) .. before bf506b34",
+  "entry": "@tiqian/prose api.js verbs (enhanceProgressively/enhance), Kotlin/JS engine",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "platforms/web/client/web-component/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js"
+    }
+  },
+  "static": {
+    "/pkg": "platforms/web/client/web-component"
+  },
+  "build": [
+    "./gradlew :frontend:web:assembleNpmPackage"
+  ],
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into platforms/web/client/web-component/runtime/tiqian-web.js"
+}

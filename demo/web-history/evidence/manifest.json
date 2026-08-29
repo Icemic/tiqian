@@ -1,0 +1,841 @@
+{
+ "study": "oneshot-bisect",
+ "range": "b6498412..1ad320ce (679 commits, 680 topological positions)",
+ "comparison": "demo/web/tests/helpers/deep-geometry.mjs semantics, frozen; x/y/width/height per box, 0.01px rounding, exact equality, zero tolerance",
+ "generated": "2026-08-27",
+ "points": [
+  {
+   "commit": "0835074e",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A1b-emphasis-prepared"
+   ],
+   "archive": "0835074e.tar.xz",
+   "archiveBytes": 10788
+  },
+  {
+   "commit": "08a7ebb8",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C2-fontfamilies-abi"
+   ],
+   "archive": "08a7ebb8.tar.xz",
+   "archiveBytes": 12400
+  },
+  {
+   "commit": "0c135ee3",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E2b-workspace",
+    "E2c-dtowave"
+   ],
+   "archive": "0c135ee3.tar.xz",
+   "archiveBytes": 12856
+  },
+  {
+   "commit": "0e46a072",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "0e46a072.tar.xz",
+   "archiveBytes": 756
+  },
+  {
+   "commit": "1ad320ce",
+   "probeRuns": 4,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 3,
+   "invalidRuns": 1,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E7-head"
+   ],
+   "archive": "1ad320ce.tar.xz",
+   "archiveBytes": 13908
+  },
+  {
+   "commit": "23e36988",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C10-validator-off"
+   ],
+   "archive": "23e36988.tar.xz",
+   "archiveBytes": 12460
+  },
+  {
+   "commit": "2aafd7f1",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "B0-retire-kjs"
+   ],
+   "archive": "2aafd7f1.tar.xz",
+   "archiveBytes": 12460
+  },
+  {
+   "commit": "30a783cb",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "30a783cb.tar.xz",
+   "archiveBytes": 764
+  },
+  {
+   "commit": "3f2996d0",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A0-prepared-dom"
+   ],
+   "archive": "3f2996d0.tar.xz",
+   "archiveBytes": 10784
+  },
+  {
+   "commit": "4370925f",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A2b-replay-options"
+   ],
+   "archive": "4370925f.tar.xz",
+   "archiveBytes": 12456
+  },
+  {
+   "commit": "4818b3f3",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "4818b3f3.tar.xz",
+   "archiveBytes": 12360
+  },
+  {
+   "commit": "4e2b3747",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C6-replay-keys"
+   ],
+   "archive": "4e2b3747.tar.xz",
+   "archiveBytes": 12448
+  },
+  {
+   "commit": "51efc35a",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "B1-coordination-mid"
+   ],
+   "archive": "51efc35a.tar.xz",
+   "archiveBytes": 12428
+  },
+  {
+   "commit": "5c76cf68",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A1c-prepared-bridge-only"
+   ],
+   "archive": "5c76cf68.tar.xz",
+   "archiveBytes": 10952
+  },
+  {
+   "commit": "5c9d0a30",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "B4-loader-state"
+   ],
+   "archive": "5c9d0a30.tar.xz",
+   "archiveBytes": 11956
+  },
+  {
+   "commit": "6446b33d",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "6446b33d.tar.xz",
+   "archiveBytes": 764
+  },
+  {
+   "commit": "6ff37b45",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A2c-lineflow-fix"
+   ],
+   "archive": "6ff37b45.tar.xz",
+   "archiveBytes": 12432
+  },
+  {
+   "commit": "70b576f6",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "70b576f6.tar.xz",
+   "archiveBytes": 760
+  },
+  {
+   "commit": "72e95777",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E8-context"
+   ],
+   "archive": "72e95777.tar.xz",
+   "archiveBytes": 12432
+  },
+  {
+   "commit": "733d779a",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A2a-workerserial"
+   ],
+   "archive": "733d779a.tar.xz",
+   "archiveBytes": 12444
+  },
+  {
+   "commit": "73449b70",
+   "probeRuns": 1,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E2a-tsport"
+   ],
+   "archive": "73449b70.tar.xz",
+   "archiveBytes": 12696
+  },
+  {
+   "commit": "7e2d1909",
+   "probeRuns": 20,
+   "centralVerifyRuns": 5,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "7e2d1909.tar.xz",
+   "archiveBytes": 1036
+  },
+  {
+   "commit": "83d99d02",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C4-families-dto"
+   ],
+   "archive": "83d99d02.tar.xz",
+   "archiveBytes": 12420
+  },
+  {
+   "commit": "876612ef",
+   "probeRuns": 1,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E1-apiverbs"
+   ],
+   "archive": "876612ef.tar.xz",
+   "archiveBytes": 11056
+  },
+  {
+   "commit": "88557fca",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A2d-styles-ship"
+   ],
+   "archive": "88557fca.tar.xz",
+   "archiveBytes": 10948
+  },
+  {
+   "commit": "9561c747",
+   "probeRuns": 1,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 1,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E4-register"
+   ],
+   "archive": "9561c747.tar.xz",
+   "archiveBytes": 13400
+  },
+  {
+   "commit": "acdce952",
+   "probeRuns": 2,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 2,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E5-apidissolved"
+   ],
+   "archive": "acdce952.tar.xz",
+   "archiveBytes": 12684
+  },
+  {
+   "commit": "af4f310f",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C7-dto-declare"
+   ],
+   "archive": "af4f310f.tar.xz",
+   "archiveBytes": 12448
+  },
+  {
+   "commit": "b4f90ec3",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C1-dto-assert"
+   ],
+   "archive": "b4f90ec3.tar.xz",
+   "archiveBytes": 12452
+  },
+  {
+   "commit": "b6498412",
+   "probeRuns": 1,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E0-alpha3"
+   ],
+   "archive": "b6498412.tar.xz",
+   "archiveBytes": 11060
+  },
+  {
+   "commit": "bed4c791",
+   "probeRuns": 20,
+   "centralVerifyRuns": 5,
+   "divergentRuns": 25,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "E3-session"
+   ],
+   "archive": "bed4c791.tar.xz",
+   "archiveBytes": 15492
+  },
+  {
+   "commit": "bf506b34",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A1-prosecore-split"
+   ],
+   "archive": "bf506b34.tar.xz",
+   "archiveBytes": 10952
+  },
+  {
+   "commit": "ca8eb84a",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C5-metrics-dto"
+   ],
+   "archive": "ca8eb84a.tar.xz",
+   "archiveBytes": 12448
+  },
+  {
+   "commit": "cd08a2c7",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C9-wildcard-subpath"
+   ],
+   "archive": "cd08a2c7.tar.xz",
+   "archiveBytes": 11960
+  },
+  {
+   "commit": "d0c5f50f",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "B3-rawdom-context"
+   ],
+   "archive": "d0c5f50f.tar.xz",
+   "archiveBytes": 12460
+  },
+  {
+   "commit": "de926c85",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "A2e-probe-bootstrap"
+   ],
+   "archive": "de926c85.tar.xz",
+   "archiveBytes": 10932
+  },
+  {
+   "commit": "e99c4943",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "B2-boundary-ci"
+   ],
+   "archive": "e99c4943.tar.xz",
+   "archiveBytes": 11960
+  },
+  {
+   "commit": "efc62a80",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C8-rawdom-context-fix"
+   ],
+   "archive": "efc62a80.tar.xz",
+   "archiveBytes": 12472
+  },
+  {
+   "commit": "f12eba9f",
+   "probeRuns": 0,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [
+    "chain-p0.json"
+   ],
+   "eras": [
+    "C3-protocol-rev2"
+   ],
+   "archive": "f12eba9f.tar.xz",
+   "archiveBytes": 12444
+  },
+  {
+   "commit": "f4371956",
+   "probeRuns": 10,
+   "centralVerifyRuns": 0,
+   "divergentRuns": 0,
+   "invalidRuns": 0,
+   "chainSamples": [],
+   "eras": [
+    "E2b-workspace"
+   ],
+   "archive": "f4371956.tar.xz",
+   "archiveBytes": 752
+  }
+ ],
+ "pairs": 30,
+ "runNumbering": "1..N = agent probe runs; 901+ = central verification re-runs (2026-08-27, independent boundary reproduction)",
+ "chainPairs": [
+  {
+   "pair": "pair-01",
+   "a": "b6498412",
+   "b": "876612ef",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1642
+  },
+  {
+   "pair": "pair-02",
+   "a": "876612ef",
+   "b": "0835074e",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1642
+  },
+  {
+   "pair": "pair-03",
+   "a": "0835074e",
+   "b": "3f2996d0",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1642
+  },
+  {
+   "pair": "pair-04",
+   "a": "3f2996d0",
+   "b": "5c76cf68",
+   "equal": false,
+   "divergentBoxes": 1159,
+   "boxesCompared": 1642
+  },
+  {
+   "pair": "pair-05",
+   "a": "5c76cf68",
+   "b": "bf506b34",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1634
+  },
+  {
+   "pair": "pair-06",
+   "a": "bf506b34",
+   "b": "88557fca",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1634
+  },
+  {
+   "pair": "pair-07",
+   "a": "88557fca",
+   "b": "de926c85",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1634
+  },
+  {
+   "pair": "pair-08",
+   "a": "de926c85",
+   "b": "6ff37b45",
+   "equal": false,
+   "divergentBoxes": 539,
+   "boxesCompared": 1634
+  },
+  {
+   "pair": "pair-09",
+   "a": "6ff37b45",
+   "b": "4370925f",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-10",
+   "a": "4370925f",
+   "b": "733d779a",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-11",
+   "a": "733d779a",
+   "b": "73449b70",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-12",
+   "a": "73449b70",
+   "b": "2aafd7f1",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-13",
+   "a": "2aafd7f1",
+   "b": "51efc35a",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-14",
+   "a": "51efc35a",
+   "b": "d0c5f50f",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-15",
+   "a": "d0c5f50f",
+   "b": "5c9d0a30",
+   "equal": false,
+   "divergentBoxes": 334,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-16",
+   "a": "5c9d0a30",
+   "b": "e99c4943",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1768
+  },
+  {
+   "pair": "pair-17",
+   "a": "e99c4943",
+   "b": "4818b3f3",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1768
+  },
+  {
+   "pair": "pair-18",
+   "a": "4818b3f3",
+   "b": "cd08a2c7",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1768
+  },
+  {
+   "pair": "pair-19",
+   "a": "cd08a2c7",
+   "b": "23e36988",
+   "equal": false,
+   "divergentBoxes": 175,
+   "boxesCompared": 1768
+  },
+  {
+   "pair": "pair-20",
+   "a": "23e36988",
+   "b": "efc62a80",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-21",
+   "a": "efc62a80",
+   "b": "af4f310f",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-22",
+   "a": "af4f310f",
+   "b": "b4f90ec3",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-23",
+   "a": "b4f90ec3",
+   "b": "ca8eb84a",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-24",
+   "a": "ca8eb84a",
+   "b": "4e2b3747",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-25",
+   "a": "4e2b3747",
+   "b": "0c135ee3",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-26",
+   "a": "0c135ee3",
+   "b": "bed4c791",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-27",
+   "a": "bed4c791",
+   "b": "9561c747",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-28",
+   "a": "9561c747",
+   "b": "acdce952",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-29",
+   "a": "acdce952",
+   "b": "1ad320ce",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  },
+  {
+   "pair": "pair-30",
+   "a": "1ad320ce",
+   "b": "72e95777",
+   "equal": true,
+   "divergentBoxes": 0,
+   "boxesCompared": 1927
+  }
+ ]
+}

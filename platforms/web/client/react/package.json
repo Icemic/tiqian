@@ -1,0 +1,55 @@
+{
+  "name": "@tiqian/react",
+  "version": "0.1.0-alpha.5",
+  "description": "Reference React binding for Tiqian's CJK paragraph layout engine, held directly over the neutral core.",
+  "keywords": [
+    "cjk",
+    "chinese",
+    "typography",
+    "prose",
+    "layout",
+    "react"
+  ],
+  "homepage": "https://github.com/tiqian-cjk/tiqian#readme",
+  "bugs": {
+    "url": "https://github.com/tiqian-cjk/tiqian/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiqian-cjk/tiqian.git",
+    "directory": "platforms/web/client/react"
+  },
+  "license": "MPL-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./binding.js",
+  "module": "./binding.js",
+  "types": "./binding.d.ts",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "pretest": "npm run build",
+    "test": "node --test tests/*.test.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./binding.d.ts",
+      "default": "./binding.js"
+    }
+  },
+  "dependencies": {
+    "@tiqian/core": "0.1.0-alpha.5"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "5.9.3"
+  }
+}

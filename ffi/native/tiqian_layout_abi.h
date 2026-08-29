@@ -78,22 +78,36 @@ extern "C" {
 
 /*
  * Runs the layout for one packed request. On success returns
- * TIQIAN_LAYOUT_OK and sets *plan_json_out to a NUL-terminated UTF-8 plan
- * JSON string allocated on the native heap; *error_out is set to NULL. On
- * failure returns TIQIAN_LAYOUT_ERROR, sets *error_out to a NUL-terminated
- * named issue string, and sets *plan_json_out to NULL. Kotlin exceptions
- * never cross this boundary. Both pointers are released with
+ * TIQIAN_LAYOUT_OK and sets *response_out to a packed plan buffer (see
+ * tiqian_plan_abi.h) of *response_len bytes allocated on the native heap;
+ * *error_out is set to NULL. On failure returns TIQIAN_LAYOUT_ERROR, sets
+ * *error_out to a NUL-terminated named issue string, and sets *response_out
+ * to NULL with *response_len to 0. Kotlin exceptions never cross this
+ * boundary. Both the packed buffer and the error string are released with
  * tiqian_release_buffer. The call is safe to issue concurrently; the
  * installed font backend owns its thread safety.
  */
 int32_t tiqian_layout_paragraph(
     const uint8_t* request,
     uint64_t request_len,
+    uint8_t** response_out,
+    uint64_t* response_len,
+    char** error_out);
+
+/*
+ * Diagnostic dump: same request, but the payload is the plan JSON dump that
+ * the engine has long produced (PreparedParagraphJson). Only for parity oracle
+ * and golden; the production lane must not use it. Error and release
+ * semantics match the packed entry; the JSON string is NUL terminated.
+ */
+int32_t tiqian_layout_paragraph_json(
+    const uint8_t* request,
+    uint64_t request_len,
     char** plan_json_out,
     char** error_out);
 
-/* Releases a buffer this ABI allocated. Accepts NULL. */
-void tiqian_release_buffer(char* buffer);
+/* Releases a buffer this ABI allocated (packed or error string). Accepts NULL. */
+void tiqian_release_buffer(void* buffer);
 
 /*
  * Installs the process-wide font backend vtable. Signature and result codes:
