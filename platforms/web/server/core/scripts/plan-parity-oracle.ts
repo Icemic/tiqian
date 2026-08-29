@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 const here: string = dirname(fileURLToPath(import.meta.url));
 const bundleUrl: URL = new URL(
-  "../../../../ffi/js/build/compileSync/js/main/productionExecutable/kotlin/Tiqian-tiqian-ffi-js.mjs",
+  "../../../../../ffi/js/build/compileSync/js/main/productionExecutable/kotlin/Tiqian-tiqian-ffi-js.mjs",
   import.meta.url,
 );
 
@@ -116,8 +116,8 @@ function makeFixtureCallbacks(): {
       const fontSize: number = request.style.fontSize;
       const missing: boolean = String(displayText).includes("\u22ef");
       const glyphs: ShapeGlyph[] = [];
-      let index: number = 0;
-      for (const _point of displayText) {
+      const pointCount: number = Array.from(displayText).length;
+      for (let index = 0; index < pointCount; index += 1) {
         glyphs.push({
           id: missing ? 0 : 100 + index,
           advance: fontSize,
@@ -125,7 +125,6 @@ function makeFixtureCallbacks(): {
           y: 0,
           bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
         });
-        index += 1;
       }
       return JSON.stringify({
         clusters: [{

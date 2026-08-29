@@ -275,7 +275,7 @@ const cases: CorpusCase[] = [
     plan: plan([
       line([
         cell(0, 1, "排", "排", 0, 16),
-        cell(1, 2, "版", "版", 16.004795074462895, 16),
+        cell(1, 2, "版", "版", 16.004795074462894, 16),
         cell(2, 3, "引", "引", 32.00959014892579, 16),
       ], { endReason: "AutoWrap", visualWidth: 48.00959014892579 }),
     ]),
@@ -821,7 +821,7 @@ for (const entry of cases) {
     if (expectError === undefined) throw error;
     const message = error instanceof Error ? error.message : String(error);
     if (message !== expectError) {
-      throw new Error(`case ${name}: expected ${expectError}, got ${message}`);
+      throw new Error(`case ${name}: expected ${expectError}, got ${message}`, { cause: error });
     }
     expect = { kind: "error", error: message };
   }
