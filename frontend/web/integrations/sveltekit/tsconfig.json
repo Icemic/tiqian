@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "strict": true,
+    "declaration": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "server.ts"
+  ]
+}

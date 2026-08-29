@@ -7,13 +7,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { compile } from "svelte/compiler";
-import { attributes as renderSsrAttributes } from "svelte/internal/server";
 
 import {
   createTiqianSvelteKit,
   createTiqianTables,
   injectTiqianSsrAssets,
-} from "./server.js";
+} from "./dist/server.js";
 
 const fixtureAssets = {
   id: "tq-page",
@@ -43,16 +42,24 @@ try {
 // fixture build below resolves every dependency through that single root.
 const proseWorkspaceLinkExists = existsSync(new URL("../../../../node_modules/@tiqian/prose", import.meta.url));
 
-function run(command, args, options) {
+interface SpawnOptions {
+  readonly cwd?: string;
+}
+
+function run(command: string, args: readonly string[], options?: SpawnOptions): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args as string[], { ...options, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.stderr.on("data", (chunk) => { output += chunk; });
+    child.stdout.on("data", (chunk: Buffer | string): void => { output += chunk; });
+    child.stderr.on("data", (chunk: Buffer | string): void => { output += chunk; });
     child.on("error", reject);
-    child.on("close", (code) => code === 0
-      ? resolve(output)
-      : reject(new Error(`FixtureBuildFailed:${code}\n${output}`)));
+    child.on("close", (code: number | null): void => {
+      if (code === 0) {
+        resolve(output);
+      } else {
+        reject(new Error(`FixtureBuildFailed:${code}\n${output}`));
+      }
+    });
   });
 }
 
@@ -63,7 +70,11 @@ test("Svelte component compiles for client and server", async () => {
   assert.match(server.js.code, /'strong-as-emphasis-marks': strongAsEmphasisMarks \|\| undefined/u);
 });
 
-test("Svelte SSR omits a false disabled Boolean attribute", () => {
+test("Svelte SSR omits a false disabled Boolean attribute", async () => {
+  interface SvelteServerInternal {
+    attributes(attributes: Record<string, unknown>): string;
+  }
+  const { attributes: renderSsrAttributes } = (await import("svelte/internal/server")) as SvelteServerInternal;
   assert.equal(renderSsrAttributes({ disabled: false }), "");
   assert.equal(renderSsrAttributes({ disabled: true }), ' disabled=""');
 });
@@ -79,12 +90,13 @@ test("package manifest publishes only the component and server boundary", async 
   assert.equal(manifest.engines.node, prose.engines.node);
   assert.deepEqual(Object.keys(manifest.exports).sort(), [".", "./server"]);
   assert.ok(manifest.files.includes("TiqianProse.svelte"));
+  assert.ok(manifest.files.includes("dist"));
 });
 
 test("SSR transport injects each referenced snapshot once", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, () => {
   const html = '<html><head></head><body><tiqian-prose snapshot-ref="tq-page"></tiqian-prose>' +
     '<tiqian-prose snapshot-ref="tq-page"></tiqian-prose></body></html>';
-  const output = injectTiqianSsrAssets(html, (id) => id === "tq-page" ? fixtureAssets : undefined);
+  const output = injectTiqianSsrAssets(html, (id: string) => id === "tq-page" ? fixtureAssets : undefined);
   assert.equal(output.match(/<template id="tq-page"/gu)?.length, 1);
   assert.match(output, /data-tq-initial-snapshot="tq-page"/u);
   assert.ok(output.indexOf("<template") < output.indexOf("</head>"));
@@ -104,7 +116,7 @@ test("SSR transport preserves JavaScript replacement tokens in snapshot assets",
 
 test("server prepare returns only compact navigation state", async () => {
   const htmlPreparer = {
-    async prepare(html) {
+    async prepare(html: string) {
       return {
         html,
         rootAttributes: { "snapshot-ref": "tq-page" },
@@ -134,7 +146,7 @@ test("a tables option writes per-item table files and stamps the root URL", asyn
     const sha256 = "a".repeat(64);
     const bytes = Buffer.from("TIQTBL03-fixture");
     const htmlPreparer = {
-      async prepare(html) {
+      async prepare(html: string) {
         return {
           html,
           rootAttributes: { "snapshot-ref": "tq-page" },
@@ -152,6 +164,7 @@ test("a tables option writes per-item table files and stamps the root URL", asyn
     });
     const prepared = await tiqian.prepare("<p>正文</p>");
     assert.equal(prepared.rootAttributes["tq-tables"], `/tiqian-tables/${sha256}.tiqtbl`);
+    assert.ok(tiqian.tables);
     assert.deepEqual(tiqian.tables.read(sha256), bytes);
     assert.deepEqual(tiqian.tables.listShas(), [sha256]);
     await tiqian.close();
@@ -161,11 +174,11 @@ test("a tables option writes per-item table files and stamps the root URL", asyn
 });
 
 test("createTiqianTables requires a directory option", () => {
-  assert.throws(() => createTiqianTables(), /TiqianSvelteKitTablesOptionsInvalid/u);
-  assert.throws(() => createTiqianTables(null), /TiqianSvelteKitTablesOptionsInvalid/u);
-  assert.throws(() => createTiqianTables({}), /TiqianSvelteKitTablesDirectoryRequired/u);
+  assert.throws(() => (createTiqianTables as () => void)(), /TiqianSvelteKitTablesOptionsInvalid/u);
+  assert.throws(() => (createTiqianTables as (opt: null) => void)(null), /TiqianSvelteKitTablesOptionsInvalid/u);
+  assert.throws(() => (createTiqianTables as (opt: Record<string, never>) => void)({}), /TiqianSvelteKitTablesDirectoryRequired/u);
   assert.throws(
-    () => createTiqianTables({ directory: "tables", devDirectory: 3 }),
+    () => (createTiqianTables as (opt: { directory: string; devDirectory: number }) => void)({ directory: "tables", devDirectory: 3 }),
     /TiqianSvelteKitTablesOptionsInvalid/u,
   );
 });
@@ -213,7 +226,7 @@ test("a tables option routes non-production writes through devDirectory", async 
     const sha256 = "c".repeat(64);
     const bytes = Buffer.from("TIQTBL03-fixture");
     const htmlPreparer = {
-      async prepare(html) {
+      async prepare(html: string) {
         return {
           html,
           rootAttributes: { "snapshot-ref": "tq-page" },
@@ -231,6 +244,7 @@ test("a tables option routes non-production writes through devDirectory", async 
     });
     const prepared = await tiqian.prepare("<p>正文</p>");
     assert.equal(prepared.rootAttributes["tq-tables"], `/tiqian-tables/${sha256}.tiqtbl`);
+    assert.ok(tiqian.tables);
     assert.deepEqual(tiqian.tables.read(sha256), bytes);
     assert.equal(existsSync(path.join(build, `${sha256}.tiqtbl`)), false);
     assert.equal(existsSync(path.join(dev, `${sha256}.tiqtbl`)), true);
@@ -244,14 +258,14 @@ test("a tables option routes non-production writes through devDirectory", async 
 
 test("server integration rejects an unbounded retention setting", () => {
   assert.throws(
-    () => createTiqianSvelteKit({ maximumRetainedBundles: 0, htmlPreparer: {} }),
+    () => createTiqianSvelteKit({ maximumRetainedBundles: 0, htmlPreparer: { prepare: async () => ({} as never), close() {} } }),
     /InvalidMaximumRetainedTiqianBundles/u,
   );
 });
 
 test("one retention scope rejects conflicting assets that reuse an id", async () => {
   const htmlPreparer = {
-    async prepare(html) {
+    async prepare(html: string) {
       return {
         html,
         rootAttributes: { "snapshot-ref": "shared-id" },
@@ -281,7 +295,7 @@ test("one retention scope rejects conflicting assets that reuse an id", async ()
 
 test("concurrent requests cannot exchange assets that reuse an explicit id", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, async () => {
   const htmlPreparer = {
-    async prepare(html) {
+    async prepare(html: string) {
       await new Promise((resolve) => setTimeout(resolve, html === "first" ? 5 : 0));
       return {
         html: `<p>${html}</p>`,
@@ -299,9 +313,18 @@ test("concurrent requests cannot exchange assets that reuse an explicit id", { s
     close() {},
   };
   const tiqian = createTiqianSvelteKit({ htmlPreparer });
-  const render = (source) => tiqian.handle({
+  interface MockEvent {
+    readonly source: string;
+  }
+  interface MockResolveOptions {
+    transformPageChunk(input: { html: string; done: boolean }): string;
+  }
+  const render = (source: string): Promise<string> => (tiqian.handle as (input: {
+    event: MockEvent;
+    resolve: (event: MockEvent, options: MockResolveOptions) => Promise<string>;
+  }) => Promise<string>)({
     event: { source },
-    resolve: async (event, options) => {
+    resolve: async (event: MockEvent, options: MockResolveOptions): Promise<string> => {
       await tiqian.prepare(event.source, { id: "shared-id" });
       await new Promise((resolve) => setTimeout(resolve, event.source === "second" ? 10 : 0));
       return options.transformPageChunk({
