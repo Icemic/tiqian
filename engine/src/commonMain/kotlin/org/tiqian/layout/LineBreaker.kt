@@ -25,7 +25,7 @@ interface LineBreaker {
          * would land strictly inside a range moves to the range start
          * instead; a range wider than the measure falls back to splitting.
          */
-        unbreakableRanges: List<IntRange> = emptyList(),
+        unbreakableRanges: UnbreakableRanges = UnbreakableRanges.Empty,
         /**
          * 段首缩进 in layout units: the line that starts at cluster 0 has
          * its usable measure reduced to `maxWidth - firstLineIndent`. All
@@ -135,7 +135,7 @@ class GreedyLineBreaker(
         adjustedClusters: List<Cluster>,
         maxWidth: Float,
         shrinkOpportunities: List<ShrinkOpportunity>,
-        unbreakableRanges: List<IntRange>,
+        unbreakableRanges: UnbreakableRanges,
         firstLineIndent: Float,
         hangableClusters: Set<Int>,
         extendableHangRanges: List<IntRange>,
@@ -194,7 +194,7 @@ class GreedyLineBreaker(
         naturalClusters: List<Cluster>,
         adjustedClusters: List<Cluster>,
         maxWidth: Float,
-        unbreakableRanges: List<IntRange>,
+        unbreakableRanges: UnbreakableRanges,
         firstLineIndent: Float,
         forbiddenLineEndClusters: Set<Int>,
         hyphenBreakClusters: Set<Int>,
@@ -337,7 +337,7 @@ class LookaheadLineBreaker(
         adjustedClusters: List<Cluster>,
         maxWidth: Float,
         shrinkOpportunities: List<ShrinkOpportunity>,
-        unbreakableRanges: List<IntRange>,
+        unbreakableRanges: UnbreakableRanges,
         firstLineIndent: Float,
         hangableClusters: Set<Int>,
         extendableHangRanges: List<IntRange>,
@@ -450,7 +450,7 @@ class LookaheadLineBreaker(
             val candidates = ((greedyEnd - window)..greedyEnd)
                 .filter { it in (lineStart + 1)..adjustedClusters.size }
                 .filter { it <= segmentEndExclusive }
-                .filter { e -> unbreakableRanges.none { e > it.first && e <= it.last } }
+                .filter { e -> !unbreakableRanges.containsBoundary(e) }
                 .filter { e ->
                     progressiveCandidateAllowed(
                         lineStart, rawGreedyEnd, e, progressiveBreakOpportunities,
@@ -589,7 +589,7 @@ class LookaheadLineBreaker(
         prevSyntheticHyphenRun: Int = 0,
         gapBoundaries: Set<Int> = emptySet(),
         dRef: Float = 1f,
-        unbreakableRanges: List<IntRange> = emptyList(),
+        unbreakableRanges: UnbreakableRanges = UnbreakableRanges.Empty,
         nonRenderingControlClusters: Set<Int> = emptySet(),
         progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
     ): Float {
@@ -670,7 +670,7 @@ class LookaheadLineBreaker(
         sinoWesternBoundaries: Set<Int>,
         sinoWesternStretchCap: Float,
         endExclusive: Int = adjusted.size,
-        unbreakableRanges: List<IntRange> = emptyList(),
+        unbreakableRanges: UnbreakableRanges = UnbreakableRanges.Empty,
         nonRenderingControlClusters: Set<Int> = emptySet(),
         maxLines: Int = Int.MAX_VALUE,
         progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),

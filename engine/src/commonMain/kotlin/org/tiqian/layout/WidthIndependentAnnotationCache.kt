@@ -253,6 +253,30 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         input.content.lineBreakSpans.forEach { addRange(it.range) }
         input.content.sourceBoundaries.forEach(::addBoundary)
     }
+    val emojiShapingBoundaries: Set<Int> = buildSet {
+        fun addBoundary(offset: Int) {
+            if (offset > 0 && offset < text.length) add(offset)
+        }
+        fun addRange(range: TextRange) {
+            addBoundary(range.start)
+            addBoundary(range.end)
+        }
+        // `EmojiGraphemeShapingAtomicity`: TextSpan carries a single
+        // ShapingInput style and must therefore split. An inline box only
+        // becomes a hard edge when it changes occupied geometry; a zero-edge
+        // Source wrapper is geometry-only like a link or colour span.
+        // Decorations, ruby, technical-break annotations, and source
+        // interaction edges do not split shaping.
+        sizedSpans.forEach { addRange(it.range) }
+        input.inlineBoxes
+            .filter {
+                it.inlineStart != 0f ||
+                    it.inlineEnd != 0f ||
+                    it.outerSpacing == InlineBoxOuterSpacing.Narrow
+            }
+            .forEach { addRange(it.range) }
+        input.inlineObjects.forEach { addRange(it.range) }
+    }
     val clreqProfile = clreqProfileResolver.resolve(input.profileId)
     val context = FontRoleContext(
         locale = input.textStyle.locale,
@@ -265,7 +289,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
     val quotePairs = quotePairAnalyzer.analyze(text)
     val quoteRoleDecisions = quotePairAnalyzer.classifyQuoteRoles(text, quotePairs, context)
     val quoteRoleOverrides = quoteRoleDecisions.associate { it.index to it.role }
-    val roleOverrideInfos = quoteRoleDecisions.toRoleOverrideInfos(
+    val quoteRoleOverrideInfos = quoteRoleDecisions.toRoleOverrideInfos(
         text = text,
         baseClassifier = fontRoleClassifier,
         context = context,
@@ -282,8 +306,11 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         context,
         clreqProfile,
         spanBoundaries,
+        emojiShapingBoundaries,
         input.inlineObjects.associateBy { it.range.start },
     )
+    val roleOverrideInfos = (quoteRoleOverrideInfos + clusterRanges.mapNotNull { it.roleOverride })
+        .sortedBy { it.range.start }
     val shapeableRanges = clusterRanges.filterNot {
         it.mandatoryBreak || it.zeroWidthSoftBreak || inlineObjectByRange.containsKey(it.range)
     }

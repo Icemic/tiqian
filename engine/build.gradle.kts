@@ -33,6 +33,95 @@ val generateEmbeddedHyphenationPatterns = tasks.register("generateEmbeddedHyphen
     }
 }
 
+// The layout-dump goldens are language-neutral text files; the JVM golden test
+// owns and regenerates them, and commonTest replays the same corpus on every
+// target. They are embedded as generated chunked constants (same mechanism as
+// the hyphenation patterns) because only the JVM can read files at test time.
+val generateLayoutDumpGoldens = tasks.register("generateLayoutDumpGoldens") {
+    val goldenDir = layout.projectDirectory.dir("src/jvmTest/resources/golden/layout-dumps")
+    val recordedGoldenDir = layout.projectDirectory.dir("src/jvmTest/resources/golden/layout-dumps-recorded")
+    val evidenceFile = layout.projectDirectory.file("src/jvmTest/resources/golden/shaping-evidence.json")
+    val outputDir = layout.buildDirectory.dir("generated/layout-dump-goldens/kotlin")
+    inputs.dir(goldenDir)
+    inputs.files(fileTree(recordedGoldenDir))
+    inputs.files(evidenceFile)
+    outputs.dir(outputDir)
+    doLast {
+        // Chunked so no literal exceeds the JVM constant-pool string limit
+        // (65535 modified-UTF-8 bytes); never cuts between surrogate halves.
+        fun escapedChunks(text: String): List<String> {
+            val chunks = mutableListOf<String>()
+            val current = StringBuilder()
+            var bytes = 0
+            for (ch in text) {
+                val escaped = when (ch) {
+                    '\\' -> "\\\\"
+                    '"' -> "\\\""
+                    '$' -> "\\$"
+                    '\n' -> "\\n"
+                    '\r' -> "\\r"
+                    else -> ch.toString()
+                }
+                current.append(escaped)
+                bytes += escaped.sumOf { c -> if (c.code <= 0x7F) 1 else 3L }.toInt()
+                if (bytes >= 40000 && !ch.isHighSurrogate()) {
+                    chunks += current.toString()
+                    current.setLength(0)
+                    bytes = 0
+                }
+            }
+            if (current.isNotEmpty() || chunks.isEmpty()) chunks += current.toString()
+            return chunks
+        }
+        fun goldenMapSource(objectName: String, sourceDir: File): String = buildString {
+            val files = sourceDir.listFiles { f -> f.extension == "txt" }?.sortedBy { it.name }.orEmpty()
+            appendLine("package org.tiqian.layout")
+            appendLine()
+            appendLine("// GENERATED from src/jvmTest/resources/golden — do not edit.")
+            appendLine("internal object $objectName {")
+            appendLine("    val byId: Map<String, String> = buildMap {")
+            for (file in files) {
+                appendLine("        put(")
+                appendLine("            \"${file.nameWithoutExtension}\",")
+                appendLine("            listOf(")
+                for (chunk in escapedChunks(file.readText())) {
+                    appendLine("                \"$chunk\",")
+                }
+                appendLine("            ).joinToString(\"\"),")
+                appendLine("        )")
+            }
+            appendLine("    }")
+            appendLine("}")
+        }
+
+        val packageDir = outputDir.get().file("org/tiqian/layout").asFile
+        packageDir.mkdirs()
+        File(packageDir, "LayoutDumpGoldenData.kt")
+            .writeText(goldenMapSource("LayoutDumpGoldens", goldenDir.asFile))
+        File(packageDir, "RecordedLayoutDumpGoldenData.kt")
+            .writeText(goldenMapSource("RecordedLayoutDumpGoldens", recordedGoldenDir.asFile))
+        File(packageDir, "RecordedShapingEvidenceData.kt").writeText(
+            buildString {
+                appendLine("package org.tiqian.layout")
+                appendLine()
+                appendLine("// GENERATED from src/jvmTest/resources/golden/shaping-evidence.json — do not edit.")
+                appendLine("internal object RecordedShapingEvidenceData {")
+                val evidence = evidenceFile.asFile
+                if (evidence.isFile) {
+                    appendLine("    val EVIDENCE_JSON: String = listOf(")
+                    for (chunk in escapedChunks(evidence.readText())) {
+                        appendLine("        \"$chunk\",")
+                    }
+                    appendLine("    ).joinToString(\"\")")
+                } else {
+                    appendLine("    val EVIDENCE_JSON: String = \"\"")
+                }
+                appendLine("}")
+            },
+        )
+    }
+}
+
 kotlin {
     jvm()
     android {
@@ -62,8 +151,12 @@ kotlin {
     }
 
     sourceSets {
-        commonTest.dependencies {
-            implementation(kotlin("test"))
+        commonTest {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(project(":test-support"))
+            }
+            kotlin.srcDir(generateLayoutDumpGoldens)
         }
 
         jsMain {
@@ -80,12 +173,30 @@ kotlin {
             implementation(project(":platforms:jvm:shaping"))
             implementation(project(":platforms:jvm:skia"))
             implementation(project(":test-support"))
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6")
         }
     }
 }
 
 val jvmTestCompilation = kotlin.targets.getByName("jvm").compilations.getByName("test")
+
+val fixtureId = providers.gradleProperty("fixtureId")
+
+tasks.register<JavaExec>("exportLayoutFixture") {
+    group = "verification"
+    description = "Writes one EarlyLayoutFixture's effective layout input as JSON to standard output."
+    dependsOn("jvmTestClasses")
+    mainClass.set("org.tiqian.layout.tooling.FixtureJsonMainKt")
+    classpath = files(jvmTestCompilation.output.allOutputs) +
+        configurations.named("jvmTestRuntimeClasspath").get()
+    doFirst {
+        check(fixtureId.isPresent) {
+            "Pass one fixture id with -PfixtureId=<id>."
+        }
+        args = listOf(fixtureId.get())
+    }
+}
 
 tasks.register<JavaExec>("generateLayoutReport") {
     group = "verification"

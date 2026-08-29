@@ -146,8 +146,7 @@ class CjkFontRoleClassifier : FontRoleClassifier {
      */
     private fun Int.isTypedAsciiLatin(): Boolean = this in 0x0020..0x007E
 
-    private fun Int.isEmojiCodePoint(): Boolean =
-        this in 0x1F300..0x1FAFF
+    private fun Int.isEmojiCodePoint(): Boolean = UnicodeEmojiPresentationData.contains(this)
 
     private fun Int.isSymbolCodePoint(): Boolean =
         this.toCharOrNull()?.category.let { category ->

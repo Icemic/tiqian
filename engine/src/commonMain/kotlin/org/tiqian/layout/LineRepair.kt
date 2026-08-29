@@ -14,7 +14,7 @@ internal fun applyKinsokuRepairs(
     pushInPenalty: Int,
     carryPreviousPenalty: Int,
     leaveRaggedPenalty: Int,
-    unbreakableRanges: List<IntRange> = emptyList(),
+    unbreakableRanges: UnbreakableRanges = UnbreakableRanges.Empty,
     firstLineIndent: Float = 0f,
     hangableClusters: Set<Int> = emptySet(),
     extendableHangRanges: List<IntRange> = emptyList(),
@@ -168,9 +168,7 @@ internal fun applyKinsokuRepairs(
         // CarryPrevious must not split an unbreakable span: carrying any
         // cluster other than the span's first would leave part of the span
         // behind on the previous line.
-        val splitsUnbreakable = unbreakableRanges.any {
-            carriedIndex > it.first && carriedIndex <= it.last
-        }
+        val splitsUnbreakable = unbreakableRanges.containsBoundary(carriedIndex)
         if (splitsUnbreakable) {
             repairCandidates += RepairCandidate(
                 kind = "CarryPrevious",
@@ -462,7 +460,7 @@ internal fun applyFillPushIn(
     compressBias: Float,
     forbiddenLineStartClusters: Set<Int>?,
     forbiddenLineEndClusters: Set<Int>,
-    unbreakableRanges: List<IntRange>,
+    unbreakableRanges: UnbreakableRanges,
     pushInPenalty: Int,
     gapBoundaries: Set<Int> = emptySet(),
     progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
@@ -616,11 +614,11 @@ private fun fillPushInGroupEnd(
     curr: LineCandidate,
     forbiddenLineStartClusters: Set<Int>?,
     forbiddenLineEndClusters: Set<Int>,
-    unbreakableRanges: List<IntRange>,
+    unbreakableRanges: UnbreakableRanges,
 ): Int? {
     var groupEnd = curr.clusterRange.first
     while (groupEnd <= curr.clusterRange.last) {
-        val containing = unbreakableRanges.firstOrNull { groupEnd in it && it.last > groupEnd }
+        val containing = unbreakableRanges.containingFromClosedStartOrNull(groupEnd)
         if (containing != null) {
             groupEnd = containing.last
             if (groupEnd > curr.clusterRange.last) return null
@@ -655,7 +653,7 @@ internal fun LineSolution.withFillPushIn(
     compressBias: Float,
     forbiddenLineStartClusters: Set<Int>?,
     forbiddenLineEndClusters: Set<Int>,
-    unbreakableRanges: List<IntRange>,
+    unbreakableRanges: UnbreakableRanges,
     pushInPenalty: Int,
     gapBoundaries: Set<Int> = emptySet(),
     progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),

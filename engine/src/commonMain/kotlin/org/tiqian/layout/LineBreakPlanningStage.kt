@@ -480,6 +480,7 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
         val progressiveTechnicalRanges = input.content.lineBreakSpans
             .filter { it.policy == LineBreakPolicy.ProgressiveTechnical }
             .map { it.range }
+        val progressiveTechnicalOverlap = IntervalOverlapIndex(progressiveTechnicalRanges)
         val numberSymbolClusterRanges = NumberSymbolCohesion.unbreakableRanges(text)
             // `ProgressiveTechnicalOverridesNumberSymbolCohesion`: CLREQ's number/unit cohesion
             // describes prose numbers such as `37℃` and `¥100`. Digits inside an explicitly
@@ -487,10 +488,7 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
             // Emergency policy; treating a long digit run as unbreakable can retreat a rightmost
             // Emergency cut hundreds of pixels and then fill the gap with letter tracking.
             .filterNot { sourceRange ->
-                progressiveTechnicalRanges.any { technicalRange ->
-                    sourceRange.first < technicalRange.end &&
-                        sourceRange.last + 1 > technicalRange.start
-                }
+                progressiveTechnicalOverlap.overlaps(sourceRange.first, sourceRange.last + 1)
             }
             .mapNotNull { r ->
                 naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
@@ -524,6 +522,11 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
         // stage may open intra-token tracking. The map is cluster-indexed so the
         // Justifier replays source-grapheme boundaries without reclassifying text.
         val emergencyTrackingBoundaryAfterClusters = buildMap<Int, String> {
+            // A boundary pair is contained in a decision exactly when both clusters are fully
+            // covered by it, so each decision marks its own cluster span once instead of every
+            // pair scanning the decision list (quadratic on token-dense pathological paragraphs).
+            // Decision list order wins on overlap, preserved by the absent-only put.
+            val boundaryEligible = BooleanArray(naturalClusters.size)
             for (leftIndex in 0 until naturalClusters.lastIndex) {
                 val rightIndex = leftIndex + 1
                 val left = naturalClusters[leftIndex]
@@ -538,10 +541,14 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
                 ) {
                     continue
                 }
-                val eligibility = emergencyTrackingEligibilityDecisions.firstOrNull { decision ->
-                    left.range.start >= decision.range.start && right.range.end <= decision.range.end
-                } ?: continue
-                put(leftIndex, eligibility.reason)
+                boundaryEligible[leftIndex] = true
+            }
+            for (decision in emergencyTrackingEligibilityDecisions) {
+                val span = naturalClusters.clusterIndexRangeFor(decision.range) ?: continue
+                for (leftIndex in span.first until span.last) {
+                    if (!boundaryEligible[leftIndex] || leftIndex in this) continue
+                    put(leftIndex, decision.reason)
+                }
             }
         }
         // The breaker's looseness estimate keeps its established two-class
@@ -590,7 +597,7 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
             resolveAttachedInlineVirtualBoundaries(inlineAttachments).map { boundary ->
                 boundary.previousClusterIndex..boundary.attachedClusterRange.last
             }
-        val unbreakableRanges =
+        val unbreakableRanges = UnbreakableRanges(
             input.decorations
                 .filter { it.kind == DecorationKind.Mourning }
                 .mapNotNull { span -> naturalClusters.clusterIndexRangeFor(span.range) } +
@@ -613,7 +620,8 @@ internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
                 // visibly present even though their displayText is empty.
                 inlineObjectKinsoku.unbreakableRanges +
                 // Adjustment-only formula boundaries do not become accidental line breaks.
-                inlineObjectBoundaryUnbreakableRanges
+                inlineObjectBoundaryUnbreakableRanges,
+        )
         val lineSolution = if (text.isEmpty()) {
             LineSolution(emptyList())
         } else {
@@ -715,3 +723,29 @@ private const val HYPHEN_SINO_WESTERN_STRETCH_CAP_EM = 0.25f
 
 /** CLREQ 行尾悬挂适配标点：顿号、逗号、句号. */
 internal val HANGABLE_PUNCTUATION = setOf('、', '，', '。')
+
+/**
+ * Overlap queries against a fixed interval list: starts pre-sorted with a running maximum end,
+ * so arbitrary (even nested) interval lists answer in O(log n) instead of a full scan per query.
+ */
+private class IntervalOverlapIndex(ranges: List<TextRange>) {
+    private val byStart = ranges.sortedBy { it.start }
+    private val prefixMaxEnd = IntArray(byStart.size).also { ends ->
+        var running = Int.MIN_VALUE
+        byStart.forEachIndexed { index, range ->
+            running = maxOf(running, range.end)
+            ends[index] = running
+        }
+    }
+
+    fun overlaps(start: Int, endExclusive: Int): Boolean {
+        if (byStart.isEmpty()) return false
+        var low = 0
+        var high = byStart.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (byStart[mid].start < endExclusive) low = mid + 1 else high = mid
+        }
+        return low > 0 && prefixMaxEnd[low - 1] > start
+    }
+}

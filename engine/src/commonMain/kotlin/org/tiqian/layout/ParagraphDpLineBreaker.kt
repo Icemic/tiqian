@@ -84,7 +84,7 @@ internal class ParagraphDpLineBreaker(
         adjustedClusters: List<Cluster>,
         maxWidth: Float,
         shrinkOpportunities: List<ShrinkOpportunity>,
-        unbreakableRanges: List<IntRange>,
+        unbreakableRanges: UnbreakableRanges,
         firstLineIndent: Float,
         hangableClusters: Set<Int>,
         extendableHangRanges: List<IntRange>,
@@ -170,7 +170,7 @@ internal class ParagraphDpLineBreaker(
         val adjustedClusters: List<Cluster>,
         val maxWidth: Float,
         val shrinkOpportunities: List<ShrinkOpportunity>,
-        val unbreakableRanges: List<IntRange>,
+        val unbreakableRanges: UnbreakableRanges,
         val firstLineIndent: Float,
         val forbiddenLineStartClusters: Set<Int>?,
         val forbiddenLineEndClusters: Set<Int>,
@@ -324,7 +324,7 @@ internal class ParagraphDpLineBreaker(
         val filtered = (((rawGreedy - candidateWindow)..rawGreedy) + compressed)
             .filter { it in (start + 1)..segmentEndExclusive }
             .filter { e -> !endsWithMandatory || e != segmentEndExclusive - 1 }
-            .filter { e -> context.unbreakableRanges.none { e > it.first && e <= it.last } }
+            .filter { e -> !context.unbreakableRanges.containsBoundary(e) }
             .filter {
                 isCompressedProgressiveTierPromotion(it) ||
                     progressiveCandidateAllowed(

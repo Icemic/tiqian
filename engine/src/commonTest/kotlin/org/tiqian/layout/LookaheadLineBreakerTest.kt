@@ -238,7 +238,7 @@ class LookaheadLineBreakerTest {
             naturalClusters = clusters,
             adjustedClusters = clusters,
             maxWidth = 64f,
-            unbreakableRanges = listOf(6..7),
+            unbreakableRanges = UnbreakableRanges(listOf(6..7)),
             forbiddenLineStartClusters = setOf(8),
             lineAdjustmentPushIn = false,
         )
