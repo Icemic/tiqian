@@ -372,8 +372,9 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
     }
     val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
     val emergencyTrackingEligibilityDecisions = mutableListOf<EmergencyTrackingEligibilityDecisionInfo>()
+    val emergencyTrackingEligibilityKeys = HashSet<Pair<TextRange, String>>()
     fun registerEmergencyTrackingEligibility(range: TextRange, reason: String) {
-        if (emergencyTrackingEligibilityDecisions.any { it.range == range && it.reason == reason }) return
+        if (!emergencyTrackingEligibilityKeys.add(range to reason)) return
         emergencyTrackingEligibilityDecisions += EmergencyTrackingEligibilityDecisionInfo(
             range = range,
             sourceText = text.substring(range.start, range.end),

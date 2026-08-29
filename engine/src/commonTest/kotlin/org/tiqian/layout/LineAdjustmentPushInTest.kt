@@ -89,7 +89,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = emptySet(),
             forbiddenLineEndClusters = emptySet(),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3, 4),
         )
@@ -125,7 +125,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = setOf(3),
             forbiddenLineEndClusters = emptySet(),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3),
         )
@@ -162,7 +162,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = emptySet(),
             forbiddenLineEndClusters = setOf(2),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3),
         )
@@ -207,7 +207,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = emptySet(),
             forbiddenLineEndClusters = emptySet(),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3),
             progressiveBreakOpportunities = mapOf(
@@ -252,7 +252,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = emptySet(),
             forbiddenLineEndClusters = emptySet(),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3),
             progressiveBreakOpportunities = mapOf(
@@ -291,7 +291,7 @@ class LineAdjustmentPushInTest {
             compressBias = 1_000_000f,
             forbiddenLineStartClusters = emptySet(),
             forbiddenLineEndClusters = emptySet(),
-            unbreakableRanges = emptyList(),
+            unbreakableRanges = UnbreakableRanges(emptyList()),
             pushInPenalty = 2,
             gapBoundaries = setOf(0, 1, 2, 3),
             progressiveBreakOpportunities = mapOf(

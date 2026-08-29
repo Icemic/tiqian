@@ -35,7 +35,7 @@ class ParagraphDpReferenceExperiment {
         val naturalClusters: List<Cluster>,
         val adjustedClusters: List<Cluster>,
         val maxWidth: Float,
-        val unbreakableRanges: List<IntRange>,
+        val unbreakableRanges: UnbreakableRanges,
         val firstLineIndent: Float,
         val forbiddenLineStartClusters: Set<Int>?,
         val forbiddenLineEndClusters: Set<Int>,
@@ -57,7 +57,7 @@ class ParagraphDpReferenceExperiment {
             adjustedClusters: List<Cluster>,
             maxWidth: Float,
             shrinkOpportunities: List<ShrinkOpportunity>,
-            unbreakableRanges: List<IntRange>,
+            unbreakableRanges: UnbreakableRanges,
             firstLineIndent: Float,
             hangableClusters: Set<Int>,
             extendableHangRanges: List<IntRange>,
@@ -158,7 +158,7 @@ class ParagraphDpReferenceExperiment {
         if (greedyEnd >= segEndExcl) return listOf(segEndExcl)
         return ((greedyEnd - CANDIDATE_WINDOW)..greedyEnd)
             .filter { it in (start + 1)..segEndExcl }
-            .filter { e -> inputs.unbreakableRanges.none { e > it.first && e <= it.last } }
+            .filter { e -> !inputs.unbreakableRanges.containsBoundary(e) }
             .filter { e -> e == segEndExcl || e !in inputs.hyphenBreakClusters }
             .filter { e ->
                 e == segEndExcl ||

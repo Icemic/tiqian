@@ -24,7 +24,7 @@ class ParagraphDpLineBreakerTest {
         clusters: List<Cluster>,
         maxWidth: Float,
         breaker: ParagraphDpLineBreaker = ParagraphDpLineBreaker(),
-        unbreakableRanges: List<IntRange> = emptyList(),
+        unbreakableRanges: UnbreakableRanges = UnbreakableRanges.Empty,
         forbiddenLineStartClusters: Set<Int>? = null,
         hardBreakAfterClusters: Set<Int> = emptySet(),
         cjkInterCharBoundaries: Set<Int> = (1 until clusters.size).toSet(),
@@ -146,7 +146,7 @@ class ParagraphDpLineBreakerTest {
         val clusters = hanClusters(10)
         val solution = breakLines(
             clusters, maxWidth = 64f,
-            unbreakableRanges = listOf(3..6),
+            unbreakableRanges = UnbreakableRanges(listOf(3..6)),
         )
         assertTiles(solution, clusters.size)
         for (line in solution.lines) {

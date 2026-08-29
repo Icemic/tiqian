@@ -590,17 +590,30 @@ internal data class GlueCapacity(
 /**
  * Contiguous cluster-index range whose clusters are fully covered by
  * [sourceRange]; null when no cluster is covered.
+ *
+ * Clusters are source ordered and non-overlapping (the shaping stage emits them in source
+ * order and nothing re-sorts them), so the covered set is one contiguous run; both edges
+ * binary-search instead of scanning the paragraph (a per-range full scan made planning
+ * quadratic on pathological long tokens). A source that violates the ordering would return
+ * a wrong range silently — new cluster producers must preserve it.
  */
 internal fun List<Cluster>.clusterIndexRangeFor(sourceRange: TextRange): IntRange? {
-    var first = -1
-    var last = -1
-    forEachIndexed { idx, cluster ->
-        if (cluster.range.start >= sourceRange.start && cluster.range.end <= sourceRange.end) {
-            if (first == -1) first = idx
-            last = idx
-        }
+    if (isEmpty()) return null
+    var low = 0
+    var high = size
+    while (low < high) {
+        val mid = (low + high) ushr 1
+        if (this[mid].range.start < sourceRange.start) low = mid + 1 else high = mid
     }
-    return if (first == -1) null else first..last
+    val first = low
+    low = first
+    high = size
+    while (low < high) {
+        val mid = (low + high) ushr 1
+        if (this[mid].range.end <= sourceRange.end) low = mid + 1 else high = mid
+    }
+    val lastExclusive = low
+    return if (first < lastExclusive) first until lastExclusive else null
 }
 
 private fun Map<Int, GlueBudget>.consume(

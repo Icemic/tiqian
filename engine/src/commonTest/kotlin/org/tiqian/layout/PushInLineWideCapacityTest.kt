@@ -213,7 +213,7 @@ class PushInLineWideCapacityTest {
             shrinkOpportunities = listOf(
                 ShrinkOpportunity(5, tier = 6, capacity = 8f, channel = ShrinkChannel.TrailingGlue),
             ),
-            unbreakableRanges = listOf(2..4),
+            unbreakableRanges = UnbreakableRanges(listOf(2..4)),
         )
 
         assertEquals(2, solution.lines.size)
