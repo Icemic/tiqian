@@ -339,6 +339,17 @@ jobs:
           npm install --no-audit --no-fund
           npm test
 
+      # The published artifact of both integrations is the tsc dist output
+      # (files list dist, the export map points into it). The pack step
+      # below skips prepack, whose test half would fail on the swapped
+      # manifests, so the dist output has to exist on disk before the swap
+      # and be collected from there.
+      - name: Build the integration dist outputs
+        working-directory: platforms/web/client
+        run: |
+          (cd astro && npx tsc -p .)
+          (cd sveltekit && npx tsc -p .)
+
       - name: Apply the snapshot manifest swap
         id: swap
         working-directory: platforms/web/server/core
@@ -351,7 +362,8 @@ jobs:
           node snapshot-swap.ts apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
 
       # The swapped tree fails the manifest assertions above by design; pack
-      # without scripts and rely on the pre-swap test runs.
+      # without scripts and rely on the pre-swap test runs and on the dist
+      # outputs built before the swap.
       - name: Pack both integrations
         working-directory: platforms/web/client
         shell: bash
@@ -362,6 +374,10 @@ jobs:
             (cd "${integration}" && npm pack --ignore-scripts --pack-destination ../pack-output)
           done
           test "$(find pack-output -name '*.tgz' | wc -l)" -eq 2
+          astro_tarball="$(find pack-output -name '*astro*.tgz' -print -quit)"
+          sveltekit_tarball="$(find pack-output -name '*sveltekit*.tgz' -print -quit)"
+          tar -tzf "${astro_tarball}" | grep -q '^package/dist/integration.js$'
+          tar -tzf "${sveltekit_tarball}" | grep -q '^package/dist/server.js$'
 
       - name: Restore the manifests
         if: ${{ always() && steps.swap.outcome == 'success' }}
