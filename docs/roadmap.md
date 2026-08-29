@@ -122,7 +122,7 @@ metrics / ink / outline replay，但不再传递进 Compose artifact。两条路
 WASM 运行时迁往 Kotlin/Native 静态库与 Rust 编排：`ffi/native` 以 linuxX64、linuxArm64、
 macosArm64、mingwX64 四个目标暴露引擎级 packed C ABI，js 门面迁入 `ffi/js` 服务浏览器回退与
 parity oracle；Rust 侧分两个 workspace，`ffi/rust` 持有 `tiqian` sys 绑定，
-`frontend/web-precompute/rust` 持有 `tiqian-precompute` 与 `tiqian-precompute-neon`；npm 侧
+`platforms/web/server/precompute` 持有 `tiqian-precompute` 与 `tiqian-precompute-neon`；npm 侧
 precompute 迁入独立的 `@tiqian/precompute` 包，现有导出同名同签名保留。实现按四个切片推进：
 A 目标与 workspace 骨架，B 字体会话，C 编排与 Neon，D 平台包发布与 legacy 移除。A、B、C
 已完成：批处理入口（`prepareParagraphs`、`prepareFontContracts`、`prepareHtml` 文档循环）

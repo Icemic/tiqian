@@ -83,7 +83,7 @@ test("package manifest publishes only the component and server boundary", async 
   const manifest = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
   const prose = JSON.parse(await readFile(new URL("../web-component/package.json", import.meta.url), "utf8"));
   const precompute = JSON.parse(
-    await readFile(new URL("../../../../frontend/web-precompute/npm/package.json", import.meta.url), "utf8"),
+    await readFile(new URL("../../../../platforms/web/server/core/package.json", import.meta.url), "utf8"),
   );
   assert.equal(manifest.peerDependencies["@tiqian/prose"], prose.version);
   assert.equal(manifest.peerDependencies["@tiqian/precompute"], precompute.version);

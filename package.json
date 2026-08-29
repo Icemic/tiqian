@@ -6,7 +6,7 @@
     "platforms/web/client/core",
     "platforms/web/client/web-component",
     "platforms/web/client/react",
-    "frontend/web-precompute/npm",
+    "platforms/web/server/core",
     "platforms/web/client/astro",
     "platforms/web/client/sveltekit",
     "demo/web"

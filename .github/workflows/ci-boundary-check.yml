@@ -2,7 +2,7 @@ name: Boundary check CI
 
 # ADR 0053 (Web prose host consolidation), "ffi boundary review record
 # (2026-08-25)": the boundary rulings are enforced as a mechanical gate.
-# tools/boundary-check/check.ts fails CI when engine/, ffi/, frontend/ or
+# tools/boundary-check/check.ts fails CI when engine/, ffi/ or
 # platforms/ reintroduce what a corrective wave must delete (environment
 # globals in engine, wire-format naming in engine commonMain, font session
 # state in ffi, unreviewed export entries, separator escape literals outside
@@ -13,7 +13,6 @@ on:
     paths:
       - 'engine/**'
       - 'ffi/**'
-      - 'frontend/**'
       - 'platforms/**'
       - 'tools/boundary-check/**'
       - '.github/workflows/ci-boundary-check.yml'
@@ -22,7 +21,6 @@ on:
     paths:
       - 'engine/**'
       - 'ffi/**'
-      - 'frontend/**'
       - 'platforms/**'
       - 'tools/boundary-check/**'
       - '.github/workflows/ci-boundary-check.yml'

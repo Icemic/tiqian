@@ -35,7 +35,7 @@
 // js/mjs/d.ts files are read).
 //
 // Relative escapes that leave the three-package topology entirely (for example
-// a bench harness reaching into frontend/web-precompute) are printed as
+// a bench harness reaching into platforms/web/server) are printed as
 // non-fatal notes so they stay visible without failing the check; set
 // TIQIAN_TOPOLOGY_STRICT=1 to escalate them to violations once such imports
 // are cleaned up.

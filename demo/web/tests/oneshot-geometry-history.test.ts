@@ -47,7 +47,7 @@
 //       stretch in the line flow identity. Restores p1:1/p2:1/p6:0 (repairs
 //       change 1's defect) and changes justified-line run structure through
 //       the spacing epsilon. Interval mixes frontend/web JS with
-//       frontend/web-precompute Rust (not an allowed engine path) plus
+//       platforms/web/server Rust (not an allowed engine path) plus
 //       fixture additions -> 归属不明. Evidence: .../6ff37b45/chain-p0.json;
 //       boundary pair de926c85 -> 6ff37b45.
 //     4370925f, 733d779a, 73449b70 (E2a), 2aafd7f1, 51efc35a, d0c5f50f

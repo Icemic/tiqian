@@ -267,32 +267,32 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/snapshot_tables.rs",
+    file: "platforms/web/server/precompute/engine/src/snapshot_tables.rs",
     reason: "Metric replay key restoration splits serialized families from snapshot table rows; part of the snapshot table codec.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/font_record_cache.rs",
+    file: "platforms/web/server/precompute/engine/src/font_record_cache.rs",
     reason: "Separator joins over untyped precompute cache keys; replaced by declared DTOs in corrective wave 5.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/normalize.rs",
+    file: "platforms/web/server/precompute/engine/src/normalize.rs",
     reason: "Private record/field/family separator copies of the wire format; replaced by declared DTOs in corrective wave 5.",
   },
 
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/prepared_dom.rs",
+    file: "platforms/web/server/precompute/engine/src/prepared_dom.rs",
     reason: "Family list joined with a separator over the untyped payload; replaced by declared DTOs in corrective wave 5.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/source_boundaries.rs",
+    file: "platforms/web/server/precompute/engine/src/source_boundaries.rs",
     reason: "Private record/field/family separator copies parsing the untyped request; replaced by declared DTOs in corrective wave 5.",
   },
   {
@@ -305,13 +305,13 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/json.rs",
+    file: "platforms/web/server/precompute/engine/src/json.rs",
     reason: "Separator escape literal in JSON serializer tests (string round-trip coverage); the serializer itself is a declared module.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/replay.rs",
+    file: "platforms/web/server/precompute/engine/src/replay.rs",
     reason: "Replay key format joins families with U+001F for backward-compatible cache keys; must stay to avoid re-keying existing caches.",
   },
 ];
@@ -329,7 +329,7 @@ const REVIEWED_WIRE_FACE_NAMES: ReadonlySet<string> = new Set([
 // comparison the ruling explicitly retains.
 const SEPARATOR_CODEC_MODULES: readonly string[] = [
   "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireCodec.kt",
-  "frontend/web-precompute/scripts/plan-parity-oracle.ts",
+  "platforms/web/server/core/scripts/plan-parity-oracle.ts",
 ];
 
 // Export entries already reviewed against an engine function counterpart

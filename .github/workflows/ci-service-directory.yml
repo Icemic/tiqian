@@ -11,13 +11,13 @@ name: Service directory CI
 on:
   pull_request:
     paths:
-      - 'frontend/**'
+      - 'platforms/web/client/**'
       - 'tools/service-directory/**'
       - '.github/workflows/ci-service-directory.yml'
   push:
     branches: [main]
     paths:
-      - 'frontend/**'
+      - 'platforms/web/client/**'
       - 'tools/service-directory/**'
       - '.github/workflows/ci-service-directory.yml'
   workflow_dispatch:

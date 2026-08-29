@@ -113,7 +113,7 @@ const ignores: readonly string[] = [
   "ffi/native/**",
   "ffi/schema/**",
   "ffi/rust/**",
-  "frontend/web-precompute/**",
+  "platforms/web/server/**",
   "platforms/web/client/astro/**",
   "platforms/web/client/sveltekit/**",
 ];

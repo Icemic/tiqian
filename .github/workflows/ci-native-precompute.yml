@@ -163,8 +163,8 @@ jobs:
         run: |
           cargo build --manifest-path ffi/rust/Cargo.toml
           cargo test --manifest-path ffi/rust/Cargo.toml
-          cargo build --manifest-path frontend/web-precompute/rust/Cargo.toml
-          cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
+          cargo build --manifest-path platforms/web/server/precompute/Cargo.toml
+          cargo test --manifest-path platforms/web/server/precompute/Cargo.toml
 
   # ADR 0053 F4 (DualLoweringStance): the shared golden corpus binds both
   # prepared-dom implementations to the same bytes. The rust lane runs inside
@@ -198,7 +198,7 @@ jobs:
         run: npx tsc -b --noCheck
       - name: Regenerate the fixture and fail on drift
         run: |
-          node frontend/web-precompute/scripts/build-prepared-dom-corpus.ts
+          node platforms/web/server/core/scripts/build-prepared-dom-corpus.ts
           git diff --exit-code platforms/web/client/web-component/tests/prepared-dom-corpus.fixture.json
       - name: Replay the fixture through the js corpus test
         run: node --test platforms/web/client/web-component/tests/prepared-dom-corpus.test.js
@@ -245,12 +245,12 @@ jobs:
           :ffi:js:compileProductionExecutableKotlinJs
           :ffi:js:assembleNpmPackage
       - name: Dump the js oracle
-        run: node frontend/web-precompute/scripts/plan-parity-oracle.ts
+        run: node platforms/web/server/core/scripts/plan-parity-oracle.ts
       - name: Compare the native lane against the oracle
         run: >
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic
           TIQIAN_REQUIRE_PARITY_ORACLE=1
-          cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
+          cargo test --manifest-path platforms/web/server/precompute/Cargo.toml
       # The npm loader over an engine-linked addon; the font-dependent lanes
       # self-skip on runners without fonts, so this exercises the wiring and
       # the pure entries, while the parity tests above exercise the engine.
@@ -275,7 +275,7 @@ jobs:
         working-directory: platforms/web/client/web-component
         run: npx tsc -b --noCheck
       - name: Run the npm suite engine-linked
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         env:
           TIQIAN_NATIVE_LIB_DIR: ${{ github.workspace }}/ffi/native/build/bin/linuxX64/releaseStatic
         run: |

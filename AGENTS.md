@@ -78,10 +78,10 @@ Layout report 位于
 - **平台 shaping**：shaping 接口定义在 `engine`；`platforms/jvm/{shaping,skia}`、
   `platforms/android/{shaping,native-font}`、
   `platforms/apple/shaping` 提供各平台实现。
-- **前端**：`platforms/compose/{compose,material3}`、`frontend/web`、
+- **前端**：`platforms/compose/{compose,material3}`、`platforms/web/client`、
   `platforms/android/view`、`platforms/apple/frontend` 只消费布局结果并呈现。
 - **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI；`ffi/rust` 持有
-  precompute 的 Rust 绑定。`frontend/web-precompute` 由 Losses 维护。
+  precompute 的 Rust 绑定。`platforms/web/server` 由 Losses 维护。
 - **Demo 与工具**：`demo` 共享 Desktop / Android 示例界面，
   `demo/android` 是薄 Android 启动壳；layout report 与 `test-support` 提供诊断和共享语料。
 

@@ -1,10 +1,10 @@
 // Prepared DOM lowering golden corpus (ADR 0050 Verification).
 //
 // The committed corpus is shared with the Rust side
-// `frontend/web-precompute/rust/tiqian-precompute/tests/prepared_dom_corpus.rs`;
+// `platforms/web/server/precompute/engine/tests/prepared_dom_corpus.rs`;
 // both sides assert the same bytes, so this module cannot drift from the Rust
 // port. Regenerate the fixture with
-// `node scripts/build-prepared-dom-corpus.ts` from frontend/web-precompute.
+// `node scripts/build-prepared-dom-corpus.ts` from platforms/web/server.
 
 import { readFileSync } from "node:fs";
 import test from "node:test";
