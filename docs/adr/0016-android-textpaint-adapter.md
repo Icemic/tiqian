@@ -49,9 +49,12 @@
   中西文都返回 `/data/skin/fonts/DroidSansChinese.ttf`，而写死的
   `NotoSansCJK-Regular.ttc` 在该机存在并抢走全部 CJK role，造成「西文吃到主题
   字体、中文永远 stock」。API 31+ 的 CJK 锚定改为 `PlatformDefaultHanFaceReadback`：
-  用默认 typeface + `zh-Hans` locale shape 一个汉字，读回平台实际选中的 `Font`，
-  经 `Typeface.CustomFallbackBuilder`（系统链兜底）作为锚定面；固定文件路径降为
-  读回失败的兜底与 API 26–30 的既有路径。标点归面与
+  按请求的 (weight, italic) 用样式化默认 typeface + `zh-Hans` locale shape 一个汉字，
+  读回平台实际选中的 `Font`（可变字体的字重轴实例随之保留，平台自身假粗体时读回
+  常规实例、由外层 `Typeface.create` 补假粗体），经 `Typeface.CustomFallbackBuilder`
+  （系统链兜底）作为锚定面，结果按键缓存；固定文件路径降为读回失败的兜底与
+  API 26–30 的既有路径。单次 400 探测曾把可变字体设备的全部字重锚死在常规实例上，
+  中间字重静默落回 400、粗体只剩假粗体，故探测必须携带请求样式。标点归面与
   `LatinVsCjkFaceSelection` 的角色模型不变，改变的只是锚定证据来源。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend

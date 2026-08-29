@@ -300,17 +300,17 @@ interface AndroidTypefaceResolver {
  * fallback chain — `textLocale` alone only reorders the CJK tail.
  *
  * Named heuristic: `SystemAndroidFontProbe`. Anchor face evidence, in order:
- * `PlatformDefaultHanFaceReadback` (API 31+) shapes one Han character with the
- * default typeface and anchors to the `Font` the platform fallback chain
- * actually selected, so OEM/user theme fonts that never appear at the
- * well-known paths are honored; the well-known file paths remain the
- * API 26–30 path and the readback fallback.
+ * `PlatformDefaultHanFaceReadback` (API 31+) shapes one Han character per
+ * requested (weight, italic) with the styled default typeface and anchors to
+ * the `Font` the platform fallback chain actually selected — OEM/user theme
+ * fonts and variable-font weight instances are both honored; the well-known
+ * file paths remain the API 26–30 path and the readback fallback.
  */
 class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
-    private val cjkTypeface: android.graphics.Typeface? = when {
-        Build.VERSION.SDK_INT >= 31 -> platformDefaultHanTypeface() ?: wellKnownPathHanTypeface()
-        Build.VERSION.SDK_INT >= 26 -> wellKnownPathHanTypeface()
-        else -> null
+    private val platformHanTypefaces = HashMap<Pair<Int, Boolean>, Typeface?>()
+
+    private val wellKnownHanTypeface: Typeface? by lazy {
+        if (Build.VERSION.SDK_INT >= 26) wellKnownPathHanTypeface() else null
     }
 
     override fun resolve(input: ShapingInput): android.graphics.Typeface =
@@ -334,7 +334,7 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         val base = if (role.usesLatinFace()) {
             latinTypefaceFor(family)
         } else {
-            cjkTypefaceFor(family) ?: android.graphics.Typeface.DEFAULT
+            cjkTypefaceFor(family, fontWeight, italic) ?: android.graphics.Typeface.DEFAULT
         }
         return if (Build.VERSION.SDK_INT >= 28) {
             Typeface.create(base, fontWeight.coerceIn(1, 1000), italic)
@@ -350,15 +350,27 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         }
     }
 
-    private fun cjkTypefaceFor(family: String?): Typeface? =
+    private fun cjkTypefaceFor(family: String?, fontWeight: Int, italic: Boolean): Typeface? =
         when (family?.lowercase()) {
-            null, "sans", "sans-serif", "sansserif" -> cjkTypeface
+            null, "sans", "sans-serif", "sansserif" -> defaultHanTypeface(fontWeight, italic)
             // Android does not expose a role-aware CJK generic resolver; these
             // generics are still honored for gallery typography, then styled.
             "serif" -> Typeface.SERIF
             "monospace", "mono" -> Typeface.MONOSPACE
             else -> Typeface.create(family, Typeface.NORMAL)
         }
+
+    private fun defaultHanTypeface(fontWeight: Int, italic: Boolean): Typeface? {
+        if (Build.VERSION.SDK_INT < 31) return wellKnownHanTypeface
+        val key = fontWeight.coerceIn(1, 1000) to italic
+        synchronized(platformHanTypefaces) {
+            if (platformHanTypefaces.containsKey(key)) return platformHanTypefaces[key]
+        }
+        val probed = platformDefaultHanTypeface(key.first, key.second) ?: wellKnownHanTypeface
+        synchronized(platformHanTypefaces) {
+            return platformHanTypefaces.getOrPut(key) { probed }
+        }
+    }
 
     private fun latinTypefaceFor(family: String?): Typeface =
         when (family?.lowercase()) {
@@ -369,11 +381,11 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         }
 
     @TargetApi(31)
-    private fun platformDefaultHanTypeface(): Typeface? = runCatching {
+    private fun platformDefaultHanTypeface(fontWeight: Int, italic: Boolean): Typeface? = runCatching {
         val paint = TextPaint().apply {
             textSize = HAN_PROBE_TEXT_SIZE
             textLocale = Locale.forLanguageTag("zh-Hans")
-            typeface = Typeface.DEFAULT
+            typeface = Typeface.create(Typeface.DEFAULT, fontWeight, italic)
         }
         val shaped = TextRunShaper.shapeTextRun(
             HAN_PROBE,
