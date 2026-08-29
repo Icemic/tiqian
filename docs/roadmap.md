@@ -54,7 +54,15 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   格式定义散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
   ADR 0050 随重组出修订段。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录
   布局与命名不受它强制。动工时机随 Slice 39 收尾确定，先于 Neon 编排接入可避免
-  在旧布局上加建。
+  在旧布局上加建。2026-08-29 状态：物理重组已在 integrate/platforms-web 分支执行
+  （71945498、6b29aa13、d4e070c0 三提交，待合并）：`frontend/web` 五包迁至
+  `platforms/web/client/{core,web-component,react,astro,sveltekit}`，core 包内层
+  `core/` 改名 `src/`，test-support 并入 `tests/`；`frontend/web-precompute` 迁至
+  `platforms/web/server`，npm 包在 `server/core`，Rust workspace 在
+  `server/precompute/{engine,binding}`，crate 名不变（见 ADR 0050 的 2026-08-29 修订段）。
+  分层不变式中的 web-core 独立（plan JSON 格式与 snapshot revision / replay 定义
+  单点、revision 常量去重）与 `ffi/rust` 行使 web-core 绑定许可两项尚未执行，
+  仍为候选。
 - `LayeredCacheAndBatchRenderer`：precompute 缓存分层、批量渲染器与二进制过桥协议
   （2026-08-21，ADR 0052，承接 0050 未实施的缓存设计）。三层缓存（FontContracts、
   Paragraph、Article 索引）用内容哈希键，桶失效取全部现存文章哈希并集的反连接；

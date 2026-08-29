@@ -653,3 +653,17 @@ PROTOCOL_REVISION` 由 1 递增到 2，C 头文件、`font_backend.rs` 与
 `NativeFontBackendVtable` 三处同值。replay key 内部仍以 U+001F 连接字体族，
 键的字符串形态不变，既有缓存不失效。裁定原文与终则见 ADR 0053 ffi 边界
 复审记录。
+
+## Amendment（2026-08-29）：precompute 目录随 web 重组迁入 platforms/web/server
+
+按 2026-08-20 的 JS workspace 重组裁定执行物理迁移，模块边界、ABI 与 crate
+职责不变。`frontend/web-precompute/rust` 迁至 `platforms/web/server/precompute`，
+workspace 根随迁，两个 crate 目录取 `engine`（`tiqian-precompute`）与
+`binding`（`tiqian-precompute-neon`）命名，crate 名与发布名保持连续；engine 对
+`ffi/rust/tiqian` 的路径依赖改为五级上溯。`frontend/web-precompute/npm` 迁至
+`platforms/web/server/core`。构建期脚本按服务对象分置：`generate-unicode-tables.ts`
+随 engine（其产物 `unicode_tables.rs` 在 engine 源内），`build-prepared-dom-corpus.ts`
+与 `plan-parity-oracle.ts` 随 server/core（其语料与 oracle 产物归 npm 侧）。
+候选文本提出的 `tiqian-precompute-core` / `tiqian-precompute-binding` crate 命名
+未采用：目录名已表达同一分层，crate 改名会带来发布名漂移。本 ADR 正文与既往
+修订中的 `frontend/` 路径按历史正文不改写原则保留。
