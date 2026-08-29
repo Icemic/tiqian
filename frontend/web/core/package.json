@@ -47,7 +47,7 @@
     "core/sampler/snapshot/snapshot-manifest.js",
     "core/sampler/snapshot/snapshot-table-binary.js",
     "core/sampler/snapshot/snapshot-tables.js",
-    "core/sampler/snapshot/table-binary-writer.mjs",
+    "core/sampler/snapshot/table-binary-writer.js",
     "core/measurement/browser-fonts.js",
     "core/sampler/font-face-boundaries.js",
     "core/sampler/snapshot/precomputed.js",
@@ -82,10 +82,7 @@
       "default": "./core/sampler/snapshot/snapshot-table-binary.js"
     },
     "./table-binary-writer": {
-      "default": "./core/sampler/snapshot/table-binary-writer.mjs"
-    },
-    "./table-binary-writer.mjs": {
-      "default": "./core/sampler/snapshot/table-binary-writer.mjs"
+      "default": "./core/sampler/snapshot/table-binary-writer.js"
     },
     "./browser-font-replay": {
       "default": "./core/measurement/browser-font-replay.js"

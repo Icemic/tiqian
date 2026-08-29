@@ -16,7 +16,7 @@ import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,
 } from "@tiqian/core/snapshot-schema.js";
-import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
+import { writeBinaryTable } from "@tiqian/core/table-binary-writer";
 import { probe } from "./runtime-host.js";
 
 type FetchFn = (url: string | URL, init?: RequestInit) => Promise<Response>;

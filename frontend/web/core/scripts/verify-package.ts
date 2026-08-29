@@ -17,7 +17,7 @@ const REQUIRED_FILES = [
   "core/sampler/snapshot/snapshot-tables.js",
   "core/engine/layout-worker.js",
   "core/engine/web-worker/worker-channel.js",
-  "core/sampler/snapshot/table-binary-writer.mjs",
+  "core/sampler/snapshot/table-binary-writer.js",
 ];
 
 function fail(message: string): never {
