@@ -21,6 +21,10 @@
   },
   "license": "MPL-2.0",
   "private": true,
+  "files": [
+    "binding.js",
+    "binding.d.ts"
+  ],
   "type": "module",
   "main": "./binding.js",
   "module": "./binding.js",
