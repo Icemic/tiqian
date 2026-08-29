@@ -1553,3 +1553,15 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 | 跨包相对导入 | 无检查 | 0 |
 | core 与 web-component 包内手写 JS 源文件 | 全部为 .js | 0（全部为 .ts） |
 | any、as unknown as、object/Object/{}、内联类型与 eslint-disable | 无检查 | 全部为 0 |
+
+## Amendment（2026-08-29）：撤除 enforcement gate
+
+按用户指令撤除本 ADR 附带的全部机械执法装置：五个 CI 流水线
+（ci-service-directory.yml、ci-boundary-check.yml、ci-package-topology.yml、
+ci-ts-discipline.yml、ci-assembly-record.yml）与四个工具目录
+（tools/service-directory、tools/boundary-check、tools/package-topology、
+tools/ts-discipline）同时删除。ffi/schema 与 tools/schema 的类型生成器保留，
+生成新鲜度不再有 CI 检查。本 ADR 记录的裁定（ServiceDirectoryRule、
+三包拓扑与依赖方向、StrictTsDiscipline 的类型制度、 ffi 边界裁定）继续作为
+仓库约定存在，由 CLAUDE.md 与评审执行，不再有自动 gate。Verification 8 所指
+的 CI 检查自本修订起不存在。
