@@ -614,7 +614,7 @@ const cases: CorpusCase[] = [
       rubyDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "B\u0113ij\u012Bng",
+        text: "B\u011Bij\u012Bng",
         fontSize: 10,
         fontWeight: 500,
         centerX: 9,
@@ -636,12 +636,12 @@ const cases: CorpusCase[] = [
       bopomofoDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "\u310B\u030D",
+        text: "\u3113\u02C7",
         fontWeight: 500,
         fontFamilies: ["Bopomofo Face"],
         placements: [
-          { role: "Symbol", text: "\u310B", left: 0, top: 2, width: 6, height: 8 },
-          { role: "Tone", text: "\u030D", left: 6, top: 2, width: 4, height: 8 },
+          { role: "Symbol", text: "\u3113", left: 0, top: 2, width: 6, height: 8 },
+          { role: "Tone", text: "\u02C7", left: 6, top: 2, width: 4, height: 8 },
         ],
       }],
     },
@@ -696,7 +696,7 @@ const cases: CorpusCase[] = [
       rubyDecisions: [{
         baseRangeStart: 0,
         baseRangeEnd: 1,
-        text: "B\u0113ij\u012Bng",
+        text: "B\u011Bij\u012Bng",
         fontSize: 10,
         fontWeight: 500,
         centerX: 9,
