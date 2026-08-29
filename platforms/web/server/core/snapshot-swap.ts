@@ -2,20 +2,22 @@
 // GitHub Packages requires the npm scope to equal the repository owner and
 // links a package to the repository named in its manifest, so a snapshot
 // published from a fork must carry the fork's name while registry releases
-// keep @tiqian and the canonical repository. `apply` rewrites the precompute
-// manifests, the astro and sveltekit integration manifests, and the
-// `@tiqian/precompute` references embedded in the integration sources, and
-// keeps a backup; `restore` puts everything back. The swapped sources no
-// longer resolve the local `@tiqian/precompute` dev links, so publish with
-// `--ignore-scripts` after the unsapped tree passed its tests. Only the
-// manual snapshot workflow runs this; release packaging never does.
+// keep @tiqian and the canonical repository. `apply` rewrites every snapshot
+// manifest (precompute and its platform binaries, the astro and sveltekit
+// integrations, core, prose, react, and ffi), the `@tiqian/*` specifiers
+// embedded in the shipped sources, and keeps a backup; `restore` puts
+// everything back. The swapped sources no longer resolve the local
+// `@tiqian/*` dev links, so publish with `--ignore-scripts` after the
+// unswapped tree passed its tests. Only the manual snapshot workflow runs
+// this; release packaging never does.
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const root: string = dirname(fileURLToPath(import.meta.url));
+const selfPath: string = fileURLToPath(import.meta.url);
 const backupPath: string = join(root, ".snapshot-swap.json");
 const platforms: readonly string[] = [
   "darwin-arm64",
@@ -26,21 +28,36 @@ const platforms: readonly string[] = [
 const manifestPaths: readonly string[] = [
   join(root, "package.json"),
   ...platforms.map((platform: string): string => join(root, "platforms", platform, "package.json")),
+  join(root, "../../client/core/package.json"),
+  join(root, "../../client/web-component/package.json"),
+  join(root, "../../client/react/package.json"),
   join(root, "../../client/astro/package.json"),
   join(root, "../../client/sveltekit/package.json"),
+  join(root, "../../../../ffi/js/npm/package.json"),
 ];
-// The integration packages ship compiled output from dist/ (prepack runs
-// tsc); their sources are .ts and never consumed by name. The swap rewrites
-// the consumed files, so it needs dist/ built first (run prepack in both
-// integration packages when dist/ is missing).
-const sourcePaths: readonly string[] = [
-  join(root, "../../client/astro/dist/integration.js"),
-  join(root, "../../client/astro/dist/tables.js"),
-  join(root, "../../client/astro/index.d.ts"),
-  join(root, "../../client/sveltekit/dist/server.js"),
-  join(root, "../../client/sveltekit/server.d.ts"),
+// Source roots whose text files may embed the rescope set below. node_modules
+// is excluded everywhere so the workspace symlinks into the client packages
+// are never followed and rewritten twice.
+const sourceRoots: readonly string[] = [
+  join(root, "../../client/core"),
+  join(root, "../../client/web-component"),
+  join(root, "../../client/react"),
+  join(root, "../../client/astro"),
+  join(root, "../../client/sveltekit"),
+  root,
+  join(root, "../../../../ffi/js/npm"),
 ];
-const PRECOMPUTE_NAME = "@tiqian/precompute";
+const excludedDirectories: readonly Set<string> = new Set(["node_modules", ".parcel-cache", ".git"]);
+const sourceExtensions: readonly string[] = [".js", ".cjs", ".mjs", ".ts", ".mts"];
+// The package names that appear as specifiers in shipped sources and as
+// dependency keys in the snapshot manifests. Each entry is rescoped to the
+// fork scope and pinned to the snapshot version.
+const rescopeSet: readonly string[] = [
+  "@tiqian/ffi",
+  "@tiqian/core",
+  "@tiqian/prose",
+  "@tiqian/precompute",
+];
 
 interface RepositoryObject {
   type?: string;
@@ -51,6 +68,8 @@ interface RepositoryObject {
 interface PackageManifest {
   name: string;
   version: string;
+  private?: boolean;
+  dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   repository?: RepositoryObject | string;
@@ -80,6 +99,39 @@ const swapRepositoryUrl = (url: string, repository: string): string => {
   return `${url.slice(0, start + marker.length)}${repository}${suffix}`;
 };
 
+// Rewrites one dependency map: entries in the rescope set follow the fork
+// scope and the snapshot version; every other entry stays untouched.
+const swapDependencyMap = (
+  map: Record<string, string>,
+  scope: string,
+  version: string,
+): Record<string, string> => {
+  const swapped: Record<string, string> = {};
+  for (const [name, value] of Object.entries(map)) {
+    if ((rescopeSet as readonly string[]).includes(name)) {
+      swapped[swapScope(name, scope)] = version;
+    } else {
+      swapped[name] = value;
+    }
+  }
+  return swapped;
+};
+
+const collectSourceFiles = (directory: string): string[] => {
+  const files: string[] = [];
+  for (const entry of readdirSync(directory)) {
+    const path: string = join(directory, entry);
+    const stats = statSync(path);
+    if (stats.isDirectory()) {
+      if (excludedDirectories.has(entry)) continue;
+      files.push(...collectSourceFiles(path));
+    } else if (sourceExtensions.some((extension: string): boolean => path.endsWith(extension))) {
+      files.push(path);
+    }
+  }
+  return files;
+};
+
 const apply = (version: string, scope: string, repository: string): void => {
   if (!scope.startsWith("@") || scope.includes("/")) {
     throw new Error(`SnapshotSwapScopeInvalid: ${scope}`);
@@ -96,26 +148,17 @@ const apply = (version: string, scope: string, repository: string): void => {
     const manifest: PackageManifest = JSON.parse(original) as PackageManifest;
     manifest.name = swapScope(manifest.name, scope);
     manifest.version = version;
+    // react ships a private marker in the working tree; a publishable
+    // snapshot tarball must not carry it.
+    delete manifest.private;
+    if (manifest.dependencies !== undefined) {
+      manifest.dependencies = swapDependencyMap(manifest.dependencies, scope, version);
+    }
     if (manifest.optionalDependencies !== undefined) {
-      const swapped: Record<string, string> = {};
-      for (const [name] of Object.entries(manifest.optionalDependencies)) {
-        swapped[swapScope(name, scope)] = version;
-      }
-      manifest.optionalDependencies = swapped;
+      manifest.optionalDependencies = swapDependencyMap(manifest.optionalDependencies, scope, version);
     }
     if (manifest.peerDependencies !== undefined) {
-      // Only the precompute peer follows the fork scope; @tiqian/prose and
-      // the framework peers keep their registry names. The swapped peer
-      // tracks the snapshot being published so hosts resolve one version.
-      const swapped: Record<string, string> = {};
-      for (const [name, peerVersion] of Object.entries(manifest.peerDependencies)) {
-        if (name === PRECOMPUTE_NAME) {
-          swapped[swapScope(name, scope)] = version;
-        } else {
-          swapped[name] = peerVersion;
-        }
-      }
-      manifest.peerDependencies = swapped;
+      manifest.peerDependencies = swapDependencyMap(manifest.peerDependencies, scope, version);
     }
     if (manifest.repository !== undefined) {
       const repositoryField: RepositoryObject | string = manifest.repository;
@@ -131,15 +174,30 @@ const apply = (version: string, scope: string, repository: string): void => {
     backup[path] = original;
     writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
   }
-  const swappedName: string = swapScope(PRECOMPUTE_NAME, scope);
-  for (const path of sourcePaths) {
-    const original: string = readFileSync(path, "utf8");
-    if (!original.includes(PRECOMPUTE_NAME)) continue;
-    backup[path] = original;
-    writeFileSync(path, original.split(PRECOMPUTE_NAME).join(swappedName));
+  const replacements: [string, string][] = rescopeSet.map(
+    (name: string): [string, string] => [name, swapScope(name, scope)],
+  );
+  for (const sourceRoot of sourceRoots) {
+    if (!existsSync(sourceRoot)) continue;
+    for (const path of collectSourceFiles(sourceRoot)) {
+      // The swap script's own literals name the rescope set; rewriting them
+      // would corrupt the set mid-flight and break a second apply.
+      if (path === selfPath) continue;
+      const original: string = readFileSync(path, "utf8");
+      let swapped: string = original;
+      for (const [name, rescoped] of replacements) {
+        swapped = swapped.split(name).join(rescoped);
+      }
+      if (swapped !== original) {
+        backup[path] = original;
+        writeFileSync(path, swapped);
+      }
+    }
   }
   writeFileSync(backupPath, JSON.stringify(backup));
+  const fileCount: number = Object.keys(backup).length - manifestPaths.length;
   console.log(`snapshot swap applied: ${scope} at ${version} for ${repository}`);
+  console.log(`manifests rewritten: ${manifestPaths.length}; sources rewritten: ${fileCount}`);
 };
 
 const restore = (): void => {

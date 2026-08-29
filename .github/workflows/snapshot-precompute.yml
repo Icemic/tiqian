@@ -1,13 +1,15 @@
 name: Snapshot precompute packages
 
-# Manual-only snapshot lane for @tiqian/precompute plus the astro and
-# sveltekit integrations. Each dispatch stamps its own timestamped tag, builds
-# the seven packages from that commit, temporarily swaps the manifests to the
-# running repository owner's scope (GitHub Packages requires the npm scope to
-# equal the owner; @tiqian-cjk on the canonical repository), publishes the
-# timestamped versions with the `snapshot` dist-tag, and restores the
-# manifests. Release publishing stays in publish-precompute.yml and never
-# runs the swap.
+# Manual-only snapshot lane for the full npm set: precompute and its platform
+# binaries, the astro and sveltekit integrations, and the ffi, core, prose,
+# and react client packages. Each dispatch stamps its own timestamped tag,
+# builds the eleven packages from that commit, temporarily swaps the manifests
+# to the running repository owner's scope (GitHub Packages requires the npm
+# scope to equal the owner), publishes the timestamped versions with the
+# `snapshot` dist-tag, and restores the manifests. Snapshot publishing
+# belongs to the fork; the stamp job refuses to run under the canonical
+# owner. Release publishing stays in publish-precompute.yml and
+# publish-prose.yml and never runs the swap.
 on:
   workflow_dispatch:
 
@@ -27,6 +29,17 @@ jobs:
       tag: ${{ steps.stamp.outputs.tag }}
       commit: ${{ steps.stamp.outputs.commit }}
     steps:
+      # Snapshot publishing is test publishing and belongs to the fork, where
+      # the scope follows the fork owner; the canonical repository keeps the
+      # @tiqian release lane only.
+      - name: Refuse to run under the canonical owner
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REPOSITORY_OWNER}" == "tiqian-cjk" ]]; then
+            echo "::error::Snapshot publishing runs only on forks (owner-scoped packages); dispatch it on a fork, never on the canonical repository."
+            exit 1
+          fi
+
       - name: Check out the dispatched commit
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -53,8 +66,8 @@ jobs:
           done
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           version="${base}-snapshot.${stamp}"
-          tag="precompute-snapshot-${stamp}"
-          git tag -a "${tag}" -m "precompute snapshot ${version}"
+          tag="npm-snapshot-${stamp}"
+          git tag -a "${tag}" -m "npm snapshot ${version}"
           git push origin "${tag}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
@@ -392,9 +405,127 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  client-packages:
+    name: Pack ffi, core, prose, and react packages
+    needs: [stamp]
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_VERSION: ${{ needs.stamp.outputs.version }}
+      SNAPSHOT_SCOPE: "@${{ github.repository_owner }}"
+    steps:
+      - name: Check out the stamped commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.stamp.outputs.commit }}
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null
+      - name: Install Android platform pieces
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Cache Gradle
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-snapshot-client-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/gradle-daemon-jvm.properties', '**/*.gradle.kts') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # The ffi package ships the Kotlin/JS runtime that :ffi:js assembles
+      # into the gitignored npm/runtime directory; a checkout carries none of
+      # it, and the --ignore-scripts pack below never rebuilds it.
+      - name: Assemble the ffi npm runtime
+        run: ./gradlew :ffi:js:assembleNpmPackage
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # Root install covers every workspace member; each package's pretest
+      # then emits the .js/.d.ts build products its tarball ships.
+      - name: Install workspace dependencies
+        run: npm install --no-audit --no-fund
+
+      # The suites assert the canonical @tiqian manifests and resolve the
+      # workspace dev links, so they all run before the swap. The order
+      # satisfies the build chain: prose and react consume core's emitted
+      # declarations through tsc -b.
+      - name: Test @tiqian/core
+        working-directory: platforms/web/client/core
+        run: npm test
+
+      - name: Test @tiqian/prose
+        working-directory: platforms/web/client/web-component
+        run: npm test
+
+      - name: Test @tiqian/react
+        working-directory: platforms/web/client/react
+        run: npm test
+
+      - name: Test @tiqian/ffi
+        working-directory: ffi/js/npm
+        run: npm test
+
+      - name: Apply the snapshot manifest swap
+        id: swap
+        working-directory: platforms/web/server/core
+        # Bash keeps ${VAR} expansion off PowerShell, which sees an empty
+        # string for the shell-variable syntax. npm scopes are lowercase.
+        shell: bash
+        run: |
+          scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
+          repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          node snapshot-swap.ts apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
+
+      # prose and ffi declare verify prepacks that assert the canonical
+      # manifest set, and every package's emitted build products were made
+      # before the swap, so all four pack without scripts.
+      - name: Pack the four packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${GITHUB_WORKSPACE}/client-pack-output"
+          mkdir -p "${out}"
+          (cd ffi/js/npm && npm pack --ignore-scripts --pack-destination "${out}")
+          (cd platforms/web/client/core && npm pack --ignore-scripts --pack-destination "${out}")
+          (cd platforms/web/client/web-component && npm pack --ignore-scripts --pack-destination "${out}")
+          (cd platforms/web/client/react && npm pack --ignore-scripts --pack-destination "${out}")
+          test "$(find "${out}" -name '*.tgz' | wc -l)" -eq 4
+          ffi_tarball="$(find "${out}" -name '*ffi*.tgz' -print -quit)"
+          core_tarball="$(find "${out}" -name '*core*.tgz' -print -quit)"
+          prose_tarball="$(find "${out}" -name '*prose*.tgz' -print -quit)"
+          react_tarball="$(find "${out}" -name '*react*.tgz' -print -quit)"
+          tar -tzf "${ffi_tarball}" | grep -q '^package/runtime/Tiqian-tiqian-ffi-js.mjs$'
+          tar -tzf "${core_tarball}" | grep -q '^package/src/'
+          tar -tzf "${prose_tarball}" | grep -q '^package/element.js$'
+          tar -tzf "${react_tarball}" | grep -q '^package/binding.js$'
+
+      - name: Restore the manifests
+        if: ${{ always() && steps.swap.outcome == 'success' }}
+        working-directory: platforms/web/server/core
+        run: node snapshot-swap.ts restore
+
+      - name: Upload client packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: client-packages
+          path: client-pack-output/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish snapshot tarballs to GitHub Packages
-    needs: [stamp, binaries, main-package, integration-packages]
+    needs: [stamp, binaries, main-package, integration-packages, client-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -419,7 +550,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc main-package integration-packages"
+          expected="binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc main-package integration-packages client-packages"
           for name in $expected; do
             if ! find "packages/$name" -name '*.tgz' | grep -q .; then
               echo "::error::Artifact $name contains no package."
@@ -433,21 +564,30 @@ jobs:
             fi
           done < <(find packages -name '*.tgz' -print0)
 
-      # Platform packages first: the main package lists them as optional
-      # dependencies at the same version.
+      # Publish in dependency order so every version resolves as it lands:
+      # ffi first (core imports it at runtime), then core (prose and react
+      # depend on it), then the platform binaries (the main package lists
+      # them as optional dependencies at the same version), then the main
+      # package, and finally the integrations that peer on the snapshot
+      # precompute and prose.
       - name: Publish each tarball
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          for name in binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc; do
-            tarball="$(find "packages/$name" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          publish_from() {
+            tarball="$(find "packages/$1" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+            npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
+          }
+          for pattern in '*ffi*.tgz' '*core*.tgz' '*prose*.tgz' '*react*.tgz'; do
+            tarball="$(find packages/client-packages -maxdepth 1 -type f -name "${pattern}" -print -quit)"
             npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
           done
-          tarball="$(find packages/main-package -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-          npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
-          # The integrations peer on the just-published snapshot precompute.
+          for name in binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc; do
+            publish_from "${name}"
+          done
+          publish_from main-package
           while IFS= read -r tarball; do
             npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
           done < <(find packages/integration-packages -maxdepth 1 -type f -name '*.tgz' | sort)
@@ -457,11 +597,13 @@ jobs:
         run: |
           scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
           {
-            echo "### Precompute snapshot published"
+            echo "### npm snapshot published"
             echo ""
             echo '```sh'
-            echo "npm install ${scope}/precompute@${SNAPSHOT_VERSION} \\"
-            echo "npm install ${scope}/astro@${SNAPSHOT_VERSION} ${scope}/sveltekit@${SNAPSHOT_VERSION} \\"
+            echo "npm install \\"
+            for package in ffi core prose react precompute astro sveltekit; do
+              echo "  ${scope}/${package}@${SNAPSHOT_VERSION} \\"
+            done
             echo "  --registry=https://npm.pkg.github.com"
             echo '```'
             echo ""
