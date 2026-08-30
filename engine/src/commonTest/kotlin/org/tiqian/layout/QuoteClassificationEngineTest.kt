@@ -645,6 +645,58 @@ class QuoteClassificationEngineTest {
             it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
         })
     }
+
+    @Test
+    fun keepsDigitBoundedSingleQuotePairFullwidthViaEnclosingQuotation() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("尾号是“1‘2’3”。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val singles = result.debug.roleOverrides.filter { it.sourceText == "‘" || it.sourceText == "’" }
+        assertEquals(2, singles.size)
+        assertTrue(singles.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "PairedPunctuationEnclosingQuoteContext"
+        }, singles.toString())
+        val doubles = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertTrue(doubles.all { it.overriddenRole == FontRole.CjkPunctuation.name })
+    }
+
+    @Test
+    fun resolvesDigitBoundUnmatchedQuotesAsPrimes() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("他用时1’30”，屏幕是6.1”的。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val marks = result.debug.roleOverrides.filter { it.sourceText == "’" || it.sourceText == "”" }
+        assertEquals(3, marks.size)
+        assertTrue(marks.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NumericPrimeUnmatchedQuote"
+        }, marks.toString())
+    }
+
+    @Test
+    fun keepsDecadeStyleApostropheWithLetterFlankLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("那是90’s的音乐。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val apostrophe = result.debug.roleOverrides.single { it.sourceText == "’" }
+        assertEquals(FontRole.LatinText.name, apostrophe.overriddenRole)
+        assertEquals("NonCjkInWordApostrophe", apostrophe.source)
+    }
 }
 
 private fun Char.isCurlyQuoteForTest(): Boolean =
