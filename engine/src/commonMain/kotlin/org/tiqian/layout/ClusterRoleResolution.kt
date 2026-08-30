@@ -222,11 +222,14 @@ internal fun clusterRoleRanges(
             if (codePoint.isContextualDashEllipsisCodePoint()) {
                 // `ContextualDashEllipsisRunSegmentation`: a mark run resolved to the
                 // Latin face still forms its own cluster, keeping the code-point
-                // line-break classes' opportunities at the run boundary.
-                while (index < text.length && index !in spanBoundaries) {
-                    val nextCodePoint = text.codePointAtCompat(index)
-                    if (nextCodePoint != codePoint) break
-                    index += nextCodePoint.charCount()
+                // line-break classes' opportunities at the run boundary. The same
+                // profile coalesce set gates repeats on both faces.
+                if (codePoint in coalesceSet) {
+                    while (index < text.length && index !in spanBoundaries) {
+                        val nextCodePoint = text.codePointAtCompat(index)
+                        if (nextCodePoint != codePoint) break
+                        index += nextCodePoint.charCount()
+                    }
                 }
             } else if (attachedAsciiPointMark) {
                 // `AttachedAsciiPointMarkSegmentation`: keep the leading
