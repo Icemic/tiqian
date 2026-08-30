@@ -228,6 +228,26 @@ class LineAdjustmentStageCoverageTest {
     }
 
     @Test
+    fun loneLatinClusterMergesBothAutoSpaceEdgeTrimsIntoOneKey() {
+        testTrace.section("loneLatinClusterMergesBothAutoSpaceEdgeTrimsIntoOneKey")
+        // "中A中": the latin cluster carries an inserted gap on both sides
+        // (advance 16 + 2 + 2 = 20). maxWidth 24 leaves one cluster per line,
+        // so line 1 is A alone; its trailing and leading edge trims merge
+        // into the same cluster key, and the second merge takes mergeValue's
+        // existing-key arm (the values add up instead of overwriting).
+        val result = layout("中A中", maxWidth = 24.0f)
+        assertEquals(1..1, result.lines[1].clusterRange, result.lines.toString())
+        val trims = result.debug.lineEdgeTrimDecisions
+            .filter { it.reason == "TextAutoSpaceLineEdgeTrim" }
+        assertEquals(listOf("trailing", "leading"), trims.map { it.side })
+        assertTrue(
+            trims.all { it.clusterRange == TextRange(1, 2) && it.trimAmount == 2.0f },
+            trims.toString(),
+        )
+        assertEquals(16.0f, result.lines[1].adjustedWidth)
+    }
+
+    @Test
     fun attachedObjectMarkHangsInsteadOfLeavingTheSeparatorAtAnEdge() {
         testTrace.section("attachedObjectMarkHangsInsteadOfLeavingTheSeparatorAtAnEdge")
         // The object+mark pair exceeds the measure, so the point mark hangs
