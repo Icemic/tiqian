@@ -155,7 +155,16 @@ JVM 与 JavaScript 运行时各自的 Unicode 表令希腊文、西里尔文等�
 继续作为非 East Asian 的脚本证据参与既有上下文解析。
 
 `NonCjkInWordApostrophe` 处理未配对的 U+2019；它保留在 Western run，并保留外层单引号的配对资格。
-强脚本证据继续使用 `Scripts`；数字和 East Asian Width 只参与词内成对弯引号规则的边界判定。
+它的两侧边界中至少一侧必须是 `isNonCjkNonNumericWordCharacter`：`don’t`、`90’s` 仍是词内撇号，
+而 `“1‘2’3”` 这类两侧全为数字的 U+2019 不再按撇号消耗，恢复与开引号配对，经
+`PairedPunctuationEnclosingQuoteContext` 继承外层中文引号。
+
+未配对路径新增 `NumericPrimeUnmatchedQuote`：孤立的 U+2019 / U+201D 且紧邻左侧是
+`UnicodeNumber` 字符时判 `LatinText`，覆盖 `1’30”` 分秒与 `6.1”` 英寸记号。配对状态天然区分
+两类意图——重音引用必然成对、prime 必然孤立，因此该规则不影响任何成对引号。`’80s` 这类
+省略撇号继续走未配对的语境解析，不专门覆盖。
+
+强脚本证据继续使用 `Scripts`；数字和 East Asian Width 只参与上述边界判定，不参与脚本投票。
 
 构建端对每个已分段的 `ShapingInput` 使用同一条具名策略，browser replay 以完整输入 key 消费其结果：
 
