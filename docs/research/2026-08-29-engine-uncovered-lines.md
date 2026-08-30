@@ -8,6 +8,12 @@
 2026-08-29 的终态核验通过：27 个文件共 233 行，其中 commonMain 231 行、
 jvmMain 2 行，每一行都有条目主张。
 
+2026-08-30 补记：本文件的行号、计数与覆盖状态对应本仓 main（含
+PreparedParagraph 数字序列化重写与各覆盖测试群）。这些改动尚未同步到
+上游主仓；条目 3、4、66 引用的重写函数与多个条目引用的测试文件目前
+只在本仓存在，同步到上游后需要在上游复测。当轮的 Kover 聚合覆盖率
+数字见条目 67。
+
 阅读约定：
 
 - 未覆盖行指 Kover XML 中 mi>0（存在未执行指令）或 mb>0（存在未走到的
@@ -126,10 +132,13 @@ Narrow` 与 `previousSpacing == Wide` 守卫的臂内。这两个 spacing 值本
 
 `rightLeading != adjustedVirtualGlue` 析取项单独触发（同时
 `leftTrailing == 0.0`）。`leftAtom == null` 时调整值取自然臂，等于
-`leftTrailing + rightLeading == rightLeading`；`leftAtom != null` 时预算
-使 `leftTrailing > 0.0`，第一个析取项已触发。第二个析取项永远不能单独
-成为决定条件。防御性检查。（后续核对：该行的构造已被测试覆盖，不再
-出现在未覆盖行集合里，见条目 63。）
+`leftTrailing + rightLeading == rightLeading`。（2026-08-30 复核更正）
+原推导「`leftAtom != null` 时预算使 `leftTrailing > 0.0`」不成立：
+开引号类原子的 trailingGlue.natural 可以为 0
+（buildPunctuationClusterGeometries 读 atomsForCluster.last() 的
+trailingGlue.natural），此时该析取项可以单独触发，该行是活代码。
+该行的构造其后由测试覆盖，不再出现在未覆盖行集合里，本条不再主张
+不可达（见条目 63）。
 
 ### 条目 16：PunctuationGeometryLedger.kt:337/339，非空属性的中间判空
 
@@ -139,10 +148,21 @@ next.range（偏移 1101）与 next.text（偏移 1167）的安全调用判空�
 
 ### 条目 17：LedgerKt:690，mergeValue 的重映射臂
 
-`mergeValue` 的键已存在分支。两个调用点都在 consumeAtEdge：Start 与
-End 边写不同的 map；单簇行的第二次访问时，配对的首边已在合并之前返回。
-mergeValue 运行时键必然不存在。防御性检查（该助手移植
-`java.util.Map.merge` 的文档语义）。
+（2026-08-30 复核改写）原条目主张「两个调用点都在 consumeAtEdge，
+运行时键必然不存在」对当前树不成立。mergeValue 现有 23 个调用点
+（grep mergeValue engine/src/commonMain，排除定义本身）：
+LineAdjustmentStage 16 处（L163-441）、PunctuationGeometryLedger 4 处
+（L259/361/412/415）、PunctuationGeometryStage 2 处（L690/693）、
+WidthIndependentAnnotationCache 1 处（L794）。同一簇键先后合并两次的
+路径确实存在：单簇拉丁行同时携带 leading 与 trailing 自动加空决策时，
+L245 的 trimEdge 对同一 clusterIdx 先后以两侧各合并一次；L324-325 又
+把 pushInRawTrims 合并进 `HashMap<Int, Float>(autoSpaceEdgeTrims)` 拷贝
+出的 rawTrims，键与 autoSpaceEdgeTrims 并存。重映射臂是活代码，由
+LineAdjustmentStageCoverageTest.loneLatinClusterMergesBothAutoSpaceEdgeTrimsIntoOneKey
+（「中A中」，maxWidth 24）覆盖，adjustedWidth 断言固定两次修剪相加
+的语义。该行的指令转为已覆盖，残余 mb=1 按第五类主张：javap 偏移 48
+ifnonnull 的 null 出口要求 remap 返回 null，remap 的类型
+`(V, V) -> V` 与 `V : Any` 排除 null 返回值，该方向不可达。
 
 ### 条目 18：LineAdjustmentStage.kt:204-206 与 212-215，LeadingAndTrailingGlue 通道
 
@@ -248,8 +268,11 @@ shrink dump 执行。
 ### 条目 29：LineRepair.kt:689，totalShrink 非正且机会列表非空
 
 `totalShrink <= 0.0` 且机会列表非空的组合。distributePushInShrink 是
-private 函数，两个调用点都传正溢出（合并后的行超出度量；不溢出的行
-到不了 PushIn）。防御性检查。
+private 函数，唯一调用点 L368 由 `shrink > 0f` 守卫（2026-08-30 复核
+更新计数，原条目写作时为两个调用点）：shrink 由 overflow 取
+`coerceAtLeast(0f)` 得到，非正溢出走 else 分支不调用；进入调用的行
+totalShrink 传正的 shrink，且 buildShrinkOpportunities 只添加正容量
+条目（条目 30），机会列表非空时容量和为正。防御性检查。
 
 ### 条目 30：LineRepair.kt:698，tierCapacity 非正
 
@@ -265,6 +288,12 @@ private 函数，两个调用点都传正溢出（合并后的行超出度量；
 L505/L540 链的每个原子方向都在 technical fill 测试里执行过；L540 的
 全真拒绝路径由 technicalLineBodyStretchRejectsTheCleanTierAndReplays
 的回放场景覆盖。
+
+【已删除】2026-08-30 外部复核裁定删除该合取项。块内 lambda 的
+`currentBreak.spanRange`/`.tier` 依赖 if 条件里的判空做智能转换，
+删除后在块首以 `val activeBreak = currentBreak!!` 捕获非空值（同
+LineOptimization.kt:97 守卫后断言的写法；Kotlin 把 `!!` 编译为
+checkNotNull 调用，没有分支，不产生新的未覆盖方向）。
 
 ## 查询与入口校验（条目 32-42）
 
@@ -415,7 +444,9 @@ ink 加 InlineAttachment.Previous 脚注）。
   每个区间都来自与 ruby 基底重叠的行盒，每个行盒都持有至少 1 个簇。
 - L632/644-645/776-780/782/786-787：BopomofoTone.Ru 臂全族。v1 解析器
   从不产出 Ru（BopomofoReading.kt 声明了该变体但没有构造点），L642
-  的源内注释记录了这一点。
+  的源内注释记录了这一点。【2026-08-30 裁定：保留】Ru 与已删除的
+  Quote 不同：源内注释写明 v1 解析器不产出 Ru，该注释是写入源码的
+  计划说明，入声支持实现时这一族转为活代码，不按 Quote 先例删除。
 - L695-698：内联 minOf/maxOf 的空集合抛出，由 L693 的显式
   `if (bounds.isEmpty()) return null` 守卫。
 
@@ -432,8 +463,11 @@ ink 加 InlineAttachment.Previous 脚注）。
 - L451/452/464：候选过滤的区间检查。每个候选 <= greedyEnd，
   findGreedyEnd 返回值 <= 其 endExclusive（L867-885），
   `greedyEnd >= segmentEndExclusive` 时 L418 拦截在候选循环之前退出，
-  上界比较（`it <= adjustedClusters.size`、
-  `it <= segmentEndExclusive`、`e == segmentEndExclusive`）永远为真。
+  前两个上界比较（`it <= adjustedClusters.size`、
+  `it <= segmentEndExclusive`）永远为真。L464 的
+  `e == segmentEndExclusive` 在同一不变式下永远为假（每个候选
+  `e <= greedyEnd < segmentEndExclusive`；2026-08-30 复核更正方向，
+  该行的未覆盖方向不变）。
 - L509：第二合取项 `lineStart < committedEnd`。
   adjustBreakForLineEnd（ProgressiveBreakDecisions.kt L291）只在
   `b - 1 > lineStart` 时回退，返回值总是 >= lineStart + 1。
@@ -653,7 +687,9 @@ extendsContextualHang 内 `all {}` 的空集合短路。javap
 同包存在两个同形扩展：本文件 L178 的 `private fun <K, V>
 MutableMap<K, V>.mergeValue(...)` 与 PunctuationGeometryLedger.kt
 L689 的 `internal fun <K, V : Any> MutableMap<K, V>.mergeValue(...)`。
-L801 调用点的接收者是 `HashMap<Int, Double>`，`V : Any` 约束更具体，
+L801 调用点的接收者是 `HashMap<Int, Float>`（2026-08-30 复核更正，
+原文误写为 `HashMap<Int, Double>`；rubySpread 由 computeRubySpread
+构造，值为 `Map<Int, Float>`），`V : Any` 约束更具体，
 重载解析选中 ledger 版本。javap
 （WidthIndependentAnnotationCacheKt.class）：唯一调用点偏移 6283 是
 `invokestatic PunctuationGeometryLedgerKt.mergeValue`；本文件的私有
@@ -750,7 +786,10 @@ ParagraphDpLineBreaker 的未覆盖行至此全部由条目 47、49 与本条或
 `codePointAtOrNull` 的负索引比较方向。`if (index !in indices)` 的
 `index < 0` 半边（javap 偏移 2 `if_icmpgt 26` 与偏移 26 `iconst_0`）
 不可达：函数是 private，唯一调用点 L99 传 `index + 1`，analyze 循环
-中 index >= 0，实参总是 >= 1。`index >= length` 半边是活路径，由 `a’`
+中 index >= 0，实参总是 >= 1（2026-08-30 复核补全：L99 所在的
+isNonCjkInWordApostrophe 有两个调用方，QuotePairAnalyzer.kt:45 与
+ContextualQuoteRoleResolver.kt:119，两处的 index 同样 >= 0，结论
+不变）。`index >= length` 半边是活路径，由 `a’`
 （撇号为串尾）覆盖。与条目 44/57/58 同族：调用点不变式排除了越界
 方向。其余 QPA 未覆盖行已由测试覆盖：L37 由
 QuotePairAnalyzerSurrogateAdjacencyTest 的 lowQuoteCodePoints 用例
@@ -857,6 +896,8 @@ L688（`totalShrink <= 0.0` 合取）与 L697（`tierCapacity <= 0.0`）；
 rejectedForSpan）、L413（justificationPlans 的 getOrNull null 臂）。
 条目 15 主张的 PunctuationGeometryLedger L333 构造已由后续测试覆盖，
 不再出现在未覆盖行集合里；该行的主张已被测试取代。
+（2026-08-30 条目 31 合取项删除后，LineRepair 的 L688/L697 整体
+下移 2，现为 L690/L699。）
 
 ### 条目 64：UnicodePunctuationBoundaryResolver.kt（任务标签 cov-upb）
 
@@ -1026,3 +1067,53 @@ nanSurplusEmitsNoAllocations 覆盖（NaN surplus 使每个 tier factor 为 NaN�
 
 验证：全量 `:engine:jvmTest` 加 `:engine:koverXmlReportJvm` 构建成功；
 acceptance-check 差集为空（条目 65 复跑）。
+
+## 外部复核处置（条目 67）
+
+### 条目 67：2026-08-30 外部复核处置
+
+外部复核报告对本文件逐条重验，基准为上游主仓 main @ 13d8ca38；本仓
+的重写与测试群尚未同步到上游（见文头补记），据此判定：52 条成立，
+3 条推翻（3、4、17，其中 3、4 的前提是上游未含重写），5 条部分成立
+（15、44、46、60、62），1 条论据过时（29），5 条无法在复核环境验证
+（6、7、25、59、66，依赖 Kover 数据或本仓测试）。处置：
+
+- 条目 17 按复核改写（见上）：重映射臂是活代码，补测试
+  loneLatinClusterMergesBothAutoSpaceEdgeTrimsIntoOneKey 覆盖；
+  PunctuationGeometryLedger.kt:690 的指令转为已覆盖，残余 mb=1 按
+  第五类主张。验收脚本对该文件的主张行集改为
+  {239, 337, 339, 396, 648, 690}（333 已由测试覆盖，条目 63）。
+- 条目 15 更正开引号反例；条目 46 更正 L464 的方向；条目 29 更新
+  调用点计数；条目 55 更正接收者类型；条目 60 补全调用方清单。
+- 条目 44/62 的源码论证复核成立；两者引用的测试在本仓存在。
+- 调用点计数型证明自本轮起在条目内附上生成证据的 grep 命令与当时
+  计数（条目 17 已按此补写），复核时先重跑计数再核对结论。
+- 裁定版复核的删除清单另执行两项。条目 31 的冗余合取项删除（补记见
+  该条目；LineRepair.kt 该文件 L509 之后行号整体下移 2，条目 29/30
+  的构造现为 L690 与 L699，条目 28 的 L416 与条目 53 的 L81 在删除点
+  之前不变）。条目 45 的 BopomofoTone.Ru 臂裁定保留（源内注释记录
+  v1 不产出，属计划内扩展点，与 Quote 的无记录占位不同）。裁定版对
+  落单代理项三行的「留」建议被更早的用户裁定取代：入口拒绝孤立代理
+  已实现，三行已随条目 64 补记第三类删除。
+- 验收脚本增加调用点计数核对（先核条目 17 的 mergeValue 计数 23），
+  行号主张集同步更新（LineRepair 去掉 507，条目 29/30 行号加 2）。
+
+复测：全量 `:engine:jvmTest` 与 `:engine:koverXmlReportJvm` 通过
+（1317 个用例，含 LayoutDumpGoldenTest 零 diff；
+LineAdjustmentStageCoverageTest 20 个用例），acceptance-check 差集
+为空（残余 225 行，commonMain 223 行）。
+
+同轮 Kover 聚合覆盖率（engine JVM 全部源集，reportJvm.xml 根计数）：
+
+- 指令 89430/89853（99.53%，未执行 423）
+- 分支 5881/6087（96.62%，未走到 206 个方向）
+- 行 12490/12549（99.53%，未执行 59）
+- 方法 736/741（99.33%）
+- 类 298/299（99.67%）
+
+残余 225 行按缺失类型拆分：56 行有未执行指令（mi>0 且 mb=0），
+64 行指令已全部执行、只缺分支方向（mb>0 且 mi=0），105 行两者都有；
+commonMain 223 行 = 56 + 64 + 103，jvmMain 2 行属于两者都有
+（BundledHyphenationResource.jvm.kt:6-7，条目 50）。聚合数里的
+「未执行指令 423」统计的是指令条数，「56+105 行」统计的是行数，
+两个数字统计的对象不同。
