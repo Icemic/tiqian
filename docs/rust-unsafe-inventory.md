@@ -1,7 +1,7 @@
 # Rust unsafe inventory
 
 This document lists every `unsafe` block, function, and trait implementation in
-the two Rust workspaces (`frontend/rust`, `frontend/web-precompute/rust`), and
+the two Rust workspaces (`ffi/rust`, `platforms/web/server/precompute`), and
 states for each one why it exists and which obligations the caller carries.
 Occurrences of the word `unsafe` that are not unsafe code (`unsafe_break_count`
 fields, the `unsafeBreakCount` JSON key, the `unsafe_href` function, test
@@ -28,7 +28,7 @@ and the host node process. Code outside these boundaries is safe Rust.
 
 ## engine.rs: engine call side
 
-File `frontend/rust/tiqian/src/engine.rs`.
+File `ffi/rust/tiqian/src/engine.rs`.
 
 | Site | Form | Why it exists |
 | --- | --- | --- |
@@ -46,14 +46,14 @@ A status outside 0 and 1 releases nothing.
 
 ## font_backend.rs: vtable type declarations
 
-File `frontend/rust/tiqian/src/font_backend.rs`. The three
+File `ffi/rust/tiqian/src/font_backend.rs`. The three
 `pub type ... = unsafe extern "C" fn` items declare function pointer types.
 They mark the callbacks as callable and run nothing. They must match the C
 function pointer signatures the Kotlin side declares.
 
 ## engine_bridge.rs: font backend callback side
 
-File `frontend/web-precompute/rust/tiqian-precompute/src/engine_bridge.rs`.
+File `platforms/web/server/precompute/engine/src/engine_bridge.rs`.
 This module hands a `FontSession` to the engine through the vtable.
 
 | Site | Form | Why it exists |
@@ -80,7 +80,7 @@ second shortfall reports `FontBackendBufferOverflow`.
 
 ## pin.rs: AddonMappingPin
 
-File `frontend/web-precompute/rust/tiqian-precompute-neon/src/pin.rs`.
+File `platforms/web/server/precompute/binding/src/pin.rs`.
 
 Background: node calls `dlclose` on every addon an environment loaded when
 that environment is destroyed, which happens when a worker thread exits. An
@@ -104,7 +104,7 @@ windows and arm64 paths compile, and no run in this repository exercises them.
 
 ## plan_parity.rs: test fixture backend
 
-File `frontend/web-precompute/rust/tiqian-precompute/tests/plan_parity.rs`.
+File `platforms/web/server/precompute/engine/tests/plan_parity.rs`.
 The test runs a deterministic font backend over the same C ABI and compares
 its plan dump with the js oracle byte for byte. Its `unsafe` sites mirror
 `engine_bridge.rs`: the three callback declarations `fixture_shape`,

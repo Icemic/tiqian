@@ -39,8 +39,12 @@ val generateEmbeddedHyphenationPatterns = tasks.register("generateEmbeddedHyphen
 // the hyphenation patterns) because only the JVM can read files at test time.
 val generateLayoutDumpGoldens = tasks.register("generateLayoutDumpGoldens") {
     val goldenDir = layout.projectDirectory.dir("src/jvmTest/resources/golden/layout-dumps")
+    val recordedGoldenDir = layout.projectDirectory.dir("src/jvmTest/resources/golden/layout-dumps-recorded")
+    val evidenceFile = layout.projectDirectory.file("src/jvmTest/resources/golden/shaping-evidence.json")
     val outputDir = layout.buildDirectory.dir("generated/layout-dump-goldens/kotlin")
     inputs.dir(goldenDir)
+    inputs.files(fileTree(recordedGoldenDir))
+    inputs.files(evidenceFile)
     outputs.dir(outputDir)
     doLast {
         // Chunked so no literal exceeds the JVM constant-pool string limit
@@ -69,27 +73,49 @@ val generateLayoutDumpGoldens = tasks.register("generateLayoutDumpGoldens") {
             if (current.isNotEmpty() || chunks.isEmpty()) chunks += current.toString()
             return chunks
         }
-        val files = goldenDir.asFile.listFiles { f -> f.extension == "txt" }?.sortedBy { it.name }.orEmpty()
-        val out = outputDir.get().file("org/tiqian/layout/LayoutDumpGoldenData.kt").asFile
-        out.parentFile.mkdirs()
-        out.writeText(
+        fun goldenMapSource(objectName: String, sourceDir: File): String = buildString {
+            val files = sourceDir.listFiles { f -> f.extension == "txt" }?.sortedBy { it.name }.orEmpty()
+            appendLine("package org.tiqian.layout")
+            appendLine()
+            appendLine("// GENERATED from src/jvmTest/resources/golden — do not edit.")
+            appendLine("internal object $objectName {")
+            appendLine("    val byId: Map<String, String> = buildMap {")
+            for (file in files) {
+                appendLine("        put(")
+                appendLine("            \"${file.nameWithoutExtension}\",")
+                appendLine("            listOf(")
+                for (chunk in escapedChunks(file.readText())) {
+                    appendLine("                \"$chunk\",")
+                }
+                appendLine("            ).joinToString(\"\"),")
+                appendLine("        )")
+            }
+            appendLine("    }")
+            appendLine("}")
+        }
+
+        val packageDir = outputDir.get().file("org/tiqian/layout").asFile
+        packageDir.mkdirs()
+        File(packageDir, "LayoutDumpGoldenData.kt")
+            .writeText(goldenMapSource("LayoutDumpGoldens", goldenDir.asFile))
+        File(packageDir, "RecordedLayoutDumpGoldenData.kt")
+            .writeText(goldenMapSource("RecordedLayoutDumpGoldens", recordedGoldenDir.asFile))
+        File(packageDir, "RecordedShapingEvidenceData.kt").writeText(
             buildString {
                 appendLine("package org.tiqian.layout")
                 appendLine()
-                appendLine("// GENERATED from src/jvmTest/resources/golden/layout-dumps — do not edit.")
-                appendLine("internal object LayoutDumpGoldens {")
-                appendLine("    val byId: Map<String, String> = buildMap {")
-                for (file in files) {
-                    appendLine("        put(")
-                    appendLine("            \"${file.nameWithoutExtension}\",")
-                    appendLine("            listOf(")
-                    for (chunk in escapedChunks(file.readText())) {
-                        appendLine("                \"$chunk\",")
+                appendLine("// GENERATED from src/jvmTest/resources/golden/shaping-evidence.json — do not edit.")
+                appendLine("internal object RecordedShapingEvidenceData {")
+                val evidence = evidenceFile.asFile
+                if (evidence.isFile) {
+                    appendLine("    val EVIDENCE_JSON: String = listOf(")
+                    for (chunk in escapedChunks(evidence.readText())) {
+                        appendLine("        \"$chunk\",")
                     }
-                    appendLine("            ).joinToString(\"\"),")
-                    appendLine("        )")
+                    appendLine("    ).joinToString(\"\")")
+                } else {
+                    appendLine("    val EVIDENCE_JSON: String = \"\"")
                 }
-                appendLine("    }")
                 appendLine("}")
             },
         )

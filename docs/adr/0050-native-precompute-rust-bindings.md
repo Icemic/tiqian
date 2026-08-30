@@ -9,7 +9,7 @@
   [ADR 0045](0045-apple-kotlin-native-target.md)（Apple Kotlin/Native 目标先例）、
   [ADR 0048](0048-suite-maven-and-package-namespaces.md)（套件 Maven 坐标与包命名）、
   [ADR 0052](0052-precompute-cache-and-batch-renderer.md)（缓存分层与批量渲染器，承接本 ADR
-  初版的缓存契约设计）
+  初版的缓存设计）
 
 ## Context
 
@@ -36,7 +36,7 @@ Kotlin/Native 目标，各产出 `staticLib` 与 C 头文件。四个目标传�
 归位到 nativeMain 或补写。其余改动限于构建配置。wire 解析提升到 `commonMain`；`jsMain`
 保留 `@JsExport`，`nativeMain` 新增 `@CName` 入口。
 
-C ABI 保持现有 wire 契约：`tiqian_precompute_paragraph` 接收扁平参数，经 `nativeHeap` 返回
+C ABI 保持现有 wire 传输格式：`tiqian_precompute_paragraph` 接收扁平参数，经 `nativeHeap` 返回
 JSON，配对 `tiqian_precompute_release_string` 释放。错误经出参以具名 capability issue 字符串
 返回，Kotlin 异常不跨 C 边界；绑定层把字符串映射为错误类型，名称与现有 npm 测试及 web
 capability 断言一致。C 入口允许并发调用；backend 实现负责自身的线程安全。
@@ -71,7 +71,7 @@ Rust 侧分两个 Cargo workspace，都在 `frontend` 下。`frontend/rust` 持�
   napi，可独立 `cargo test`。
 - `tiqian-precompute-neon`：Neon cdylib。暴露现有 precompute 入口的全部导出（兼容性约束见
   `NpmPrecomputePackage`），并新增 `createFontSession` 与原始 `layoutParagraph` 入口。缓存入口
-  与条目契约由 [ADR 0052](0052-precompute-cache-and-batch-renderer.md) 定义。
+  与条目定义由 [ADR 0052](0052-precompute-cache-and-batch-renderer.md) 定义。
   Neon 打包与 CI 配置沿用同维护者 blurest 仓库验证过的 `neon dist` 与 `neon show ci github`
   流程。
 
@@ -97,7 +97,7 @@ snapshot 不混入两个引擎的证据。升级 harfrust 或 skrifa 后重跑 `
 定义的差分 harness。HTML 解析用
 `html5ever`。`harfbuzzjs`、`woff2-encoder`、`linkedom` 三个 npm 依赖随之删除。
 Kotlin 引擎侧保持零字体依赖。排版规则仍全部在 Kotlin 核心，Rust 只承担 ADR 0001
-平台 adapter 契约允许的平台层职责：字体加载、shaping 与度量。
+平台 adapter 接口允许的平台层职责：字体加载、shaping 与度量。
 
 ### `PackedFfiCalls`：打包 FFI 数据与调用预算
 
@@ -124,7 +124,7 @@ plan 序列化不在本 ADR 范围内。
 Neon 边界以字节为主。prepared DOM 与 bundle 经 Node Buffer 传输；输入侧 HTML 与文本仍为
 JS 字符串，napi 转换一次。
 
-并发契约：字体会话的 face 数据只读共享，shaping 线程各建 shaper 实例。批处理入口在
+并发约束：字体会话的 face 数据只读共享，shaping 线程各建 shaper 实例。批处理入口在
 Rust 线程池并行执行，结果按输入顺序返回。入口保持同步语义，与现有 precompute API 一致。
 
 ### `StaticVendoredLinkage`：全部静态链接，禁止系统探测
@@ -192,7 +192,7 @@ breaking change，发生在 alpha 阶段，不提供兼容 re-export。浏览器
    shaping 引擎标识两侧按设计不同（JS 侧 `harfbuzzjs` 版本、Rust 侧 `harfrust` 标识），
    属差异豁免字段。此后逐层比对 shaping 证据、plan JSON、prepared DOM、manifest 与 bundle，
    豁免清单为引擎标识字段。
-   byte-identical 按 canonical 序列化定义：字段顺序、浮点格式与 DOM 属性顺序由契约固定；
+   byte-identical 按 canonical 序列化定义：字段顺序、浮点格式与 DOM 属性顺序由格式定义固定；
    浮点序列化在 Kotlin/JS 与 Kotlin/Native 间的差异是首要核对项。harness 发现差异
    时先判断属于格式还是语义：格式差异修 canonical 层，语义差异阻塞。门槛按最终支持平台全集计算；
    Windows 链接验证长期受阻时把 Windows 移出支持清单并记录，legacy 移除按剩余平台达标执行。
@@ -245,7 +245,7 @@ js 目标删除时，`build_fonts_parity` 与 `precompute_html_parity` 无法再
 
 ### `EngineLevelAbi`：`tiqian_layout_paragraph` 打包二进制协议
 
-- 废除初版「C ABI 保持现有 wire 契约」段与 `tiqian_precompute_paragraph`、
+- 废除初版「C ABI 保持现有 wire 传输格式」段与 `tiqian_precompute_paragraph`、
   `tiqian_precompute_release_string` 两个符号。新符号为
   `tiqian_layout_paragraph(const uint8_t* request, uintptr_t request_len,
   uint8_t** response_out, uintptr_t* response_len, const char** error_out)` 与
@@ -281,7 +281,7 @@ js 目标删除时，`build_fonts_parity` 与 `precompute_html_parity` 无法再
   Rust workspace 与 npm 包，不再含一行 Kotlin。
 - `RustPrecomputeStack` 中「`frontend/rust` 持有中性引擎绑定」的表述修正为：`tiqian` crate
   是 sys 绑定，声明 `tiqian_layout_abi.h` 的符号并链接平台静态库。ABI 升级为引擎级之后，
-  「绑定不依赖 web 概念」才真实成立。sys 层允许同时承载 web-core 契约的绑定，当前修订
+  「绑定不依赖 web 概念」才真实成立。sys 层允许同时承载 web-core 定义的绑定，当前修订
   未行使该许可；plan JSON 的 schema 常量在 `tiqian-precompute`。
 - precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定。Kotlin 出口与 sys 同属引擎
   出口面，不留在 precompute 目录。
@@ -308,7 +308,7 @@ f64 加宽值（`20.34000015258789`、整数无小数点），JVM 与 Kotlin/Nat
 - plan parity：同一语料经原生路径（Rust 打包 → ABI → 引擎 → Kotlin plan JSON）与 js oracle
   （`precomputeParagraph` ESM bundle）双路输出字节一致，进入 `LegacyJsOracleCutover` 的
   比对层清单。载体为 `tiqian-precompute` 的 `plan_parity` 集成测试与
-  `frontend/web-precompute/scripts/plan-parity-oracle.mjs`；两侧语料与 fixture 字体后端
+  `frontend/web-precompute/scripts/plan-parity-oracle.ts`；两侧语料与 fixture 字体后端
   数值一一对应，fixture 取自 `PrecomputeExportsTest` 的 canonical 数。2026-08-20 起
   九个语料（标点压缩、中西混排、缩进、span、source boundaries、断行 policy、inline box、
   ellipsis 回退、纯换行）字节一致；`plan_parity` 在无 oracle dump 时按理由跳过，
@@ -358,8 +358,8 @@ f64 加宽值（`20.34000015258789`、整数无小数点），JVM 与 Kotlin/Nat
 测试平台：Ryzen 7 8845HS（16 硬件线程）、92 GiB 内存、linux x86-64。
 原实现为 `@tiqian/prose` 0.1.0-alpha.5（Kotlin/JS 引擎 + harfbuzzjs 14.2.1）；
 Native 为 `@tiqian/precompute`（Neon addon + harfrust 0.13.0 + 静态链接的
-Kotlin/Native 引擎，release 构建；blog3 四组实测时 linux-x64 addon 为
-8,439,088 字节，neo-blog 实测时为 8,366,448 字节）。每轮清除快照缓存冷启动，
+Kotlin/Native 引擎，release 构建；sveltekit 站点四组实测时 linux-x64 addon 为
+8,439,088 字节，astro 站点实测时为 8,366,448 字节）。每轮清除快照缓存冷启动，
 各跑三轮；RSS 用 `/proc` 对进程组内全部进程按 50ms 采样；端到端耗时为整条
 构建命令的端到端耗时。调用计数与耗时按调用逐条追加落盘：vite 在多个 worker
 线程各自实例化宿主模块，单个统计文件只保留最后写入线程的视图，逐条追加覆盖
@@ -369,7 +369,7 @@ Kotlin/Native 引擎，release 构建；blog3 四组实测时 linux-x64 addon �
 
 ### 性能结果
 
-blog3（bun + vite v8.0.8 SSG；285 页，183 页含 precompute；单轮 6 次
+sveltekit 站点（bun + vite v8.0.8 SSG；285 页，183 页含 precompute；单轮 6 次
 `createPrecomputer`、6519 次 `prepareParagraph`、946 次 `prepareFontContract`、
 297 次 `renderSnapshotBundle`；306 条缓存条目）：
 
@@ -399,7 +399,7 @@ vite build 阶段约等于 33 s 构建基线加批处理耗时（1/2/4 线程的
 的端到端耗时为 0.24，内存峰值为原实现的 0.54，自身比单线程多约 9% 内存
 （每线程一份证据缓冲与栈）。
 
-neo-blog（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约；327 条
+astro 站点（pnpm + astro static + pagefind；每轮 326 段落 + 18 项字体校验；327 条
 缓存条目；astro 单进程串行渲染，调用计数无分摊）：
 
 | 实现 | 端到端耗时 ms（三轮） | 内存峰值 KiB（三轮） | 引擎计时合计 |
@@ -416,28 +416,28 @@ neo-blog（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约�
 按层给出结论。请求层逐字节一致；plan 层只差浮点尾数；产物层差异全部来自
 Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两站语料上零差异。
 
-- **请求层。** blog3 抽样页 70 条记录的 `prepareParagraph` / `prepareFontContract`
+- **请求层。** sveltekit 站点抽样页 70 条记录的 `prepareParagraph` / `prepareFontContract`
   全部入参（text、maxWidthPx、sourceBoundaries、textSpans、inlineBoxes、
   semantics）两侧逐字节一致。Rust 字体会话的 font-face boundary 移植与
   alpha.5 行为一致，sourceBoundaries 的会话侧贡献没有引入差异。
 - **plan 层。** 差异全部落在 `naturalWidth` 与 `drawX` 的浮点值上，结构与枚举零
   差异。机制：引擎几何类型是 Kotlin `Float`，Kotlin/JS 的 `Float` 由 JS number
   （binary64）承载，Kotlin/Native 是 IEEE binary32。`PlanNumberCanonicalForm`
-  统一了数字的表示，数值本身仍随后端精度不同。blog3 抽样页 1003 对浮点差、
-  neo-blog 全站 327 条中 174 条共 4114 对；float-float 对里可验证
+  统一了数字的表示，数值本身仍随后端精度不同。sveltekit 站点抽样页 1003 对浮点差、
+  astro 站点全站 327 条中 174 条共 4114 对；float-float 对里可验证
   `f32(原实现值)==Native 值` 的占 585/975 与 2847/4114，其余是逐次累加的
   `drawX` 单精度舍入。最大偏差 7.3e-4 px
   （约 883 px 处的行尾 drawX），单字形宽偏差不超过 4e-5 px。
-- **产物层。** blog3：`clientTemplate` 与 `renderedContent` 306/306 一致（把
+- **产物层。** sveltekit 站点：`clientTemplate` 与 `renderedContent` 306/306 一致（把
   `harfbuzzVersion` 标识替换为占位符后比对）；`inertTemplate` 275/306、
   `initialStyle` 239/306 不同。机制有二。其一，5 位小数处的 letter-spacing 值
   不再字符串去重，声明条目从 26 增至 33，每个值与对侧相差 1e-5 px 量级。
   其二，单字符 clamp 判定 `naturalWidth + trailingGap >= 0` 的一个记录值落在
   距零点 1.2e-4 px 内，两侧落在不同分支，该处 `letter-spacing` 翻转为
-  `margin-right`；两个分支的 CSS 都由 lowering 的同一段代码生成。neo-blog：
+  `margin-right`；两个分支的 CSS 都由 lowering 的同一段代码生成。astro 站点：
   dist 742 个文件中 736 个一致；3 个页面是上述 tqv 变体机制；2 个页面仅标识
   长度差与一处 replay 记录位。
-- **shaping 证据层。** harfbuzzjs 14.2.1 与 harfrust 0.13.0 在 neo-blog 全站
+- **shaping 证据层。** harfbuzzjs 14.2.1 与 harfrust 0.13.0 在 astro 站点全站
   1525 条 replay shape 上 advance、glyph 位置、glyph id 全一致；`unsafeBreakCount`
   31 条不同（原实现 ≥ Native，如 3 对 2、1 对 0）；3 个字形
   （JetBrains Mono Variable 的 t）`boundsEm` xMax 差 0.001 em。引擎消费的
@@ -457,18 +457,18 @@ Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两�
 - `unsafeBreakCount` 与 glyph extents 纳入 HarfBuzz 版本差分的比对维度。
 - `renderSnapshotBundle` 原生路径单次多 3.6 ms，可单独复查。
 
-## 附录（2026-08-21 第二轮）：契约批量入口与 prepareHtml 文档循环的并行执行
+## 附录（2026-08-21 第二轮）：校验批量入口与 prepareHtml 文档循环的并行执行
 
 本轮改动三处：新增 `prepareFontContracts` 批量入口（Rust 方法、Neon 导出、
 TypeScript API）；`prepareHtml` 的文档循环先按文档顺序遍历，再把各元素并行处理，
-最后按文档顺序重组输出，各元素的快照尝试与契约回退发生在并行阶段；blog3 宿主
-改为按 article 批量提交契约请求。测试平台与采样方法同第一轮；本轮 linux-x64
-addon 为 8,465,208 字节。blog3 每轮仍为 946 次契约请求，批调用按
+最后按文档顺序重组输出，各元素的快照尝试与校验回退发生在并行阶段；sveltekit 站点宿主
+改为按 article 批量提交校验请求。测试平台与采样方法同第一轮；本轮 linux-x64
+addon 为 8,465,208 字节。sveltekit 站点每轮仍为 946 次校验请求，批调用按
 article × precomputer 合并。
 
 ### 性能结果
 
-blog3 端到端（每个线程数三轮，每轮从空缓存开始；第一轮数字来自上一附录）：
+sveltekit 站点端到端（每个线程数三轮，每轮从空缓存开始；第一轮数字来自上一附录）：
 
 | 线程数 | 第一轮 ms | 第二轮 ms | 第二轮内存峰值 KiB |
 |---|---|---|---|
@@ -477,7 +477,7 @@ blog3 端到端（每个线程数三轮，每轮从空缓存开始；第一轮�
 | 4 | 57,040 / 56,601 / 56,584 | 57,248 / 57,823 / 57,102 | 1,986,160 / 2,002,688 / 2,017,944 |
 
 九次构建的退出码均为 0。耗时差全部出现在 vite build 阶段：1/2/4 线程该阶段的
-三轮中位数从 76 / 59 / 51 s 变为 78 / 61 / 52 s。契约请求的离线重放（946 条站点
+三轮中位数从 76 / 59 / 51 s 变为 78 / 61 / 52 s。校验请求的离线重放（946 条站点
 正文文本，预热一轮后取 7 轮，单进程）：
 
 | 调用方式 | 线程数 | 最佳 ms | 中位 ms |
@@ -491,20 +491,20 @@ blog3 端到端（每个线程数三轮，每轮从空缓存开始；第一轮�
 
 按中位数，批量入口在 2/4/8 线程下的耗时分别为逐条调用的 0.61 / 0.40 / 0.32；
 1 线程比逐条调用慢 6.7%（批入参的 JSON 序列化与结果数组分配）。端到端没有出现
-同量级的缩短，原因是：946 次契约请求分布在 6 个 vite worker 上，每个 worker 的
-串行契约耗时约 1.3 s（7.7 s 除以 6）；进程内并行最多为每个 worker 节省约 1 s，
+同量级的缩短，原因是：946 次校验请求分布在 6 个 vite worker 上，每个 worker 的
+串行校验耗时约 1.3 s（7.7 s 除以 6）；进程内并行最多为每个 worker 节省约 1 s，
 在约 33 s 的构建基线里不可分辨。宿主端的合并已到上限：单个 article 内全部快照
 未命中的回退请求都通过同一次调用提交。跨 article 合并要求宿主先收集各页请求再
 统一执行，可节省的上限相同，本轮不做。1 线程的端到端差值约 +2.8 s，其中约
 +0.5 s 与离线
 重放的差值一致；其余约 2.3 s 本轮未查明原因。
 
-`prepareHtml` 的并行执行没有端到端测量：blog3 宿主自行遍历 DOM，调用
-`prepareParagraphs` 与 `prepareFontContracts`；neo-blog 宿主逐条调用
+`prepareHtml` 的并行执行没有端到端测量：sveltekit 站点宿主自行遍历 DOM，调用
+`prepareParagraphs` 与 `prepareFontContracts`；astro 站点宿主逐条调用
 `prepareParagraph` 与 `prepareFontContract`。两个站点都不经过 `prepareHtml`，
 该入口的行为等价由重新生成的 `precompute-html-golden.txt` 与 npm 测试承担。
 
-neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一轮单线程 Native 为
+astro 站点第二轮（每个线程数三轮，每轮从空缓存开始；第一轮单线程 Native 为
 8,494 / 8,269 / 8,247 ms、内存峰值 2,042,900 / 2,076,572 / 2,054,008 KiB）：
 
 | 线程数 | 端到端 ms（三轮） | 内存峰值 KiB（三轮） |
@@ -523,7 +523,7 @@ neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一�
 第二轮 1/2/4 线程三轮构建写出的 306 条缓存两两字节一致（0 差异），并与第一轮
 4 线程构建的缓存在把 `generation` 字段替换为占位符后 306/306 逐字节一致；该字段把宿主
 源文件计入哈希，本轮宿主有源码改动，其余字段全部相同。批量与逐条调用对同一
-输入产出相同的缓存条目。neo-blog 第二轮 1/2/4 线程的 `prepared-paragraphs.json`
+输入产出相同的缓存条目。astro 站点第二轮 1/2/4 线程的 `prepared-paragraphs.json`
 两两字节一致，dist 的 742 个文件把版本标识替换后 742/742 一致；两者并分别与
 第一轮 native 构建的缓存（327 条、plan 零差异、共享字段全部相同）与 dist
 （742/742）一致。
@@ -531,13 +531,13 @@ neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一�
 ## 附录（2026-08-21 第三轮）：宿主缓存下相对 JS 基线的构建对比
 
 本轮测量引擎接入宿主持久缓存后的端到端构建耗时，对照沿用宿主 JSON 缓存的
-JS 引擎基线。语料为两个参考站点（blog3 与 neo-blog），测量维度为墙钟时间，
+JS 引擎基线。语料为两个参考站点（sveltekit 站点与 astro 站点），测量维度为墙钟时间，
 未采样内存。空缓存指引擎缓存从零开始的构建，缓存命中指宿主缓存可命中状态下
 的构建。
 
 ### 性能结果
 
-blog3（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条契约回退，
+sveltekit 站点（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条校验回退，
 工作量一致）：
 
 | 引擎 | 空缓存 | 缓存命中 |
@@ -548,7 +548,7 @@ blog3（306 条条目；两个引擎的空缓存构建均产出 297 条快照与
 空缓存构建耗时 263.3 s 对 55.0 s，为 4.8 倍。缓存命中的差值 1 至 2 s：该阶段
 两个引擎都不执行 shaping，条目只被读取与解析，耗时主体在宿主自身的构建流程。
 
-neo-blog：
+astro 站点：
 
 | 引擎 | 空缓存 | 缓存命中 | 缓存字节数 |
 |---|---|---|---|
@@ -556,19 +556,19 @@ neo-blog：
 | native | 29.3 s / 28.8 s | 9.2 s / 9.1 s | 16,326,219 |
 
 空缓存构建耗时 137.3 s 对 29.3 s，为 4.7 倍。缓存命中时 native 比 JS 慢约
-1.1 s；两侧的命中构成相同（快照 1232 命中 59 缺失，契约 40 命中 9 缺失），
-缓存文件字节数相当。宿主缓存把构建耗时从空缓存到缓存命中分别压缩为 blog3
-55.0 s 到 14.3 s、neo-blog 29.3 s 到 9.2 s。
+1.1 s；两侧的命中构成相同（快照 1232 命中 59 缺失，校验 40 命中 9 缺失），
+缓存文件字节数相当。宿主缓存把构建耗时从空缓存到缓存命中分别压缩为 sveltekit 站点
+55.0 s 到 14.3 s、astro 站点 29.3 s 到 9.2 s。
 
 ### 等效性审计
 
-native 的 blog3 两轮空缓存构建写出的 306 条缓存逐字节一致；JS 基线的空缓存
+native 的 sveltekit 站点两轮空缓存构建写出的 306 条缓存逐字节一致；JS 基线的空缓存
 构建与 native 的条目数、快照与回退构成相同（297 条与 9 条），内容差异按
 第一轮附录的引擎差分方法比较。
 
 ## 附录（2026-08-21 第四轮）：持久缓存与预填接入后的构建对比
 
-同一语料（blog3）上比较接入前后的构建耗时。接入内容为 0052 第二批附录的
+同一语料（sveltekit 站点）上比较接入前后的构建耗时。接入内容为 0052 第二批附录的
 提交出口、渲染池与预填；预填开启与关闭各测一组。
 
 | 配置 | 空缓存 | 缓存命中 |
@@ -583,7 +583,7 @@ native 的 blog3 两轮空缓存构建写出的 306 条缓存逐字节一致；J
 
 空缓存构建的引擎计数：构建进程含两个相互隔离的模块上下文，分别计数为 5217 次
 内存命中、11528 次计算、2117 次预填、6960 次写出，与 200、565、157、370。
-缓存命中时只余约 29 次计算，均为无快照条目的契约项。
+缓存命中时只余约 29 次计算，均为无快照条目的校验项。
 
 ### 等效性
 
@@ -626,3 +626,44 @@ profile 外目录的依赖，首次装载完成修补并加载成功；移除该
 缓存副本；附加不存在的库名时报出库名与已查目录的具名错误。在宿主
 `ldconfig -p` 已列出缺失库的机器上，诊断给出 profile lib 目录，修补后加载
 成功，再次装载命中缓存副本。
+
+## Amendment（2026-08-25）：JS lane 环境全局消费判定为缺陷
+
+本 ADR 的字体回调协议描述（Context 与 `PackedFfiCalls`）同时覆盖两条 lane。
+native lane 经 `tiqian_install_font_backend` 安装式 vtable 消费，契约有声明与
+版本号校验。JS lane 的引擎侧消费（engine jsMain 的 `HarfBuzzSessionBackend.kt`，
+21 处内联读 `globalThis.__TiqianFontBackend`）与返回侧的 plan JSON 裸 C 字符串
+（`plan.rs` 按字段名读取并忽略未知字段）于同日判定为缺陷，裁定原文、跨界载荷
+审计与处置记录见 ADR 0053 的 ffi 边界复审记录（2026-08-25）。历史正文不改写。
+
+## Amendment（2026-08-25 corrective-2）：生产返回类型化，dump 保留
+
+生产跨界返回由 plan JSON 裸 C 字符串改为打包契约（`tiqian_plan_abi.h`，`PlanPackedWriter` 为
+唯一写者，小端/u32 版本独立/字符串区 u32 偏移/f64 按列分区，`tiqian_layout_paragraph`
+返回打包缓冲 + `tiqian_release_buffer` 配对释放）；`tiqian_layout_paragraph_json` 作为带调试命名
+的 dump 入口保留，仅供 parity oracle 与 golden，输出与既往基线逐字节相同。Rust 解码填入
+`plan.rs` 既有 `Plan` 结构体（字段不动），JSON 解析保留给 dump 路径。
+
+## Amendment（2026-08-26 corrective-5）：字体族列表类型化跨 vtable 传递
+
+`session_shape` 与 `session_metrics` 的字体族参数从连接字符串改为
+`const char* const* families` 加 `uint32_t family_count`（Kotlin 侧
+`withFamilyArray()` 在 memScoped 内构造指针数组），`TIQIAN_FONT_BACKEND_
+PROTOCOL_REVISION` 由 1 递增到 2，C 头文件、`font_backend.rs` 与
+`NativeFontBackendVtable` 三处同值。replay key 内部仍以 U+001F 连接字体族，
+键的字符串形态不变，既有缓存不失效。裁定原文与终则见 ADR 0053 ffi 边界
+复审记录。
+
+## Amendment（2026-08-29）：precompute 目录随 web 重组迁入 platforms/web/server
+
+按 2026-08-20 的 JS workspace 重组裁定执行物理迁移，模块边界、ABI 与 crate
+职责不变。`frontend/web-precompute/rust` 迁至 `platforms/web/server/precompute`，
+workspace 根随迁，两个 crate 目录取 `engine`（`tiqian-precompute`）与
+`binding`（`tiqian-precompute-neon`）命名，crate 名与发布名保持连续；engine 对
+`ffi/rust/tiqian` 的路径依赖改为五级上溯。`frontend/web-precompute/npm` 迁至
+`platforms/web/server/core`。构建期脚本按服务对象分置：`generate-unicode-tables.ts`
+随 engine（其产物 `unicode_tables.rs` 在 engine 源内），`build-prepared-dom-corpus.ts`
+与 `plan-parity-oracle.ts` 随 server/core（其语料与 oracle 产物归 npm 侧）。
+候选文本提出的 `tiqian-precompute-core` / `tiqian-precompute-binding` crate 命名
+未采用：目录名已表达同一分层，crate 改名会带来发布名漂移。本 ADR 正文与既往
+修订中的 `frontend/` 路径按历史正文不改写原则保留。

@@ -23,7 +23,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
     defaults:
       run:
-        working-directory: frontend/web/npm
+        working-directory: platforms/web/client/web-component
     steps:
       - name: Check out the tagged commit
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -77,13 +77,17 @@ jobs:
         shell: bash
         run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      - name: Install package dependencies
-        run: npm ci
+      - name: Install workspace dependencies
+        working-directory: .
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
 
       - name: Build and verify the release tarball
         env:
           TIQIAN_RELEASE_ARTIFACT_DIR: ${{ runner.temp }}/tiqian-prose-release
-        run: npm run verify:release
+        run: npm run verify:release --workspace @tiqian/prose
 
       - name: Publish the verified tarball to alpha
         shell: bash

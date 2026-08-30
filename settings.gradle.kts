@@ -52,8 +52,6 @@ include(
     ":platforms:android:native-font",
     ":platforms:android:view",
     ":platforms:android:benchmark",
-    ":platforms:web:shaping",
-    ":frontend:web",
     ":platforms:apple:shaping",
     ":platforms:apple:frontend",
     ":platforms:apple:frontend:coretext-render",

@@ -46,7 +46,7 @@ ClreqProfile(..., autoSpace = AutoSpacePolicy.Default)
    - Latin 内部空格（如 `Hello world` 的词间）不动——它们不在 CJK 边界上。
 3. **每次缩减生成结构化 `AutoSpaceDecisionInfo`** 进 `LayoutDebugInfo.autoSpaceDecisions`，含 `clusterRange / side / boundaryRole / mode / charactersAffected / reductionPerChar / totalReduction / reason`。可解释。
 4. **`policy.cjkLatin = Disabled`**：space 保留 1em advance（典型 stub 渲染），不产生 decision 条目。
-5. **`policy.cjkLatin = Insert`** 留接口未实现：需要虚拟 cluster 注入（typed space 留 1em，再插入 0.25em autospace），跟当前「cluster 必须连续覆盖 source range」的契约冲突，留 Slice 6+ 配合 shaping adapter 一起处理。
+5. **`policy.cjkLatin = Insert`** 留接口未实现：需要虚拟 cluster 注入（typed space 留 1em，再插入 0.25em autospace），跟当前「cluster 必须连续覆盖 source range」的接口要求冲突，留 Slice 6+ 配合 shaping adapter 一起处理。
 6. **Justifier 的 `CjkLatinSpace` priority**（[ADR 0005 / ADR 0004 priority chain](0004-punctuation-additive-glue-model.md)）保留不变。Replace 模式下 typed space 已经吸收到 gapEm 上限，justifier 只在该 cluster 还有 stretch capacity 时再加（未来 follow-up：让 justifier 知道哪些 Latin cluster 是 autospace-shrunk，以避免双账）。
 
 ### Amendment (2026-06-11): Insert 落地并成为默认
@@ -120,7 +120,7 @@ Proposed Draft UTR #59 的 `East_Asian_Spacing` W↔N。字体面选择与自动
   SHA-256；显式 O 区间归入 `@missing: O`，相邻同值区间机械合并。
 - 核心先解析 shaping cluster 两端实际接界的 source grapheme unit；一个 `/Hi` run 的左边界是
   O、右边界是 N，不能让首字符代表整个 run。当前复用 source interaction boundary map，完整
-  UAX #29 覆盖随该共享边界契约演进，不在 autospace 再复制一套分段器。
+  UAX #29 覆盖随该共享边界定义演进，不在 autospace 再复制一套分段器。
 - `Conditional` 在 `zh` 及其 macrolanguage members 下解析为 N，其他/未知语言解析为 O；
   members 固定至 IANA Language Subtag Registry 2026-06-14 中的 `Macrolanguage: zh`
   记录，不是项目自建语种白名单。

@@ -23,8 +23,8 @@
 
 ## Build 与验证
 
-项目使用 Gradle Kotlin Multiplatform，JVM toolchain 为 25；同时包含 Android、浏览器 Kotlin/JS
-与 Node Kotlin/JS target。
+项目使用 Gradle Kotlin Multiplatform，JVM toolchain 为 25；同时包含 Android 与
+`:ffi:js` 的 Kotlin/JS target。
 
 ```shell
 ./gradlew build
@@ -38,11 +38,18 @@
 ./gradlew :demo:android:assembleDebug
 ./gradlew runComposeDemo
 
-./gradlew :frontend:web:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :frontend:web:assembleNpmPackage
-(cd frontend/web/npm && npm test)
+./gradlew :ffi:js:assembleNpmPackage
+npm install --no-audit --no-fund
+(cd platforms/web/client/core && npm test)
+(cd platforms/web/client/web-component && npm test)
+(cd ffi/js/npm && npm test)
 ```
+
+根 `npm install` 装 workspace 全体成员；precompute 的平台二进制
+optional dependencies 不在 registry 上，lock 无法携带它们的 resolved
+条目，`npm ci` 在 npm 11 及以上拒绝这种 lock，所以统一用
+`npm install`。
 
 Layout report 位于
 `engine/build/reports/tiqian-layout-report/index.html`。
@@ -56,21 +63,25 @@ Layout report 位于
    然后逐项检查 golden diff。
 4. 生成 layout report，并按涉及平台做浏览器、桌面或 Android 真机检查。
 
-项目没有独立 lint 工具链；仅文档变化至少运行 `git diff --check`。文档中的命令和 API
-示例发生变化时，应实际验证对应内容。
+项目没有独立 lint 工具链；仅文档变化至少运行 `git diff --check` 与
+`python3 tools/doc-style/check.py <改动的中文文档>`（中文措辞自查：比喻词、互联网
+黑话、对比句式、em-dash）。命中先逐条人工判定：违规的改写，固定搭配与既有文档
+标题的引用加入脚本白名单；每次措辞被纠正后，把新词与新句式补进脚本词表。脚本
+只是自动化检查列表，不替代交稿前通读。文档中的命令和 API 示例发生变化时，应
+实际验证对应内容。
 
 ## 模块边界
 
 - **排版核心**：`engine`（单一发布模块，合并了原 `core`、`font`、`linebreak`、
-  `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 契约与
+  `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 接口定义与
   最终 `LayoutResult`；内部按 `org.tiqian.{core,font,linebreak,clreq,layout,shaping}` 包分簇。
-- **平台 shaping**：shaping 契约在 `engine`；`platforms/jvm/{shaping,skia}`、
-  `platforms/android/{shaping,native-font}`、`platforms/web/shaping`、
+- **平台 shaping**：shaping 接口定义在 `engine`；`platforms/jvm/{shaping,skia}`、
+  `platforms/android/{shaping,native-font}`、
   `platforms/apple/shaping` 提供各平台实现。
-- **前端**：`platforms/compose/{compose,material3}`、`frontend/web`、
+- **前端**：`platforms/compose/{compose,material3}`、`platforms/web/client`、
   `platforms/android/view`、`platforms/apple/frontend` 只消费布局结果并呈现。
-- **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI（Rust 侧 `frontend/rust`、
-  `frontend/web-precompute` 由 Losses 维护，不在本重组范围）。
+- **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI；`ffi/rust` 持有
+  precompute 的 Rust 绑定。`platforms/web/server` 由 Losses 维护。
 - **Demo 与工具**：`demo` 共享 Desktop / Android 示例界面，
   `demo/android` 是薄 Android 启动壳；layout report 与 `test-support` 提供诊断和共享语料。
 
@@ -99,10 +110,26 @@ tiqian-markdown 三个仓库：
 
 - 单个源文件尽量保持在 1000 行以下。新代码按功能簇分文件；既有文件超标时拆分，
   优先纯移动，单 object/单类拆不动时允许「成员函数原样搬出为同包 internal 扩展函数」
-  与「巨型测试类按主题拆多类」两种机械等价手段，且必须以模块测试全绿
+  与「巨型测试类按主题拆多类」两种机械等价手段，且必须以模块测试全部通过
   （layout 还要 golden 零 diff）作为行为不变的证据。
 - 主入口文件（如 `TiqianMarkdown.kt`、`WebEnhancer.kt` 的入口 object）只做入口与接线，
   不堆放实现；实现放到按功能簇命名的文件里。
+
+命名规则（2026-08-25 G2 裁定）：
+
+- 名字写明管辖范围，不起模棱两可的名字。一个对象只用一个名字；给既有对象
+  换名时写明它替换的旧名，旧名不再并存。
+- 全页构造一次的对象定位为 globalManager，实例集中放进名为 globalServices 的
+  容器统一暴露，不分散放在各模块顶层。
+- 每个被增强元素一份的对象名为 EnhancedElementContext；由
+  createEnhanceContext($element) 构造并返回，由调用者持有；update() 刷新状态，
+  destroy() 销毁。
+- 用标准工程词汇，不自造名词；既有自造名随重构改为标准名（如 Custody 并入
+  EnhancedElementContext 后按职能命名内部记录与函数）。
+
+全页构造一次的运行时单例集中放在 core/services/ 目录，文件头注释
+写明为什么必须全页一份、为什么不能参数传递；目录之外散置的全局
+单例违反模块边界（ADR 0053 `ServiceDirectoryRule`）。
 
 ## 工作区与提交
 

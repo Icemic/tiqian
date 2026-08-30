@@ -1,0 +1,41 @@
+{
+  "a": {
+    "file": ".agent-specs/oneshot-bisect-evidence/cd08a2c7/chain-p0.json",
+    "commit": "cd08a2c7",
+    "era": "C9-wildcard-subpath",
+    "counts": {
+      "lineMarks": 159,
+      "runEls": 1210,
+      "textNodes": 346
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "b": {
+    "file": ".agent-specs/oneshot-bisect-evidence/23e36988/chain-p0.json",
+    "commit": "23e36988",
+    "era": "C10-validator-off",
+    "counts": {
+      "lineMarks": 187,
+      "runEls": 1318,
+      "textNodes": 369
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "equal": false,
+  "boxesCompared": 1768,
+  "divergentBoxes": 175,
+  "examples": [
+    "p7:1 lineMarkCount 0 vs 5",
+    "p7:1 childCount 1 vs 30",
+    "p7:1.kids[0] kind t vs e",
+    "p7:1.kids[0](t) [682.75,248.63,167.25,105.56] vs [682.75,245.63,0,22.39]",
+    "root#8 [682.75,673.17,167.25,572.72] vs [682.75,673.17,167.25,551.92]",
+    "p8:4.rect [708.75,1121.11,141.25,124.78] vs [708.75,1121.11,141.25,103.98]",
+    "p8:4 lineMarkCount 0 vs 5",
+    "p8:4 childCount 2 vs 19",
+    "p8:4.kids[0](e) [708.75,1123.11,88.95,56.59] vs [708.75,1121.11,0,20.8]",
+    "p8:4.kids[1] kind t vs e"
+  ]
+}

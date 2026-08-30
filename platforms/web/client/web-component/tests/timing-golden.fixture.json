@@ -1,0 +1,1521 @@
+{
+  "version": 1,
+  "journeys": {
+    "cache-invalidation": {
+      "observerActivity": [
+        {
+          "id": 1,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "other"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "paragraph"
+            },
+            {
+              "op": "unobserve",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "other"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "paragraph"
+            }
+          ]
+        }
+      ],
+      "fetchCalls": [],
+      "releaseVerdicts": {
+        "s2Restore": true,
+        "s3Release": true
+      }
+    },
+    "dataset-first-writes": {
+      "datasetWrites": [
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshot",
+          "value": "maximum-measure"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotFontPolicy",
+          "value": "url-only"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotCount",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianSnapshotFontMiss",
+          "value": "FontSessionCreationFailed"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshotFontPolicy"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshot",
+          "value": "maximum-measure"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotFontPolicy",
+          "value": "url-only"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotCount",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        }
+      ],
+      "attributeWrites": [
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        }
+      ]
+    },
+    "event-dispatch": {
+      "elementEvents": [
+        {
+          "phase": "s1-adopt",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 1,
+            "issueCount": 0,
+            "snapshot": true
+          }
+        },
+        {
+          "phase": "s2-resize",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 0,
+            "runtimeEnhancedCount": 0,
+            "snapshotCount": 0,
+            "issueCount": 1,
+            "stale": false
+          }
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "type": "tiqian:relayout-ready",
+          "detail": {
+            "enhancedCount": 0,
+            "runtimeEnhancedCount": 0,
+            "snapshotCount": 0,
+            "issueCount": 2,
+            "relayout": true,
+            "failed": false,
+            "stale": false
+          }
+        },
+        {
+          "phase": "s4-reconnect",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 1,
+            "issueCount": 0,
+            "snapshot": true
+          }
+        }
+      ],
+      "documentEvents": [],
+      "engineCalls": []
+    },
+    "grant-rounds": {
+      "grants": [],
+      "frameTrace": [
+        [
+          0,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          16,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          32,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          48,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          64,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          80,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          96,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          112,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          128,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          144,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          204,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          220,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          236,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          536,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          596,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          656,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          716,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          776,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          792,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "finalPending": {
+        "alpha": [
+          2,
+          0,
+          0
+        ],
+        "beta": [
+          0,
+          2,
+          0
+        ]
+      }
+    },
+    "snapshot-font-contract-mismatch": {
+      "datasetWrites": [
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotFontMiss",
+          "value": "SnapshotFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotFontMiss",
+          "value": "SnapshotFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        }
+      ],
+      "attributeWrites": [
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "3"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "3"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        }
+      ]
+    },
+    "token-transitions": {
+      "transitions": [
+        {
+          "phase": "s1-adopt",
+          "trigger": "connect",
+          "verdicts": [
+            "ready-dispatched",
+            "paragraph-adopted",
+            "dataset-snapshot-written"
+          ]
+        },
+        {
+          "phase": "s2-resize",
+          "trigger": "width-change",
+          "verdicts": [
+            "relayout-event-suppressed",
+            "paragraph-restored",
+            "enhance-progressively-engine-missing",
+            "snapshot-font-miss-recorded"
+          ]
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "trigger": "midflight-disconnect",
+          "verdicts": [
+            "detach-engine-missing",
+            "element-events-present"
+          ]
+        },
+        {
+          "phase": "s4-reconnect",
+          "trigger": "reconnect",
+          "verdicts": [
+            "destroy-engine-missing",
+            "ready-dispatched",
+            "paragraph-adopted"
+          ]
+        }
+      ]
+    },
+    "worker-messages": {
+      "messages": [
+        {
+          "type": "init"
+        },
+        {
+          "type": "layout",
+          "text": "first"
+        },
+        {
+          "type": "layout",
+          "text": "second"
+        },
+        {
+          "type": "layout",
+          "text": "failure"
+        },
+        {
+          "type": "release"
+        }
+      ],
+      "ops": [
+        {
+          "op": "bridge",
+          "version": 1,
+          "semanticReplayRevision": 1
+        },
+        {
+          "op": "prepare",
+          "text": "first",
+          "prepared": 1
+        },
+        {
+          "op": "take",
+          "text": "first",
+          "out": {
+            "plan": "first",
+            "semanticReplay": "snapshot-safe",
+            "semantics": [],
+            "inlineBoxes": []
+          }
+        },
+        {
+          "op": "take-semantic",
+          "out": {
+            "plan": "first",
+            "semanticReplay": "snapshot-safe",
+            "semantics": [
+              {
+                "start": 0,
+                "end": 5,
+                "tagName": "a",
+                "attributes": [
+                  [
+                    "href",
+                    "/latest"
+                  ]
+                ]
+              }
+            ],
+            "inlineBoxes": [
+              {
+                "start": 0,
+                "end": 5,
+                "inlineStart": 1,
+                "inlineEnd": 2
+              }
+            ]
+          }
+        },
+        {
+          "op": "take-miss",
+          "out": null
+        },
+        {
+          "op": "prepare",
+          "text": "second",
+          "prepared": 1
+        },
+        {
+          "op": "issue-clean",
+          "out": null
+        },
+        {
+          "op": "prepare",
+          "text": "failure",
+          "prepared": 0
+        },
+        {
+          "op": "take-failed",
+          "out": null
+        },
+        {
+          "op": "issue-failed",
+          "out": "fixture replay miss"
+        },
+        {
+          "op": "release",
+          "out": true
+        },
+        {
+          "op": "take-after-release",
+          "out": null
+        },
+        {
+          "op": "release-again",
+          "out": false
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true
+  },
+  "include": [
+    "*.test.ts",
+    "integration.ts",
+    "tables.ts",
+    "transport.ts"
+  ]
+}

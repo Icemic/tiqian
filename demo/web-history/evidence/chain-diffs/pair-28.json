@@ -1,0 +1,30 @@
+{
+  "a": {
+    "file": ".agent-specs/oneshot-bisect-evidence/9561c747/chain-p0.json",
+    "commit": "9561c747",
+    "era": "E4-register",
+    "counts": {
+      "lineMarks": 187,
+      "runEls": 1318,
+      "textNodes": 369
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "b": {
+    "file": ".agent-specs/oneshot-bisect-evidence/acdce952/chain-p0.json",
+    "commit": "acdce952",
+    "era": "E5-apidissolved",
+    "counts": {
+      "lineMarks": 187,
+      "runEls": 1318,
+      "textNodes": 369
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "equal": true,
+  "boxesCompared": 1927,
+  "divergentBoxes": 0,
+  "examples": []
+}

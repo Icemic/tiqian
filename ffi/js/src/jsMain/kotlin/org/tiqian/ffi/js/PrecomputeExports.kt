@@ -5,84 +5,115 @@ package org.tiqian.ffi.js
 import kotlin.js.JsExport
 
 /**
- * Stable, narrow JSON ABI consumed by `@tiqian/precompute`.
+ * Plan-plus-diagnostics envelope for the TsHost web-host prepare step. The
+ * host passes its own ZERO_ADVANCE_EPSILON as [zeroAdvanceEpsilonPx] so the
+ * layout module holds no host policy; the returned JSON embeds the plan plus
+ * the capability-issue and suspicious-advance facts for the host-side checks.
  *
- * The caller has already prepared an immutable exact-font session. Keeping the
- * exported values primitive avoids exposing the core model through the JavaScript
- * ABI while the returned plan remains inspectable and versioned. Parsing and
- * the layout call live in `PrecomputeWire.kt`. ADR 0050.
+ * The exact-session path now receives shaping and metrics via callbacks
+ * ([shapeJson], [metricsJson]) instead of a session id. This inverts control
+ * so the engine has no dependency on environment globals. ADR 0053.
+ *
+ * Corrective wave 5 (#106): entry signatures now take declared DTO interfaces
+ * instead of flat separator-joined strings.
  */
 @JsExport
-fun precomputePlainParagraph(
-    fontSessionId: String,
-    text: String,
-    maxWidthPx: Double,
-    fontFamilies: String,
-    fontSizePx: Double,
-    lineHeightPx: Double,
-    locale: String,
-    fontWeight: Int,
-    italic: Boolean,
-    firstLineIndentIc: Double,
-    lineLengthGridEnabled: Boolean,
-): String = precomputeParagraph(
-    fontSessionId = fontSessionId,
-    text = text,
-    maxWidthPx = maxWidthPx,
-    fontFamilies = fontFamilies,
-    fontSizePx = fontSizePx,
-    lineHeightPx = lineHeightPx,
-    locale = locale,
-    fontWeight = fontWeight,
-    italic = italic,
-    firstLineIndentIc = firstLineIndentIc,
-    lineLengthGridEnabled = lineLengthGridEnabled,
-    sourceBoundaries = "",
-    textSpans = "",
-    inlineBoxes = "",
-    lineBreakSpans = "",
-)
+fun precomputeParagraphWithDiagnostics(
+    request: PrepareParagraphRequest,
+    zeroAdvanceEpsilonPx: Double,
+    shapeJson: (String) -> String,
+    metricsJson: (String) -> String,
+): String {
+    val internalRequest = toInternalPrepareRequest(request)
+    return ParagraphWireCodec(
+        textShaper = JsCallbackTextShaper(shapeJson),
+        fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
+    ).planWithDiagnostics(internalRequest, zeroAdvanceEpsilonPx)
+}
 
-/** Structured paragraph ABI: semantics stay in JS; metric spans enter the real layout pipeline. */
+/**
+ * Plan-plus-diagnostics envelope using host-provided browser measurement callbacks.
+ *
+ * The layout engine runs in Kotlin while text shaping and font metric resolution
+ * are delegated to JavaScript callbacks via [BrowserMetricsCallbacks]. No native
+ * font session is created. The callbacks run on the same synchronous call stack,
+ * and every shape() request re-sends the segment text.
+ *
+ * Corrective wave 5 (#106): the typed [BrowserMetricsCallbacks] DTO replaces
+ * the previous adapter classes and individual function parameters.
+ */
 @JsExport
-fun precomputeParagraph(
-    fontSessionId: String,
-    text: String,
-    maxWidthPx: Double,
-    fontFamilies: String,
-    fontSizePx: Double,
-    lineHeightPx: Double,
-    locale: String,
-    fontWeight: Int,
-    italic: Boolean,
-    firstLineIndentIc: Double,
-    lineLengthGridEnabled: Boolean,
-    sourceBoundaries: String,
-    textSpans: String,
-    inlineBoxes: String,
-    lineBreakSpans: String,
-): String = precomputeParagraphPlan(
-    fontSessionId = fontSessionId,
-    text = text,
-    maxWidthPx = maxWidthPx,
-    fontFamilies = fontFamilies,
-    fontSizePx = fontSizePx,
-    lineHeightPx = lineHeightPx,
-    locale = locale,
-    fontWeight = fontWeight,
-    italic = italic,
-    firstLineIndentIc = firstLineIndentIc,
-    lineLengthGridEnabled = lineLengthGridEnabled,
-    sourceBoundaries = sourceBoundaries,
-    textSpans = textSpans,
-    inlineBoxes = inlineBoxes,
-    lineBreakSpans = lineBreakSpans,
+fun precomputeParagraphWithBrowserMetrics(
+    request: PrepareParagraphRequest,
+    zeroAdvanceEpsilonPx: Double,
+    callbacks: BrowserMetricsCallbacks,
+): String {
+    val internalRequest = toInternalPrepareRequest(request)
+    return ParagraphWireCodec(
+        textShaper = JsCallbackTextShaper { requestJson -> callbacks.shapeJson(requestJson) },
+        fontMetricsResolver = JsCallbackFontMetricsResolver { requestJson -> callbacks.metricsJson(requestJson) },
+    ).planWithDiagnostics(internalRequest, zeroAdvanceEpsilonPx)
+}
+
+private fun toInternalPrepareRequest(request: PrepareParagraphRequest): PrepareParagraphRequestDto {
+    return PrepareParagraphRequestDto(
+        text = request.text,
+        maxWidthPx = request.maxWidthPx,
+        fontFamilies = request.fontFamilies,
+        fontSizePx = request.fontSizePx,
+        lineHeightPx = request.lineHeightPx,
+        locale = request.locale,
+        fontWeight = request.fontWeight,
+        italic = request.italic,
+        firstLineIndentIc = request.firstLineIndentIc,
+        lineLengthGridEnabled = request.lineLengthGridEnabled,
+        sourceBoundaries = request.sourceBoundaries,
+        textSpans = request.textSpans.map { toInternalTextSpan(it) }.toTypedArray(),
+        inlineBoxes = request.inlineBoxes.map { toInternalInlineBox(it) }.toTypedArray(),
+        lineBreakSpans = request.lineBreakSpans.map { toInternalLineBreakSpan(it) }.toTypedArray(),
+        inlineObjects = request.inlineObjects.map { toInternalInlineObject(it) }.toTypedArray(),
+        decorations = request.decorations.map { toInternalDecoration(it) }.toTypedArray(),
+        emphasisDotGapEm = request.emphasisDotGapEm,
+        renderEvidenceOverride = request.renderEvidenceOverride,
+    )
+}
+
+private fun toInternalTextSpan(span: TextSpanWire): TextSpanWireDto = TextSpanWireDto(
+    start = span.start,
+    end = span.end,
+    fontFamilies = span.fontFamilies,
+    fontSize = span.fontSize,
+    fontWeight = span.fontWeight,
+    italic = span.italic,
+    baselineShift = span.baselineShift,
 )
 
-internal fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
-    PrecomputeBackends(
-        textShaper = HarfBuzzBuildTextShaper(fontSessionId),
-        fontMetricsResolver = HarfBuzzBuildFontMetricsResolver(fontSessionId),
-    )
+private fun toInternalInlineBox(box: InlineBoxWire): InlineBoxWireDto = InlineBoxWireDto(
+    start = box.start,
+    end = box.end,
+    inlineStart = box.inlineStart,
+    inlineEnd = box.inlineEnd,
+    outerSpacing = box.outerSpacing,
+)
+
+private fun toInternalLineBreakSpan(span: LineBreakSpanWire): LineBreakSpanWireDto = LineBreakSpanWireDto(
+    start = span.start,
+    end = span.end,
+    policy = span.policy,
+)
+
+private fun toInternalInlineObject(obj: InlineObjectWire): InlineObjectWireDto = InlineObjectWireDto(
+    start = obj.start,
+    end = obj.end,
+    advance = obj.advance,
+    ascent = obj.ascent,
+    descent = obj.descent,
+)
+
+private fun toInternalDecoration(deco: DecorationWire): DecorationWireDto = DecorationWireDto(
+    start = deco.start,
+    end = deco.end,
+    kind = deco.kind,
+)
 
 fun main() = Unit

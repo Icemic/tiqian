@@ -1,0 +1,26 @@
+{
+  "label": "E7-head",
+  "commit": "1ad320ce",
+  "range": "wc-s5/s6 era .. HEAD",
+  "entry": "@tiqian/prose/element (registerTiqianProse) + @tiqian/core prose-host-session",
+  "adapter": "adapters/host-session.js",
+  "stylesheet": "platforms/web/client/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose/element": "/prose/element.js",
+      "@tiqian/prose/auto": "/prose/auto.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/prose": "platforms/web/client/web-component",
+    "/core": "platforms/web/client/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :ffi:js:assembleNpmPackage",
+    "npx tsc -b platforms/web/client/web-component"
+  ],
+  "engineNote": "Kotlin/JS engine via :ffi:js:assembleNpmPackage into ffi/js/npm/runtime/"
+}

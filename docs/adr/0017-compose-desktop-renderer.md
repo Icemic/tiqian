@@ -46,7 +46,7 @@ M1–M5 落地后引擎模型已真（三平台 shaping 互证、决策 golden�
 - **增量重排 / 文本编辑**：每次 measure 全量 layout，220 字 ~2ms
   （`LayoutBenchmarkProbe`），正文展示场景足够。
 
-### Amendment (2026-06-12): 渲染契约补条——leading glue 消费要左移绘制原点
+### Amendment (2026-06-12): 渲染规格补条——leading glue 消费要左移绘制原点
 
 被消费的 **leading** glue 必须反映在绘制位置上：glyph blob 内仍带着字体
 设计的前置空白（如全宽 `“` 的左半），而引擎已把这段空白从 cluster advance

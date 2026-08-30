@@ -387,7 +387,6 @@ enum class PunctuationClass {
     Solidus,
     Ellipsis,
     Dash,
-    Quote,
     Other,
 }
 
@@ -486,7 +485,6 @@ object ClreqPunctuationPolicies {
             // 点号、结束引号/括号/书名号乙式、连接号、间隔号、分隔号.
             PunctuationClass.PauseOrStop,
             PunctuationClass.Closing,
-            PunctuationClass.Quote,
             PunctuationClass.Connector,
             PunctuationClass.MiddleDot,
             PunctuationClass.Interpunct,

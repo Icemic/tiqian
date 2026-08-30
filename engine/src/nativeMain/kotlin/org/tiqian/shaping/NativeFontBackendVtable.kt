@@ -8,15 +8,14 @@ import org.tiqian.shaping.backend.tiqian_font_backend_vtable_t
 
 /**
  * Process-wide font backend vtable installed by the host binding (ADR 0050).
- * Mirrors the JS lane's `__TiqianFontBackend` global: one backend per process,
- * reinstalling the same protocol revision is a no-op, a different revision is a
- * named collision instead of a silent override.
+ * One backend per process; reinstalling the same protocol revision is a no-op,
+ * a different revision is a named collision instead of a silent override.
  */
 internal object NativeFontBackendRegistry {
     // Must equal TIQIAN_FONT_BACKEND_PROTOCOL_REVISION in
     // tiqian_font_backend.h; the install check reports a mismatch as a named
     // error instead of trusting the number.
-    internal const val PROTOCOL_REVISION: UInt = 1u
+    internal const val PROTOCOL_REVISION: UInt = 2u
 
     private var installedRevision: UInt = 0u
     private var installed: CPointer<tiqian_font_backend_vtable_t>? = null

@@ -30,7 +30,6 @@ class PunctuationGluePlacementTest {
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.MiddleDot))
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.Ellipsis))
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.Dash))
-        assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.Quote))
     }
 
     @Test

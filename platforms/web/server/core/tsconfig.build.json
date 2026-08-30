@@ -1,0 +1,12 @@
+{
+  "references": [{ "path": "../../client/core" }],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": false,
+    "outDir": "lib",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

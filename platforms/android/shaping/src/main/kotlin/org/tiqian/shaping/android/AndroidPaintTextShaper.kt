@@ -190,19 +190,42 @@ class AndroidPaintTextShaper(
             paint.getRunAdvance(displayText, 0, displayText.length, 0, displayText.length, false, displayText.length)
         val shaped =
             TextRunShaper.shapeTextRun(displayText, 0, displayText.length, 0, displayText.length, 0f, 0f, false, paint)
-        val ids = IntArray(shaped.glyphCount()) { shaped.getGlyphId(it) }
-        val xs = FloatArray(shaped.glyphCount()) { shaped.getGlyphX(it) }
-        val ys = FloatArray(shaped.glyphCount()) { shaped.getGlyphY(it) }
-        val bounds = List(shaped.glyphCount()) { shaped.glyphBounds(it, paint) }
-        val fonts = List(shaped.glyphCount()) { index ->
-            AndroidPositionedGlyphFontRegistry.keyFor(shaped.getFont(index))
+        val glyphCount = shaped.glyphCount()
+        val ids = IntArray(glyphCount) { shaped.getGlyphId(it) }
+        val xs = FloatArray(glyphCount) { shaped.getGlyphX(it) }
+        val ys = FloatArray(glyphCount) { shaped.getGlyphY(it) }
+        // RepeatedGlyphMetricReuse: glyph bounds and the font-registry key are pure in
+        // (font, glyph id) under this call's fixed paint, and long runs repeat a small glyph
+        // alphabet. Per-call memoisation with one JNI read per glyph keeps a 100K-char
+        // pathological token at a few dozen metric calls.
+        val boundsByFont = HashMap<android.graphics.fonts.Font, HashMap<Int, Rect?>>()
+        val fontKeyByFont = HashMap<android.graphics.fonts.Font, String?>()
+        val bounds = ArrayList<Rect?>(glyphCount)
+        val fonts = ArrayList<String?>(glyphCount)
+        for (index in 0 until glyphCount) {
+            val font = shaped.getFont(index)
+            val glyphId = ids[index]
+            val perFont = boundsByFont.getOrPut(font) { HashMap() }
+            bounds += if (glyphId in perFont) {
+                perFont.getValue(glyphId)
+            } else {
+                font.glyphLocalBounds(glyphId, paint).also { perFont[glyphId] = it }
+            }
+            fonts += if (font in fontKeyByFont) {
+                fontKeyByFont.getValue(font)
+            } else {
+                AndroidPositionedGlyphFontRegistry.keyFor(font).also { fontKeyByFont[font] = it }
+            }
         }
         return MeasuredRun(advance, ids, xs, ys, fonts, bounds)
     }
 
-    private fun PositionedGlyphs.glyphBounds(index: Int, paint: TextPaint): Rect? {
+    private fun PositionedGlyphs.glyphBounds(index: Int, paint: TextPaint): Rect? =
+        getFont(index).glyphLocalBounds(getGlyphId(index), paint)
+
+    private fun android.graphics.fonts.Font.glyphLocalBounds(glyphId: Int, paint: TextPaint): Rect? {
         val bounds = AndroidRectF()
-        getFont(index).getGlyphBounds(getGlyphId(index), paint, bounds)
+        getGlyphBounds(glyphId, paint, bounds)
         return bounds.toGlyphLocalRectOrNull()
     }
 
@@ -276,23 +299,19 @@ interface AndroidTypefaceResolver {
  * resolve from the CJK font instead of the Latin head of the system
  * fallback chain — `textLocale` alone only reorders the CJK tail.
  *
- * Named heuristic: `SystemAndroidFontProbe`.
+ * Named heuristic: `SystemAndroidFontProbe`. Anchor face evidence, in order:
+ * `PlatformDefaultHanFaceReadback` (API 31+) shapes one Han character per
+ * requested (weight, italic) with the styled default typeface and anchors to
+ * the `Font` the platform fallback chain actually selected — OEM/user theme
+ * fonts and variable-font weight instances are both honored; the well-known
+ * file paths remain the API 26–30 path and the readback fallback.
  */
 class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
-    private val cjkTypeface: android.graphics.Typeface? =
-        if (Build.VERSION.SDK_INT >= 26) {
-            CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
-                val file = java.io.File(path)
-                if (!file.exists()) return@firstNotNullOfOrNull null
-                runCatching {
-                    android.graphics.Typeface.Builder(file)
-                        .setTtcIndex(ttcIndex)
-                        .build()
-                }.getOrNull()
-            }
-        } else {
-            null
-        }
+    private val platformHanTypefaces = HashMap<Pair<Int, Boolean>, Typeface?>()
+
+    private val wellKnownHanTypeface: Typeface? by lazy {
+        if (Build.VERSION.SDK_INT >= 26) wellKnownPathHanTypeface() else null
+    }
 
     override fun resolve(input: ShapingInput): android.graphics.Typeface =
         resolve(
@@ -315,7 +334,7 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         val base = if (role.usesLatinFace()) {
             latinTypefaceFor(family)
         } else {
-            cjkTypefaceFor(family) ?: android.graphics.Typeface.DEFAULT
+            cjkTypefaceFor(family, fontWeight, italic) ?: android.graphics.Typeface.DEFAULT
         }
         return if (Build.VERSION.SDK_INT >= 28) {
             Typeface.create(base, fontWeight.coerceIn(1, 1000), italic)
@@ -331,9 +350,9 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         }
     }
 
-    private fun cjkTypefaceFor(family: String?): Typeface? =
+    private fun cjkTypefaceFor(family: String?, fontWeight: Int, italic: Boolean): Typeface? =
         when (family?.lowercase()) {
-            null, "sans", "sans-serif", "sansserif" -> cjkTypeface
+            null, "sans", "sans-serif", "sansserif" -> defaultHanTypeface(fontWeight, italic)
             // Android does not expose a role-aware CJK generic resolver; these
             // generics are still honored for gallery typography, then styled.
             "serif" -> Typeface.SERIF
@@ -341,12 +360,61 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
             else -> Typeface.create(family, Typeface.NORMAL)
         }
 
+    private fun defaultHanTypeface(fontWeight: Int, italic: Boolean): Typeface? {
+        if (Build.VERSION.SDK_INT < 31) return wellKnownHanTypeface
+        val key = fontWeight.coerceIn(1, 1000) to italic
+        synchronized(platformHanTypefaces) {
+            if (platformHanTypefaces.containsKey(key)) return platformHanTypefaces[key]
+        }
+        val probed = platformDefaultHanTypeface(key.first, key.second) ?: wellKnownHanTypeface
+        synchronized(platformHanTypefaces) {
+            return platformHanTypefaces.getOrPut(key) { probed }
+        }
+    }
+
     private fun latinTypefaceFor(family: String?): Typeface =
         when (family?.lowercase()) {
             null, "sans", "sans-serif", "sansserif" -> Typeface.DEFAULT
             "serif" -> Typeface.SERIF
             "monospace", "mono" -> Typeface.MONOSPACE
             else -> Typeface.create(family, Typeface.NORMAL)
+        }
+
+    @TargetApi(31)
+    private fun platformDefaultHanTypeface(fontWeight: Int, italic: Boolean): Typeface? = runCatching {
+        val paint = TextPaint().apply {
+            textSize = HAN_PROBE_TEXT_SIZE
+            textLocale = Locale.forLanguageTag("zh-Hans")
+            typeface = Typeface.create(Typeface.DEFAULT, fontWeight, italic)
+        }
+        val shaped = TextRunShaper.shapeTextRun(
+            HAN_PROBE,
+            0,
+            HAN_PROBE.length,
+            0,
+            HAN_PROBE.length,
+            0f,
+            0f,
+            false,
+            paint,
+        )
+        if (shaped.glyphCount() != 1 || shaped.getGlyphId(0) == 0) return@runCatching null
+        Typeface.CustomFallbackBuilder(
+            android.graphics.fonts.FontFamily.Builder(shaped.getFont(0)).build(),
+        )
+            .setSystemFallback("sans-serif")
+            .build()
+    }.getOrNull()
+
+    private fun wellKnownPathHanTypeface(): Typeface? =
+        CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
+            val file = java.io.File(path)
+            if (!file.exists()) return@firstNotNullOfOrNull null
+            runCatching {
+                android.graphics.Typeface.Builder(file)
+                    .setTtcIndex(ttcIndex)
+                    .build()
+            }.getOrNull()
         }
 
     private companion object {
@@ -362,5 +430,8 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
             "/system/fonts/NotoSansSC-Regular.otf" to 0,
             "/system/fonts/NotoSansCJKsc-Regular.otf" to 0,
         )
+
+        const val HAN_PROBE = "中"
+        const val HAN_PROBE_TEXT_SIZE = 32f
     }
 }

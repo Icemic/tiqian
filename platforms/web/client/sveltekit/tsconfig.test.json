@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "noImplicitAny": false
+  },
+  "include": [
+    "*.test.ts",
+    "server.ts"
+  ]
+}

@@ -6,6 +6,8 @@ import org.gradle.jvm.tasks.Jar
 import org.gradle.plugins.signing.SigningExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
+import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
+import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
 
 plugins {
     kotlin("multiplatform") version "2.3.20" apply false
@@ -177,6 +179,16 @@ fun Project.configureMavenPublishing(module: PublishedModule) {
                 sign(extensions.getByType(PublishingExtension::class.java).publications)
             }
         }
+    }
+}
+
+// Kotlin/JS compilation is confined to :ffi:js and its engine and test-support
+// dependencies, so the shared yarn lock lives in that module instead of the
+// repository root. YarnPlugin applies to the root project once any Kotlin/JS
+// target exists; the directory must be fixed before the lock tasks realize.
+plugins.withType<YarnPlugin>() {
+    extensions.configure<YarnRootExtension>("kotlinYarn") {
+        lockFileDirectory = rootProject.layout.projectDirectory.dir("ffi/js/kotlin-js-store").asFile
     }
 }
 

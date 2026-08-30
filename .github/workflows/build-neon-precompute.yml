@@ -13,14 +13,14 @@ on:
         type: string
   pull_request:
     paths:
-      - 'frontend/web-precompute/rust/**'
-      - 'frontend/web-precompute/npm/**'
+      - 'platforms/web/server/precompute/**'
+      - 'platforms/web/server/core/**'
       - '.github/workflows/build-neon-precompute.yml'
   push:
     branches: [main]
     paths:
-      - 'frontend/web-precompute/rust/**'
-      - 'frontend/web-precompute/npm/**'
+      - 'platforms/web/server/precompute/**'
+      - 'platforms/web/server/core/**'
       - '.github/workflows/build-neon-precompute.yml'
   workflow_dispatch:
 
@@ -47,13 +47,13 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Install npm dependencies
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         # npm install, not npm ci: the platform binary packages are not on the
         # registry yet, so no lockfile can carry entries for them.
         run: npm install --no-audit --no-fund
       - name: Look up matrix data
         id: matrixData
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         shell: bash
         run: |
           JSON_OUTPUT=$(npx neon show ci github | jq -rc .)
@@ -124,25 +124,49 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      # The smoke test resolves `@tiqian/prose` and `@tiqian/core` from
+      # this checkout: the registry alpha predates the `./prepared-dom`
+      # subpath the precompute sources import, and the emitted declarations
+      # are not tracked. This lane has no Gradle step, so the ffi
+      # declarations a full type check would need are absent; emit the
+      # packages and the suite without checks (the Native precompute CI runs
+      # the full checks over the same sources).
+      # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+      # the matrix spans Windows runners, whose default pwsh shell has no
+      # rm -rf and cannot execute the extensionless .bin shims; run every
+      # step of this block under bash like the build steps below.
+      - name: Install workspace dependencies
+        working-directory: .
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
+      - name: Emit the prose packages
+        working-directory: platforms/web/client/web-component
+        shell: bash
+        run: npx tsc -b --noCheck
       - name: Install npm dependencies
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
+        shell: bash
         run: npm install --no-audit --no-fund
       - name: Build addon and place platform binary
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         shell: bash
         env:
           NEON_BUILD_PLATFORM: ${{ matrix.cfg.platform }}
         run: |
-          cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml \
+          cargo build --manifest-path ../precompute/binding/Cargo.toml \
             --release --message-format=json-render-diagnostics > cargo.log
           npx neon dist --name tiqian-precompute-neon < cargo.log
           test -f "platforms/${NEON_BUILD_PLATFORM}/index.node"
       - name: Smoke test through the npm loader
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         shell: bash
-        run: npm test
+        run: |
+          npx tsc -p tsconfig.build.json --noCheck
+          node --test "test/**/*.test.ts"
       - name: Pack platform package
-        working-directory: frontend/web-precompute/npm/platforms/${{ matrix.cfg.platform }}
+        working-directory: platforms/web/server/core/platforms/${{ matrix.cfg.platform }}
         shell: bash
         run: |
           mkdir -p ../../pack-output
@@ -158,7 +182,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: binary-package-${{ matrix.cfg.platform }}
-          path: frontend/web-precompute/npm/pack-output/${{ steps.pack.outputs.filename }}
+          path: platforms/web/server/core/pack-output/${{ steps.pack.outputs.filename }}
           if-no-files-found: error
           retention-days: 7
 
@@ -175,22 +199,31 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      - name: Install npm dependencies
-        working-directory: frontend/web-precompute/npm
+      # Same working-tree resolution as the binaries job: the registry alpha
+      # predates the ./prepared-dom subpath, and the emitted declarations are
+      # not tracked. This lane has no Gradle step, so the ffi declarations a
+      # full type check would need are absent; build without checks and drop
+      # the typecheck script (the Native precompute CI runs the full checks
+      # over the same sources).
+      - name: Install workspace dependencies
+        working-directory: .
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
         run: npm install --no-audit --no-fund
-      - name: Lint, typecheck, and build the JS entry
-        working-directory: frontend/web-precompute/npm
+      - name: Emit the prose packages
+        working-directory: platforms/web/client/web-component
+        run: npx tsc -b --noCheck
+      - name: Install npm dependencies
+        working-directory: platforms/web/server/core
+        run: npm install --no-audit --no-fund
+      - name: Lint and build the JS entry
+        working-directory: platforms/web/server/core
         run: |
           npm run lint
-          npm run build
-          npm run typecheck
-      # The packed package vendors the browser-shared modules; a stale copy
-      # would fork the render contract between server and browser.
-      - name: Check vendored shared modules
-        working-directory: frontend/web-precompute/npm
-        run: npm run check:shared
+          npx tsc -p tsconfig.build.json --noCheck
       - name: Pack
-        working-directory: frontend/web-precompute/npm
+        working-directory: platforms/web/server/core
         shell: bash
         id: pack
         run: |
@@ -205,7 +238,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: main-package
-          path: frontend/web-precompute/npm/pack-output/${{ steps.pack.outputs.filename }}
+          path: platforms/web/server/core/pack-output/${{ steps.pack.outputs.filename }}
           if-no-files-found: error
           retention-days: 7
 

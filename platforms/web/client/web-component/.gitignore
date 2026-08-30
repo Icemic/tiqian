@@ -1,0 +1,9 @@
+/runtime/
+/node_modules/
+/*.tgz
+# Build products emitted next to the .ts sources (G1 in-place build). Never
+# tracked: the package scripts regenerate them (pretest/prepack run tsc -b)
+# and npm pack collects the root entries through the package.json files list.
+*.js
+*.d.ts
+*.tsbuildinfo

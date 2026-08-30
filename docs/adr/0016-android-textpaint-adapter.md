@@ -35,8 +35,8 @@
 - Amendment 2026-08-12：首次 Maven 发布前按 [ADR 0048](0048-suite-maven-and-package-namespaces.md)
   把 Android native 后端明确命名为 `:shaping:android-native-font`、
   `org.tiqian:tiqian-shaping-android-native-font` 与
-  `org.tiqian.shaping.android.nativefont`；只改变模块和公共包身份，不改变本 ADR 的后端契约。
-- Amendment 2026-08-13：Compose Android 默认后端改为公开平台 run 契约，
+  `org.tiqian.shaping.android.nativefont`；只改变模块和公共包身份，不改变本 ADR 的后端接口。
+- Amendment 2026-08-13：Compose Android 默认后端改为公开平台 run 接口，
   `frontend/compose` 不再传递依赖 `android-native-font`。API 31+ 仍从
   `TextRunShaper` 保留 glyph id、placement 与 `Font`，并用 `Canvas.drawGlyphs`
   重放；API 23–30 改由 `LegacyPlatformRunReplay` 使测量和绘制共用同一
@@ -44,6 +44,18 @@
   glyph 级字体读回 API，因此该路径不声称观察到 Minikin 的物理 face。
   native 模块仍保留为宿主显式选择的受控字体后端，不再是 Compose
   artifact 的默认体积与启动成本。
+- Amendment 2026-08-27：华为 HarmonyOS 4.2（API 31）主题字体证据包证明
+  `SystemAndroidFontProbe` 的固定文件锚定会绕过 OEM 用户主题字体：平台默认链对
+  中西文都返回 `/data/skin/fonts/DroidSansChinese.ttf`，而写死的
+  `NotoSansCJK-Regular.ttc` 在该机存在并抢走全部 CJK role，造成「西文吃到主题
+  字体、中文永远 stock」。API 31+ 的 CJK 锚定改为 `PlatformDefaultHanFaceReadback`：
+  按请求的 (weight, italic) 用样式化默认 typeface + `zh-Hans` locale shape 一个汉字，
+  读回平台实际选中的 `Font`（可变字体的字重轴实例随之保留，平台自身假粗体时读回
+  常规实例、由外层 `Typeface.create` 补假粗体），经 `Typeface.CustomFallbackBuilder`
+  （系统链兜底）作为锚定面，结果按键缓存；固定文件路径降为读回失败的兜底与
+  API 26–30 的既有路径。单次 400 探测曾把可变字体设备的全部字重锚死在常规实例上，
+  中间字重静默落回 400、粗体只剩假粗体，故探测必须携带请求样式。标点归面与
+  `LatinVsCjkFaceSelection` 的角色模型不变，改变的只是锚定证据来源。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
@@ -103,7 +115,7 @@ native bridge 目前留在提椠内，但公共边界只依赖 replayable font c
 Compose artifact，会把 native ABI 体积、旧设备初始化与字体扫描成本无条件地
 交给每个宿主。对于“跟随 Android 当前字体选择”的普通 Compose 正文，
 平台本身已经拥有 Minikin 的完整 fallback 与 OEM 策略；提椠需要保住的是测量和
-绘制契约同源，不是在运行时再复制一遍平台字体系统。
+绘制接口同源，不是在运行时再复制一遍平台字体系统。
 
 - API 31+ 使用 `AndroidPaintTextShaper`：从 `PositionedGlyphs` 读回 glyph id、
   placement 和每段 `Font`，renderer 按 `LayoutResult` 保留的位置以
@@ -118,13 +130,13 @@ Compose artifact，会把 native ABI 体积、旧设备初始化与字体扫描�
   假名、拉丁字母和数字不再放入合成的 `中…中` 缓冲，避免为不需要
   script 锚点的内容增加测量与绘制差异。该判定由
   `requiresHanShapingContext` 公开共享，数学公式中的宿主文字也使用同一
-  契约。
+  接口。
 - `shaping/android-native-font` 仍提供精确字体字节、HarfBuzz / FreeType 与
   outline replay，适合宿主明确选择的受控字体环境。它不再由
   `frontend/compose` 自动安装，也不作为跟随系统字体时的默认 fallback。
 
 这次修订取代本 ADR 中“API 23+ native backend 是 Compose 默认正确性边界”
-的结论；2026-08-05 的受控字体后端契约与验证证据仍保留，但不再描述
+的结论；2026-08-05 的受控字体后端规格与验证证据仍保留，但不再描述
 Compose 默认依赖图。
 
 ### API 23+ 验证证据
@@ -249,7 +261,7 @@ API 29+ 的 catalog 由 `SystemFonts.getAvailableFonts()` 构建，而该 API �
 的不透明 key），证据一直在，只是没有被读。
 
 原先的 `platformResolvedFacesMatchTheFacesWeSelect` 只在 AOSP API 37 上得到一致，不能把 AOSP
-偶合提升成默认目录契约。2026-08-05 的 8 份逐 glyph OEM 样本已经观测到枚举 heuristic 与平台
+偶合提升成默认目录规则。2026-08-05 的 8 份逐 glyph OEM 样本已经观测到枚举 heuristic 与平台
 默认 face / 轴实例的系统性分叉，详见
 [`2026-08-05-compose-font-selection-audit.md`](../research/android-font-reports/2026-08-05-compose-font-selection-audit.md)。
 该断言已删除，枚举目录改为自报 approximate；API 31+ 默认路径现在直接消费当前请求的平台读回，
@@ -263,4 +275,4 @@ API 29+ 的 catalog 由 `SystemFonts.getAvailableFonts()` 构建，而该 API �
   有意置 null，那是 glyph id 不可重放，不是字体身份不可用。
 - Android 主题或字体设置改变后，平台没有向第三方排版引擎公开完整的字体图修订通知；当前 request
   cache 以进程内 catalog revision 为边界。宿主主动安装 catalog 会正确失效，运行中系统主题切换的
-  自动侦测仍需单独契约。
+  自动侦测仍需单独接口。

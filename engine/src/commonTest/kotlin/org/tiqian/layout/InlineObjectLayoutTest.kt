@@ -242,16 +242,16 @@ class InlineObjectLayoutTest {
         // clusters 2,3,4; the only legal points are 1 and 5.
         val chain = listOf(1..2, 2..3, 3..4)
         // Break inside the run (2, 3, or 4) retreats all the way to 1, not just one range back.
-        assertEquals(1, adjustBreakForUnbreakables(4, lineStart = 0, unbreakableRanges = chain))
-        assertEquals(1, adjustBreakForUnbreakables(3, lineStart = 0, unbreakableRanges = chain))
-        assertEquals(1, adjustBreakForUnbreakables(2, lineStart = 0, unbreakableRanges = chain))
+        assertEquals(1, adjustBreakForUnbreakables(4, lineStart = 0, unbreakableRanges = UnbreakableRanges(chain)))
+        assertEquals(1, adjustBreakForUnbreakables(3, lineStart = 0, unbreakableRanges = UnbreakableRanges(chain)))
+        assertEquals(1, adjustBreakForUnbreakables(2, lineStart = 0, unbreakableRanges = UnbreakableRanges(chain)))
         // A break already outside the run is untouched.
-        assertEquals(5, adjustBreakForUnbreakables(5, lineStart = 0, unbreakableRanges = chain))
+        assertEquals(5, adjustBreakForUnbreakables(5, lineStart = 0, unbreakableRanges = UnbreakableRanges(chain)))
         // Retreat halts at the first legal point strictly above lineStart.
-        assertEquals(3, adjustBreakForUnbreakables(5, lineStart = 2, unbreakableRanges = listOf(3..4, 4..5)))
+        assertEquals(3, adjustBreakForUnbreakables(5, lineStart = 2, unbreakableRanges = UnbreakableRanges(listOf(3..4, 4..5))))
         // Give up (keep the original break) when the run reaches the line start: it is wider than
         // the line, so an overflow inside it is unavoidable.
-        assertEquals(4, adjustBreakForUnbreakables(4, lineStart = 1, unbreakableRanges = chain))
+        assertEquals(4, adjustBreakForUnbreakables(4, lineStart = 1, unbreakableRanges = UnbreakableRanges(chain)))
     }
 
     @Test

@@ -11,7 +11,11 @@ import org.tiqian.test.LayoutFixture
  * common parity test compares this against the embedded golden on every
  * target; the JVM golden test compares and regenerates the checked-in files.
  */
-internal fun layoutFixtureDump(fixture: LayoutFixture): String = buildString {
+internal fun layoutFixtureDump(
+    fixture: LayoutFixture,
+    textShaper: org.tiqian.shaping.TextShaper = org.tiqian.shaping.ExplainableStubTextShaper(),
+    fontMetricsResolver: org.tiqian.font.FontMetricsResolver = org.tiqian.font.StubFontMetricsResolver(),
+): String = buildString {
     appendLine("fixture: ${fixture.id}")
     appendLine("text: ${fixture.text.escapeDumpText()}")
     appendLine("maxWidth: ${fixture.constraints.maxWidth.dumpFmt()}")
@@ -29,6 +33,8 @@ internal fun layoutFixtureDump(fixture: LayoutFixture): String = buildString {
             ExplainableStubParagraphLayoutEngine(
                 lineBreaker = breaker,
                 hyphenator = hyphenator,
+                textShaper = textShaper,
+                fontMetricsResolver = fontMetricsResolver,
                 clreqProfileResolver = {
                     org.tiqian.clreq.ClreqProfile.MainlandHorizontal.copy(
                         kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(
@@ -38,7 +44,12 @@ internal fun layoutFixtureDump(fixture: LayoutFixture): String = buildString {
                 },
             )
         } else {
-            ExplainableStubParagraphLayoutEngine(lineBreaker = breaker, hyphenator = hyphenator)
+            ExplainableStubParagraphLayoutEngine(
+                lineBreaker = breaker,
+                hyphenator = hyphenator,
+                textShaper = textShaper,
+                fontMetricsResolver = fontMetricsResolver,
+            )
         }
         val result = engine.layout(
             LayoutInput(

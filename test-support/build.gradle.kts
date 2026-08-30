@@ -18,6 +18,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":engine"))
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
         }
     }
 }

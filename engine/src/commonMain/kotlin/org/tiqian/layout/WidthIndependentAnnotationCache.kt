@@ -175,13 +175,6 @@ private val INLINE_STOPS = setOf('。', '！', '？', '．')
 private fun TextRange.isContainedIn(other: TextRange): Boolean =
     start >= other.start && end <= other.end
 
-private fun <K, V> MutableMap<K, V>.mergeValue(key: K, value: V, remappingFunction: (V, V) -> V): V {
-    val oldValue = get(key)
-    val newValue = if (oldValue == null) value else remappingFunction(oldValue, value)
-    put(key, newValue)
-    return newValue
-}
-
 /** Monotonic interval join for source-ordered clusters and source-ordered decisions. */
 internal fun <T> List<Cluster>.containingItems(
     items: List<T>,
@@ -889,7 +882,6 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
 
                     PunctuationClass.Opening,
                     PunctuationClass.Closing,
-                    PunctuationClass.Quote,
                     -> {
                         addGeometryAwareOpportunity(tier = 4)
                     }

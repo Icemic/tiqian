@@ -6,13 +6,13 @@
 
 ## Context
 
-[ADR 0045](0045-apple-kotlin-native-target.md) 让组合核心跑上 Apple,但引擎要产出真实 `LayoutResult`,还需要平台的 `TextShaper`(整形)与 `FontMetricsResolver`(字体度量),即 ADR 0008 的适配器契约。JVM 有 AWT([0013](0013-jvm-awt-shaping-adapter.md))与 Skia([0015](0015-skiko-shaping-adapter-cross-check.md)),Android 有 TextPaint/native([0016](0016-android-textpaint-adapter.md));Apple 缺一个对等适配器。
+[ADR 0045](0045-apple-kotlin-native-target.md) 让组合核心跑上 Apple,但引擎要产出真实 `LayoutResult`,还需要平台的 `TextShaper`(整形)与 `FontMetricsResolver`(字体度量),即 ADR 0008 的适配器接口。JVM 有 AWT([0013](0013-jvm-awt-shaping-adapter.md))与 Skia([0015](0015-skiko-shaping-adapter-cross-check.md)),Android 有 TextPaint/native([0016](0016-android-textpaint-adapter.md));Apple 缺一个对等适配器。
 
 ## Decision
 
 `CoreTextShapingAdapter`:新增 `:shaping:coretext`(`macosArm64`、`iosArm64`、`iosSimulatorArm64`),用 Kotlin/Native **内置的 `platform.CoreText` / `platform.CoreFoundation` 绑定**——无需自定义 cinterop def。
 
-- **`CoreTextShaper`**:以 `CFAttributedString` + `CTLineCreateWithAttributedString` 整形,遍历 `CTRun` 用 `CTRunGetGlyphs` / `CTRunGetPositions` 抽取字形,产出**一个 cluster + 一个 glyph run**(镜像 AWT/Skia 适配器的契约:消费 layout 决定的 `displayText`,不做 fallback / CLREQ 替换 / 标点决策)。ink bounds 用 `CTFontGetBoundingRectsForGlyphs`,并把 CG(+y 向上,基线相对)转成核心约定(+y 向下、基线上方为负)。逐字形 advance 由相邻 position 差分,末字形取 `CTLineGetTypographicBounds` 的总宽——与 Skia 适配器一致。
+- **`CoreTextShaper`**:以 `CFAttributedString` + `CTLineCreateWithAttributedString` 整形,遍历 `CTRun` 用 `CTRunGetGlyphs` / `CTRunGetPositions` 抽取字形,产出**一个 cluster + 一个 glyph run**(镜像 AWT/Skia 适配器的接口:消费 layout 决定的 `displayText`,不做 fallback / CLREQ 替换 / 标点决策)。ink bounds 用 `CTFontGetBoundingRectsForGlyphs`,并把 CG(+y 向上,基线相对)转成核心约定(+y 向下、基线上方为负)。逐字形 advance 由相邻 position 差分,末字形取 `CTLineGetTypographicBounds` 的总宽——与 Skia 适配器一致。
 - **`CoreTextFontMetricsResolver`**:`CTFontGetAscent/Descent/Leading`(hhea 盒)+ 读 `OS/2` `sTypoAscender/Descender`(`CTFontCopyTable`)得到 CJK **字身框**,对标 `SkiaFontMetricsResolver` 与 [ADR 0002](0002-script-aware-font-metrics.md) amendment。
 - **测绘同源**(contributing.md 约束 / [ADR 0016](0016-android-textpaint-adapter.md) 北极星):整形与绘制使用**同一个 `CTFont`**,前端按同一字形 id 重放。
 - **语言与 feature 同源**：paragraph locale 写入 `kCTLanguageAttributeName`；`tag` / `tag=value`
