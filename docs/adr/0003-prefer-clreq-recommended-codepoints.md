@@ -127,6 +127,12 @@ U+2014 与 U+2026 同时用于中文和西文，不能再按码点一律归到 C
 判为西文的 run 仍保持独立 cluster（`ContextualDashEllipsisRunSegmentation`），不并入相邻的
 Latin 词 cluster；断行类在 run 边界提供的机会因此与角色解析前一致。
 
+`ParentheticalDashPairContext`：相邻两个等长的纯 U+2014 run，且中间内容全部为词字符或
+ASCII 空格时，构成一个插入语对并联合决议。证据只取对外侧（首 run 左邻与尾 run 右邻的
+最近强脚本），一致或仅一侧有证据时继承该侧，冲突或缺失时回段落 locale；插入内容不投票，
+所以 `想Jessica——Jessica是他的前女友——睡不着` 两个破折号同为 CJK 面。中间出现任何
+其他字符（句读、符号、强制换行）时两个 run 保持独立，省略号 run 不参与配对。
+
 `CjkRoleGatedDisplaySubstitution` 随后把 display 替换限制为最终角色为 `CjkPunctuation` 的 run。
 这使中文 `中—文`、`等…真` 即使只有一个标点仍使用 CJK 几何，而西文 `A——B`、
 `Wait……what` 即使重复两个标点也保持 Latin face 与 source display。source range、复制、搜索、
