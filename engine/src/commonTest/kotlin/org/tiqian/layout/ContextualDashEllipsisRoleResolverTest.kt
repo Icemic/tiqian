@@ -92,6 +92,97 @@ class ContextualDashEllipsisRoleResolverTest {
         assertTrue(decisions.all { it.role == FontRole.LatinText })
     }
 
+    @Test
+    fun pairsParentheticalDashesAcrossInsertedContent() {
+        val decisions = resolver.resolve(
+            "他彻夜想Jessica——Jessica是他的前女友——睡不着觉",
+            FontRoleContext(locale = "zh-Hans"),
+        )
+
+        assertEquals(2, decisions.size)
+        assertTrue(
+            decisions.all {
+                it.role == FontRole.CjkPunctuation &&
+                    it.source == "ParagraphLanguageDashEllipsisContext" &&
+                    it.reason.startsWith("parenthetical-pair-conflicting-outer-script")
+            },
+            decisions.toString(),
+        )
+    }
+
+    @Test
+    fun matchingOuterScriptResolvesTheParentheticalPairDirectly() {
+        val decisions = resolver.resolve("word——and stuff——word")
+
+        assertEquals(2, decisions.size)
+        assertTrue(
+            decisions.all {
+                it.role == FontRole.LatinText && it.source == "ParentheticalDashPairContext"
+            },
+            decisions.toString(),
+        )
+    }
+
+    @Test
+    fun punctuationBetweenRunsKeepsThemIndependent() {
+        val decisions = resolver.resolve("地点——北京，时间——明天", FontRoleContext(locale = "zh-Hans"))
+
+        assertEquals(2, decisions.size)
+        assertTrue(
+            decisions.all {
+                it.role == FontRole.CjkPunctuation && it.source == "DashEllipsisSurroundingScriptContext"
+            },
+            decisions.toString(),
+        )
+    }
+
+    @Test
+    fun symbolBetweenRunsKeepsThemIndependent() {
+        val decisions = resolver.resolve("时价——$100——很贵", FontRoleContext(locale = "zh-Hans"))
+
+        assertEquals(2, decisions.size)
+        assertTrue(
+            decisions.all { it.source == "DashEllipsisSurroundingScriptContext" },
+            decisions.toString(),
+        )
+    }
+
+    @Test
+    fun unequalRunLengthsDoNotPair() {
+        val decisions = resolver.resolve(
+            "想Jessica——Jessica是前女友—睡不着",
+            FontRoleContext(locale = "zh-Hans"),
+        )
+
+        assertEquals(2, decisions.size)
+        assertEquals(FontRole.LatinText, decisions[0].role)
+        assertEquals(FontRole.CjkPunctuation, decisions[1].role)
+    }
+
+    @Test
+    fun ellipsisRunsNeverPair() {
+        val decisions = resolver.resolve(
+            "想Jessica……Jessica是他的前女友……睡不着",
+            FontRoleContext(locale = "zh-Hans"),
+        )
+
+        assertEquals(2, decisions.size)
+        assertEquals(FontRole.LatinText, decisions[0].role)
+        assertEquals(FontRole.CjkPunctuation, decisions[1].role)
+    }
+
+    @Test
+    fun mandatoryBreakBetweenRunsKeepsThemIndependent() {
+        val decisions = resolver.resolve(
+            "想Jessica——Jessica\n是前女友——睡不着",
+            FontRoleContext(locale = "zh-Hans"),
+        )
+
+        assertEquals(2, decisions.size)
+        assertEquals(FontRole.LatinText, decisions[0].role)
+        assertEquals(FontRole.CjkPunctuation, decisions[1].role)
+    }
+
     private data class RoleCase(
         val text: String,
         val mark: Char,
@@ -137,6 +228,19 @@ class ContextualDashEllipsisLayoutTest {
         for (markIndex in text.indices.filter { text[it] == '—' || text[it] == '…' }) {
             assertEquals(FontRole.CjkPunctuation.name, result.fontDecisionAt(markIndex).role)
         }
+    }
+
+    @Test
+    fun parentheticalPairSharesOneFaceAndSubstitution() {
+        val text = "他彻夜想Jessica——Jessica是他的前女友——睡不着觉"
+        val result = layout(text)
+
+        val first = result.fontDecisionAt(text.indexOf("——"))
+        val second = result.fontDecisionAt(text.lastIndexOf("——"))
+        assertEquals(FontRole.CjkPunctuation.name, first.role)
+        assertEquals(FontRole.CjkPunctuation.name, second.role)
+        assertEquals("⸺", first.displayText)
+        assertEquals("⸺", second.displayText)
     }
 
     @Test
