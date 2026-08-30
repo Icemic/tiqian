@@ -14,6 +14,11 @@ PreparedParagraph 数字序列化重写与各覆盖测试群）。这些改动�
 只在本仓存在，同步到上游后需要在上游复测。当轮的 Kover 聚合覆盖率
 数字见条目 67。
 
+2026-08-30 第二次补记：已合并 upstream/main 1d8c134d（PR #18，引号
+语境规则）为 484c92ca。上游改写 isNonCjkInWordApostrophe 并新增两条
+word-internal 解析路径，条目 60/61 的行号随之移位；新增主张、覆盖
+测试与复测数字见条目 68。
+
 阅读约定：
 
 - 未覆盖行指 Kover XML 中 mi>0（存在未执行指令）或 mb>0（存在未走到的
@@ -781,46 +786,51 @@ ParagraphDpLineBreaker 的未覆盖行至此全部由条目 47、49 与本条或
 
 ## 解析器（条目 60-62）
 
-### 条目 60：QuotePairAnalyzer.kt:115，负索引比较方向
+### 条目 60：QuotePairAnalyzer.kt:155，负索引比较方向
 
 `codePointAtOrNull` 的负索引比较方向。`if (index !in indices)` 的
-`index < 0` 半边（javap 偏移 2 `if_icmpgt 26` 与偏移 26 `iconst_0`）
-不可达：函数是 private，唯一调用点 L99 传 `index + 1`，analyze 循环
-中 index >= 0，实参总是 >= 1（2026-08-30 复核补全：L99 所在的
-isNonCjkInWordApostrophe 有两个调用方，QuotePairAnalyzer.kt:45 与
-ContextualQuoteRoleResolver.kt:119，两处的 index 同样 >= 0，结论
-不变）。`index >= length` 半边是活路径，由 `a’`
+`index < 0` 半边（javap 偏移 2 `if_icmpgt 26` 与偏移 26 `iconst_0`，
+合并后重编未变）不可达：函数是 private，上游合并后共三个调用点
+（L100/L115/L123），分别传 isNonCjkInWordApostrophe 的右邻
+`index + 1`（该函数的两个调用方 QuotePairAnalyzer.kt:46 与
+ContextualQuoteRoleResolver.kt:127 的循环 index >= 0，实参 >= 1）、
+isNonCjkWordInternalQuotePair 的闭引号后邻 `closeIndex + 1`
+（>= 2）、内层循环下标（自 `openIndex + 1` 起且 < closeIndex）。
+`index >= length` 半边是活路径，由 `a’`
 （撇号为串尾）覆盖。与条目 44/57/58 同族：调用点不变式排除了越界
-方向。其余 QPA 未覆盖行已由测试覆盖：L37 由
+方向。其余 QPA 未覆盖行已由测试覆盖：analyze 的 when 边由
 QuotePairAnalyzerSurrogateAdjacencyTest 的 lowQuoteCodePoints 用例
 （8218/8219 case 边）加另一批已合并测试（8216/8217/8220/8221）的
-并集覆盖；L108/110/119 的 `!in a..b` 上界比较方向由
-plainAndBoundaryNeighboursWalkTheNonSurrogateArms 与
-apostropheAfterASurrogatePair 的 `\uE000`、双低代理、`\uD83D\uE000`
-用例覆盖；L132 由全量套件的其余测试覆盖。
+并集覆盖；codePointBefore/codePointAtOrNull 的 `!in a..b` 上界比较
+方向由 plainAndBoundaryNeighboursWalkTheNonSurrogateArms 与
+apostropheAfterASurrogatePair 的 ``、双低代理、`\uD83D`
+用例覆盖；isNonCjkWordCharacter 的合取由全量套件的其余测试覆盖。
+新增两处主张见条目 68（L123 的 elvis 右值与 L143 的全宽区间真方向）。
 
 ### 条目 61：ContextualQuoteRoleResolver.kt 五处
 
 其余未覆盖方向已由 ContextualQuoteRoleResolverNestedAndSurrogateTest
-（13 个用例）覆盖：
+（13 个用例）覆盖。行号随上游合并移位：96/102 -> 104/110，
+156/227/263 -> 176/247/283；javap 偏移按合并后编译产物更新：
 
-- L96/102：`resolvedPairs[enclosingPair]?.let` 的 null 方向（javap
-  偏移 292 `ifnull 316` 与偏移 317 nop）。resolve 循环按 openIndex
+- L104/110：`resolvedPairs[enclosingPair]?.let` 的 null 方向（javap
+  偏移 320 `ifnull 344` 的跳转方向与跳转目标 344 处的后续指令；合并前为
+  偏移 292 `ifnull 316` 与 317 nop）。resolve 循环按 openIndex
   升序、closeIndex 降序处理，findParent 保证
   `parent.openIndex < pair.openIndex`，父对总是先于子对写入
   resolvedPairs，查表不为 null。
-- L156：leftRole 非空时 `rightRole != null` 的假方向（偏移 183
-  `ifnull 192`）。L141 的规则一（`left != null && (right == null ||
-  right == left)`）先于 L156 捕获该组合。
-- L227：`nestedPair.closeIndex < end` 的假方向（$ScriptEvidence
-  addRange 偏移 39 `if_icmpge 53`）。QuotePairAnalyzer 的栈纪律保证
-  产出的对不跨接：任何在 addRange 段内打开的对必在段内闭合（内容段、
-  包围层左右段、全文段四种调用点逐一验证）。
-- L263：codePointAtCompat 的 `low !in 0xDC00..0xDFFF` 真方向
-  （return high，偏移 54-78）。唯一调用方 strongScriptRole 传
-  `end = index + codePointLengthAt(同一段)`；后继不是低代理时
-  lengthAt 答复 1，compat 在 L261 的 `index+1 >= end` 提前返回，
-  L263 只可能看到区间内的后继。
+- L176：leftRole 非空时 `rightRole != null` 的假方向（偏移 183
+  `ifnull 205`，合并前目标为 192）。L161 的规则一（`left != null &&
+  (right == null || right == left)`）先于 L176 捕获该组合。
+- L247：`nestedPair.closeIndex < end` 的假方向（$ScriptEvidence
+  addRange 偏移 39 `if_icmpge 53`，合并未改变该类体）。QuotePairAnalyzer
+  的栈纪律保证产出的对不跨接：任何在 addRange 段内打开的对必在段内
+  闭合（内容段、包围层左右段、全文段四种调用点逐一验证）。
+- L283：codePointAtCompat 的 `low !in 0xDC00..0xDFFF` 真方向
+  （return high，偏移 59 `if_icmpgt 78` 与 67 `if_icmpge 74`）。唯一
+  调用方 strongScriptRole 传 `end = index + codePointLengthAt(同一段)`；
+  后继不是低代理时 lengthAt 答复 1，compat 在 L281 的 `index+1 >= end`
+  提前返回，L283 只可能看到区间内的后继。
 
 与条目 44/57/58/60 同族：排序顺序、规则前置、调用点不变式排除了
 这些方向。
@@ -1117,3 +1127,63 @@ commonMain 223 行 = 56 + 64 + 103，jvmMain 2 行属于两者都有
 （BundledHyphenationResource.jvm.kt:6-7，条目 50）。聚合数里的
 「未执行指令 423」统计的是指令条数，「56+105 行」统计的是行数，
 两个数字统计的对象不同。
+
+## 上游合并复测（条目 68）
+
+### 条目 68：2026-08-30 上游合并后的残余核对
+
+合并 upstream/main 1d8c134d（PR #18，引号语境规则）为 484c92ca。
+上游把 isNonCjkInWordApostrophe 改写为块形态，新增
+isDigitBoundClosingQuote、isNonCjkWordInternalQuotePair、
+isFullwidthEastAsianWidth 与 UnicodeNumber；ContextualQuoteRoleResolver
+插入 NonCjkWordInternalQuotePair 与 NumericPrimeUnmatchedQuote 两条
+解析路径。合并后首次复测残余 229 行，其中 10 行未认领；处置：
+
+- QuotePairAnalyzer.kt:123（mi=2 mb=1，第四类）：
+  isNonCjkWordInternalQuotePair 内层循环
+  `codePointAtOrNull(index) ?: return false` 的 elvis 右值。循环下标
+  自 openIndex + 1 起且小于 closeIndex，两个索引都来自 analyze 对
+  text.indices 的遍历，closeIndex <= lastIndex，查询下标总在界内，
+  查询结果不为 null，elvis 右值不可达。
+- QuotePairAnalyzer.kt:143（mi=2 mb=2，第一类）：
+  isFullwidthEastAsianWidth 的偏移 4 `if_icmpeq 55` 相等真方向
+  （码点等于 0x3000）与偏移 40 `if_icmpge 47` 的不跳方向
+  （0xFFE0..0xFFE6 全段）。该函数只经 isNonCjkNonNumericWordCharacter
+  到达，入口先经 isNonCjkWordCharacter 的 Letter/Mark 检查加非
+  EastAsian 的 script evidence，再排除 UnicodeNumber 成员；0x3000 的
+  类别是 Zs，0xFFE0..0xFFE6 全部是 Sc/Sk，无一能通过第一道检查。
+  其余方向由三类输入覆盖：拉丁字母走第一区间的两侧、全宽拉丁字母
+  （0xFF21..0xFF5A，Letter 且 evidence 为 Other）走第一区间真侧、
+  星面数学字母（0x1D400，Scripts.txt 归 Common，evidence 为 Neutral）
+  越出第一区间上界并进入第三区间下界比较。
+- QuotePairAnalyzer.kt:155 与 ContextualQuoteRoleResolver.kt 的
+  104/110/176/247/283：条目 60/61 的既有主张随上游插入移位，主张与
+  不变式论证不变，两条内引用的行号与 javap 偏移已按合并后的编译
+  产物更新。
+- UnicodeWordCharacter.kt:21 的域检查失败方向由新增
+  org.tiqian.core.UnicodeNumberTest 覆盖（-1、0x110000、孤立代理三项
+  assertFailsWith 加正反成员断言），残余清除，不主张。
+- QuotePairAnalyzer.kt:124 的对内非词字符 return false 由新增
+  keepsSpaceInsidePairOutOfWordInternalFastPathLatin 覆盖（对内空格，
+  解析结果为 ParagraphLanguageQuoteContext），残余清除，不主张。
+
+新增测试三处：QuoteClassificationEngineTest 的
+keepsSpaceInsidePairOutOfWordInternalFastPathLatin 与
+keepsAstralLetterBoundedWordInternalQuotesLatin（星面字母作外邻，
+代理对合成后仍是词字符，越出全宽区间），以及
+org.tiqian.core.UnicodeNumberTest。
+
+上游语义变化的一处测试修正：isNonCjkInWordApostrophe 的重写先取
+两侧邻码点再作词字符查询，串尾撇号在右邻为 null 处返回 false，
+不再到达抛异常的查询；QuotePairAnalyzerSurrogateAdjacencyTest 的
+双低代理用例为串尾撇号补一个右邻字符，游走形态与抛异常断言保持。
+
+复测：全量 `:engine:jvmTest` 与 `:engine:koverXmlReportJvm` 通过
+（1330 个用例，LayoutDumpGoldenTest 零 diff），acceptance-check
+差集为空（残余 227 行，commonMain 225 行）。同轮 Kover 聚合覆盖率
+（reportJvm.xml 根计数）：指令 90857/91284（99.53%，未执行 427）、
+分支 5944/6153（96.60%，未走到 209 个方向）、行 12676/12735（99.54%，
+未执行 59）、方法 743/748（99.33%）、类 300/301（99.67%）。残余
+按缺失类型拆分：56 行有未执行指令（mi>0 且 mb=0）、64 行只缺分支
+方向（mb>0 且 mi=0）、107 行两者都有；commonMain 225 行 = 56 + 64 +
+105，jvmMain 2 行属于两者都有。
