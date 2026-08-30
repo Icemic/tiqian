@@ -72,6 +72,23 @@ class ExplainableStubParagraphLayoutEngine(
         ) {
             "ParagraphStyle.inlineObjectMinimumClearanceEm must be finite and non-negative"
         }
+        // Downstream code-point scans rely on well-formed UTF-16: a surrogate
+        // must always be part of a complete pair.
+        var surrogateScan = 0
+        while (surrogateScan < text.length) {
+            val code = text[surrogateScan].code
+            if (code in 0xD800..0xDBFF) {
+                require(surrogateScan + 1 < text.length && text[surrogateScan + 1].code in 0xDC00..0xDFFF) {
+                    "SourceText has an unpaired high surrogate at char $surrogateScan"
+                }
+                surrogateScan += 2
+            } else {
+                require(code !in 0xDC00..0xDFFF) {
+                    "SourceText has an unpaired low surrogate at char $surrogateScan"
+                }
+                surrogateScan += 1
+            }
+        }
         input.inlineBoxes.forEach { inlineBox ->
             require(
                 inlineBox.range.start >= 0 &&

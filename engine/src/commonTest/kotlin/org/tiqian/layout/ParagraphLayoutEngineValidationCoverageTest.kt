@@ -81,6 +81,23 @@ class ParagraphLayoutEngineValidationCoverageTest {
     }
 
     @Test
+    fun sourceTextMustNotContainUnpairedSurrogates() {
+        testTrace.section("sourceTextMustNotContainUnpairedSurrogates")
+        // A lone surrogate written inside a string literal is replaced with
+        // '?' when the JS test bundle re-serializes its sources, so the
+        // malformed texts are assembled from char codes at runtime.
+        fun unpairedText(vararg codes: Int): TiqianTextContent =
+            TiqianTextContent(CharArray(codes.size) { codes[it].toChar() }.concatToString())
+        expectRejection(input(content = unpairedText(0x4E2D, 0xD800)), "unpaired high surrogate")
+        expectRejection(input(content = unpairedText(0x4E2D, 0xDC00)), "unpaired low surrogate")
+        // A high surrogate followed by another high surrogate and one
+        // followed by a regular char above the low-surrogate range take the
+        // two different exits of the range check.
+        expectRejection(input(content = unpairedText(0xD800, 0xD800, 0xDC00)), "unpaired high surrogate")
+        expectRejection(input(content = unpairedText(0xD800, 0xF900)), "unpaired high surrogate")
+    }
+
+    @Test
     fun inlineBoxSpanMustBeANonEmptyInBoundsRange() {
         testTrace.section("inlineBoxSpanMustBeANonEmptyInBoundsRange")
         expectRejection(
