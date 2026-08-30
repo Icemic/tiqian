@@ -3,6 +3,7 @@ package org.tiqian.layout
 import org.tiqian.core.TextRange
 import org.tiqian.core.UnicodeScriptEvidence
 import org.tiqian.core.UnicodeScriptEvidenceClassifier
+import org.tiqian.core.UnicodeNumber
 import org.tiqian.core.UnicodeWordCharacter
 import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleClassifier
@@ -100,8 +101,8 @@ internal fun String.isNonCjkInWordApostrophe(index: Int): Boolean =
 
 internal fun String.isNonCjkWordInternalQuotePair(pair: QuotePair): Boolean {
     if (
-        codePointBefore(pair.openIndex)?.isNonCjkWordCharacter() != true ||
-        codePointAtOrNull(pair.closeIndex + 1)?.isNonCjkWordCharacter() != true
+        codePointBefore(pair.openIndex)?.isNonCjkNonNumericWordCharacter() != true ||
+        codePointAtOrNull(pair.closeIndex + 1)?.isNonCjkNonNumericWordCharacter() != true
     ) {
         return false
     }
@@ -119,6 +120,9 @@ internal fun String.isNonCjkWordInternalQuotePair(pair: QuotePair): Boolean {
 private fun Int.isNonCjkWordCharacter(): Boolean =
     UnicodeWordCharacter.contains(this) &&
         UnicodeScriptEvidenceClassifier.classify(this) != UnicodeScriptEvidence.EastAsian
+
+private fun Int.isNonCjkNonNumericWordCharacter(): Boolean =
+    isNonCjkWordCharacter() && !UnicodeNumber.contains(this)
 
 private fun String.codePointBefore(index: Int): Int? {
     if (index <= 0) return null
