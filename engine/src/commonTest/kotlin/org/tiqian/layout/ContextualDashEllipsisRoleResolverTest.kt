@@ -112,6 +112,10 @@ class ContextualDashEllipsisLayoutTest {
             assertEquals(FontRole.LatinText.name, decision.role, "index=$markIndex $decision")
             assertEquals(decision.sourceText, decision.displayText, "index=$markIndex $decision")
         }
+        // ContextualDashEllipsisRunSegmentation: the Latin-resolved runs stay their
+        // own clusters, keeping break opportunities at the run boundaries.
+        assertEquals("——", result.fontDecisionAt(text.indexOf("——")).sourceText)
+        assertEquals("……", result.fontDecisionAt(text.indexOf("……")).sourceText)
         assertTrue(result.debug.punctuationDecisions.none { it.char == '—' || it.char == '…' })
         assertTrue(
             result.debug.roleOverrides
