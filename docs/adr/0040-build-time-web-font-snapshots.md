@@ -155,7 +155,8 @@ JVM 与 JavaScript 运行时各自的 Unicode 表令希腊文、西里尔文等�
 继续作为非 East Asian 的脚本证据参与既有上下文解析。
 
 `NonCjkInWordApostrophe` 处理未配对的 U+2019；它保留在 Western run，并保留外层单引号的配对资格。
-它的两侧边界中至少一侧必须是 `isNonCjkNonNumericWordCharacter`：`don’t`、`90’s` 仍是词内撇号，
+它的两侧边界中至少一侧必须是非数字、非全角的词字符（`isNonCjkNonNumericWordCharacter`，
+因此全角字母包围的 `Ａ’ｓ` 也不再按撇号处理）：`don’t`、`90’s` 仍是词内撇号，
 而 `“1‘2’3”` 这类两侧全为数字的 U+2019 不再按撇号消耗，恢复与开引号配对，经
 `PairedPunctuationEnclosingQuoteContext` 继承外层中文引号。
 
@@ -163,6 +164,10 @@ JVM 与 JavaScript 运行时各自的 Unicode 表令希腊文、西里尔文等�
 `UnicodeNumber` 字符时判 `LatinText`，覆盖 `1’30”` 分秒与 `6.1”` 英寸记号。配对状态天然区分
 两类意图——重音引用必然成对、prime 必然孤立，因此该规则不影响任何成对引号。`’80s` 这类
 省略撇号继续走未配对的语境解析，不专门覆盖。
+
+已知边界：单引号引文内部用弯引号冒充分秒记号（`‘用时1’30分。’`）时，数字夹的 `’` 会作为
+重音闭引号提前配对，引文在此截断。该形态与头位重音（`“‘1’23”`）在配对时刻不可区分，
+真 prime 应使用 U+2032 / U+2033；此边界经评审裁定接受，不为它引入前瞻配对。
 
 强脚本证据继续使用 `Scripts`；数字和 East Asian Width 只参与上述边界判定，不参与脚本投票。
 
