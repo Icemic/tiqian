@@ -98,12 +98,16 @@ class QuotePairAnalyzer {
 internal fun String.isNonCjkInWordApostrophe(index: Int): Boolean {
     val before = codePointBefore(index) ?: return false
     val after = codePointAtOrNull(index + 1) ?: return false
-    // At least one flank must be a lettered boundary: digits alone stay
-    // neutral, so `1‘2’3` keeps its single quotes pairable while `don’t`
-    // and `90’s` remain in-word apostrophes.
+    // At least one flank must be a non-numeric, non-fullwidth word character:
+    // digits alone stay neutral, so `1‘2’3` keeps its single quotes pairable
+    // while `don’t` and `90’s` remain in-word apostrophes.
     return before.isNonCjkWordCharacter() && after.isNonCjkWordCharacter() &&
         (before.isNonCjkNonNumericWordCharacter() || after.isNonCjkNonNumericWordCharacter())
 }
+
+internal fun String.isDigitBoundClosingQuote(index: Int): Boolean =
+    (this[index] == '\u2019' || this[index] == '\u201D') &&
+        codePointBefore(index)?.let { UnicodeNumber.contains(it) } == true
 
 internal fun String.isNonCjkWordInternalQuotePair(pair: QuotePair): Boolean {
     if (

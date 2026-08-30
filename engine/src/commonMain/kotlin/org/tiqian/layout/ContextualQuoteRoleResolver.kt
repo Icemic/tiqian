@@ -1,7 +1,6 @@
 package org.tiqian.layout
 
 import org.tiqian.core.UnicodeEastAsianSpacing
-import org.tiqian.core.UnicodeNumber
 import org.tiqian.core.UnicodeScriptEvidence
 import org.tiqian.core.UnicodeScriptEvidenceClassifier
 import org.tiqian.font.FontRole
@@ -137,10 +136,7 @@ internal class ContextualQuoteRoleResolver(
         // after a digit is minute/second/inch notation (`1\u201930\u201d`, `6.1\u201d`), not
         // a quotation; a genuine accent pair (`\u201c1\u20182\u20193\u201d`) never reaches the
         // unmatched path because its marks pair up.
-        if (
-            (text[index] == '\u2019' || text[index] == '\u201d') &&
-            text.scalarBefore(index)?.let { UnicodeNumber.contains(it) } == true
-        ) {
+        if (text.isDigitBoundClosingQuote(index)) {
             return Resolution(
                 role = FontRole.LatinText,
                 source = "NumericPrimeUnmatchedQuote",
@@ -278,15 +274,6 @@ internal class ContextualQuoteRoleResolver(
             UnicodeScriptEvidence.EastAsian -> FontRole.CjkPunctuation
             UnicodeScriptEvidence.Other -> FontRole.LatinText
         }
-    }
-
-    private fun String.scalarBefore(index: Int): Int? {
-        if (index <= 0) return null
-        val low = this[index - 1].code
-        if (low !in 0xDC00..0xDFFF || index < 2) return low
-        val high = this[index - 2].code
-        if (high !in 0xD800..0xDBFF) return low
-        return 0x10000 + ((high - 0xD800) shl 10) + (low - 0xDC00)
     }
 
     private fun String.codePointAtCompat(index: Int, end: Int): Int {
