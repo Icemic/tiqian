@@ -210,6 +210,13 @@ test("classifyFontRoles resolves contextual marks from complete paragraph text",
   );
 });
 
+test("classifyFontRole resolves curly quotes through structural pair analysis", async () => {
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
+
+  assert.equal(ffi.classifyFontRole("word“中文”word", 4, 5, "zh-Hans"), "other");
+  assert.equal(ffi.classifyFontRole("word“中文”word", 7, 8, "zh-Hans"), "other");
+});
+
 test("unsupportedInlineShapingProperties returns fresh ordered property array", async () => {
   const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
 
