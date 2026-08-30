@@ -10,13 +10,18 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertNull
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class AttachedInlineVirtualAdjacencyTest {
+    private val testTrace = TestTraceRecorder("AttachedInlineVirtualAdjacencyTest")
+
     @Test
     fun attachedRunExposesTheProseClustersOnItsTwoSides() {
+        testTrace.section("attachedRunExposesTheProseClustersOnItsTwoSides")
         val result = resolveAttachedInlineVirtualBoundaries(
             inlineAttachments = listOf(
                 InlineAttachment.None,
@@ -35,6 +40,7 @@ class AttachedInlineVirtualAdjacencyTest {
 
     @Test
     fun attachedRunAtParagraphEndHasNoVirtualRightNeighbor() {
+        testTrace.section("attachedRunAtParagraphEndHasNoVirtualRightNeighbor")
         val result = resolveAttachedInlineVirtualBoundaries(
             inlineAttachments = listOf(
                 InlineAttachment.None,
@@ -50,6 +56,7 @@ class AttachedInlineVirtualAdjacencyTest {
 
     @Test
     fun punctuationAfterFootnoteIsJudgedAgainstThePrecedingPunctuation() {
+        testTrace.section("punctuationAfterFootnoteIsJudgedAgainstThePrecedingPunctuation")
         val result = layoutAttachedReference("正文：“内容。”[1]，后文")
         val virtualBoundary = result.debug.spacingDecisions.single {
             it.reason.startsWith("AttachedInlineVirtualPunctuationBoundary")
@@ -62,6 +69,7 @@ class AttachedInlineVirtualAdjacencyTest {
 
     @Test
     fun closingQuoteBeforeFootnoteAndBodyKeepsItsNaturalTrailingGlue() {
+        testTrace.section("closingQuoteBeforeFootnoteAndBodyKeepsItsNaturalTrailingGlue")
         val result = layoutAttachedReference("正文：“内容。”[1]后文")
         val virtualBoundary = result.debug.spacingDecisions.single {
             it.reason.startsWith("AttachedInlineVirtualPunctuationBoundary")
@@ -74,6 +82,7 @@ class AttachedInlineVirtualAdjacencyTest {
 
     @Test
     fun closingQuoteBeforeParagraphEndFootnoteHasNoTrailingGlue() {
+        testTrace.section("closingQuoteBeforeParagraphEndFootnoteHasNoTrailingGlue")
         val result = layoutAttachedReference("正文：“内容。”[1]")
         val virtualBoundary = result.debug.spacingDecisions.single {
             it.reason.startsWith("AttachedInlineVirtualPunctuationBoundary")
@@ -85,6 +94,7 @@ class AttachedInlineVirtualAdjacencyTest {
 
     @Test
     fun attachedReferenceNeverStartsAWrappedLine() {
+        testTrace.section("attachedReferenceNeverStartsAWrappedLine")
         val text = "甲乙1丙"
         val referenceRange = TextRange(2, 3)
         for (lineBreaker in listOf(GreedyLineBreaker(), LookaheadLineBreaker(), ParagraphDpLineBreaker())) {
@@ -134,4 +144,9 @@ class AttachedInlineVirtualAdjacencyTest {
                 constraints = LayoutConstraints(maxWidth = 320f),
             ),
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

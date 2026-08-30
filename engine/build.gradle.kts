@@ -3,6 +3,8 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 plugins {
     kotlin("multiplatform")
     id("com.android.kotlin.multiplatform.library")
+    // Haxe port lane: coverage baseline for the pre-refactor engine.
+    id("org.jetbrains.kotlinx.kover") version "0.9.9"
 }
 
 // Web and Kotlin/Native have no synchronous resource loading, so the bundled en-US
@@ -154,7 +156,7 @@ kotlin {
         commonTest {
             dependencies {
                 implementation(kotlin("test"))
-                implementation(project(":test-support"))
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             }
             kotlin.srcDir(generateLayoutDumpGoldens)
         }
@@ -172,8 +174,6 @@ kotlin {
         jvmTest.dependencies {
             implementation(project(":platforms:jvm:shaping"))
             implementation(project(":platforms:jvm:skia"))
-            implementation(project(":test-support"))
-            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6")
         }
     }

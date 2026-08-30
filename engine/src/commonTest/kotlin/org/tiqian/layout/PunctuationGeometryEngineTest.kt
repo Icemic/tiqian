@@ -31,13 +31,18 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class PunctuationGeometryEngineTest {
+    private val testTrace = TestTraceRecorder("PunctuationGeometryEngineTest")
+
     @Test
     fun buildsTwoEmPunctuationAtomForRecommendedDashCodepoint() {
+        testTrace.section("buildsTwoEmPunctuationAtomForRecommendedDashCodepoint")
         val atom = PunctuationAtomBuilder().build("⸺", index = 0, em = 16f)
 
         requireNotNull(atom)
@@ -47,6 +52,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun inkBoundsDetermineCompressionAmountAndSides() {
+        testTrace.section("inkBoundsDetermineCompressionAmountAndSides")
         val atom = PunctuationAtomBuilder().build(
             char = '，',
             range = org.tiqian.core.TextRange(0, 1),
@@ -73,6 +79,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun recordsInkCalibratedPunctuationGeometryInLayoutDebug() {
+        testTrace.section("recordsInkCalibratedPunctuationGeometryInLayoutDebug")
         val inkBounds = Rect(left = 9f, top = -2f, right = 11f, bottom = 2f)
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
@@ -140,6 +147,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun pushInKeepsFontCenteredPunctuationCompressionPaired() {
+        testTrace.section("pushInKeepsFontCenteredPunctuationCompressionPaired")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult {
@@ -203,6 +211,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun recordsPunctuationAtomsInLayoutDebug() {
+        testTrace.section("recordsPunctuationAtomsInLayoutDebug")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -237,6 +246,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun lineStartLenticularBracketConsumesOpeningGlue() {
+        testTrace.section("lineStartLenticularBracketConsumesOpeningGlue")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -261,6 +271,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun traditionalProfileCentresPauseStopGlueOnBothSides() {
+        testTrace.section("traditionalProfileCentresPauseStopGlueOnBothSides")
         // Per CLREQ 3.1.3, Traditional Chinese places 。 ， at the centre of
         // the em box, so 。's glue is split symmetrically: 4 leading + 4
         // trailing, anchor = Center. This is the regional behaviour the
@@ -295,6 +306,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun appliesAdjacentPunctuationCompressionToDrawableGeometry() {
+        testTrace.section("appliesAdjacentPunctuationCompressionToDrawableGeometry")
         // 」。 is a Closing+PauseOrStop pair — a standard CLREQ collapse.
         // (，。 was used here before, but consecutive PauseOrStop pairs are
         // now exempt from compression per ConsecutivePauseOrStopKeepsFullWidth.)
@@ -360,6 +372,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun compressesAdjacentCjkSingleQuoteCommaSequence() {
+        testTrace.section("compressesAdjacentCjkSingleQuoteCommaSequence")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -391,6 +404,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun compressesCjkClosingBeforeAsciiPointMarkWithoutReclassifyingAscii() {
+        testTrace.section("compressesCjkClosingBeforeAsciiPointMarkWithoutReclassifyingAscii")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -413,6 +427,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun haltAdvanceFromShaperDrivesPunctuationBodyEndToEnd() {
+        testTrace.section("haltAdvanceFromShaperDrivesPunctuationBodyEndToEnd")
         // A shaper that reports halt=7 for 。 — the engine's punctuation
         // decision must carry the font-derived body and the FontHalt
         // geometry source, and the ledger must keep resolved >= body.
@@ -452,6 +467,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun looseLineEndStyleKeepsFullWidthPunctuation() {
+        testTrace.section("looseLineEndStyleKeepsFullWidthPunctuation")
         // AdjustmentStylePolicy.lineEndPunctuation = AllowFullWidth (宽松风格):
         // the unconditional line-end half-width trim is skipped; the 字身
         // grid stays intact at line end.
@@ -488,6 +504,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun inlineStopCompressionKnobLimitsPushInCapacity() {
+        testTrace.section("inlineStopCompressionKnobLimitsPushInCapacity")
         // "中中中。中中。" maxWidth=96: line0 = 6 clusters (96), offender 。
         // (idx 6) overflows by 16. Capacities: offender 。 tier-1 (8) +
         // mid-line 。 idx3 tier-4 (8) = 16 → PushIn succeeds by default.
@@ -526,6 +543,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun sinoWesternGapKnobDisablesStretchAndShrink() {
+        testTrace.section("sinoWesternGapKnobDisablesStretchAndShrink")
         // allowSinoWesternGapAdjustment=false: the gap stays fixed — no
         // CjkLatinSpace stretch under justify.
         val fixedGap = ExplainableStubParagraphLayoutEngine(
@@ -555,6 +573,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun shortHyphenConnectorIsHalfWidthWavyTildeFullWidth() {
+        testTrace.section("shortHyphenConnectorIsHalfWidthWavyTildeFullWidth")
         // CLREQ 5.1.6: 短横线（–, U+2013）占半个字位置；浪纹线（～, U+FF5E）
         // 占一字。Both classify as Connector but differ in width.
         val full = org.tiqian.clreq.PunctuationWidthPolicy()
@@ -564,6 +583,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun kaimingStyleHalvesInteriorPunctuationButNotSentenceEnd() {
+        testTrace.section("kaimingStyleHalvesInteriorPunctuationButNotSentenceEnd")
         val full = org.tiqian.clreq.PunctuationWidthPolicy()
         val kaiming = org.tiqian.clreq.PunctuationWidthPolicy(
             interior = org.tiqian.clreq.InteriorPunctuationStyle.Kaiming,
@@ -579,6 +599,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun gbFixedSeparatorsAreHalfWidthAndUnadjustable() {
+        testTrace.section("gbFixedSeparatorsAreHalfWidthAndUnadjustable")
         val default = org.tiqian.clreq.PunctuationWidthPolicy()
         val gb = org.tiqian.clreq.PunctuationWidthPolicy(gbFixedSeparators = true)
         // 间隔号 ·：默认 1em → GB 固定半宽 0.5em.
@@ -608,6 +629,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun pushInDrainsBracketOuterGlueBeforeInlineComma() {
+        testTrace.section("pushInDrainsBracketOuterGlueBeforeInlineComma")
         // CLREQ 挤压七档（ADR 0020 amendment）：tier 4 夹注符号外侧
         // （（ 前侧、） 后侧）先于 tier 5 行内逗号被消耗。
         // 中（文）中，中文中。 @144：line0 = 前 9 cluster (144)，。 PushIn
@@ -630,6 +652,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun sinoWesternGapShrinkFloorsAtEighthEm() {
+        testTrace.section("sinoWesternGapShrinkFloorsAtEighthEm")
         // CLREQ 挤压⑥：中西间距最小挤为 1/8 汉字宽，不是 0。用 Clreq 预设
         // (base 1/4)：两个 gap (advance 4) 各只有 2px 容量：。 推入需要 16，
         // 可用 8+2+2=12 → PushIn 拒绝，CarryPrevious 兜底。（floor 为 0 的旧
@@ -656,6 +679,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun pushInConsumesWordSpaceBeforeMidLinePunctGlue() {
+        testTrace.section("pushInConsumesWordSpaceBeforeMidLinePunctGlue")
         // Breaker-level tier ordering with mixed channels: line
         // [A][ ][B][、][中] + offender 。. Tiers in the merged line:
         // offender 。 trailing (promoted tier 1, 8) → word space (tier 2,
@@ -690,6 +714,11 @@ class PunctuationGeometryEngineTest {
         assertEquals(8f, repair.allocations[1].shrink)
         assertEquals(ShrinkChannel.RawAdvance, repair.allocations[1].channel)
         assertTrue(repair.allocations.none { it.clusterIndex == 3 })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
 

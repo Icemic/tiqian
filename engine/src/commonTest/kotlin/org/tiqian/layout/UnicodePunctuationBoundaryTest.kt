@@ -15,12 +15,17 @@ import org.tiqian.core.TextRange
 import org.tiqian.font.FontRole
 import org.tiqian.linebreak.NoHyphenator
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class UnicodePunctuationBoundaryTest {
+    private val testTrace = TestTraceRecorder("UnicodePunctuationBoundaryTest")
+
     @Test
     fun westernBracketsTouchingCjkExposeAllFourStretchBoundaries() {
+        testTrace.section("westernBracketsTouchingCjkExposeAllFourStretchBoundaries")
         val text = "育(中文)后"
         val clusters = text.indices.map { index ->
             Cluster(
@@ -60,6 +65,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun westernClosingPunctuationCannotBeginAnAutomaticLine() {
+        testTrace.section("westernClosingPunctuationCannotBeginAnAutomaticLine")
         for (mark in listOf(')', ']', '}', ',', '.', ':', ';', '!', '?')) {
             for ((label, breaker) in breakers()) {
                 val text = "中文${mark}文"
@@ -89,6 +95,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun westernOpeningBracketsCannotEndAnAutomaticLine() {
+        testTrace.section("westernOpeningBracketsCannotEndAnAutomaticLine")
         for (mark in listOf('(', '[', '{')) {
             for ((label, breaker) in breakers()) {
                 val text = "ABCD${mark}E"
@@ -113,6 +120,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun bracketBoundariesRemainProtectedAcrossWesternSpaces() {
+        testTrace.section("bracketBoundariesRemainProtectedAcrossWesternSpaces")
         for ((label, breaker) in breakers()) {
             // The protected punctuation + spaces + neighbor must fit; below
             // this range a breaker is allowed to surface an impossible-width
@@ -139,6 +147,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun pairedLatinCurlyQuotesKeepTheirContentAcrossBothLineEdges() {
+        testTrace.section("pairedLatinCurlyQuotesKeepTheirContentAcrossBothLineEdges")
         for ((label, breaker) in breakers()) {
             val closingText = "“ABCD”E"
             val closing = layout(closingText, maxWidth = 40f, breaker = breaker)
@@ -166,6 +175,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun unmatchedWesternCurlyDoubleQuotesRetainTheirDirection() {
+        testTrace.section("unmatchedWesternCurlyDoubleQuotesRetainTheirDirection")
         for ((label, breaker) in breakers()) {
             val closingText = "ABCD”E"
             val closing = layout(closingText, maxWidth = 32f, breaker = breaker)
@@ -193,6 +203,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun unmatchedElisionApostropheBindsForwardInsteadOfBeingGuessedAsACloser() {
+        testTrace.section("unmatchedElisionApostropheBindsForwardInsteadOfBeingGuessedAsACloser")
         val text = "AB ’90s"
         val result = layout(text, maxWidth = 16f, breaker = GreedyLineBreaker())
 
@@ -211,6 +222,7 @@ class UnicodePunctuationBoundaryTest {
 
     @Test
     fun westernBaselineSurvivesClreqKinsokuNone() {
+        testTrace.section("westernBaselineSurvivesClreqKinsokuNone")
         val text = "ABCD)E"
         val result = layout(
             text = text,
@@ -254,4 +266,9 @@ class UnicodePunctuationBoundaryTest {
         "greedy" to GreedyLineBreaker(),
         "lookahead" to LookaheadLineBreaker(),
     )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

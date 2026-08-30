@@ -3,9 +3,11 @@ package org.tiqian.layout
 import org.tiqian.core.Cluster
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertNotNull
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * CLREQ 推入 is an in-line glue compression, NOT a single-cluster trailing
@@ -18,9 +20,12 @@ import kotlin.test.assertTrue
  * to CarryPrevious/LeaveRagged.
  */
 class PushInLineWideCapacityTest {
+    private val testTrace = TestTraceRecorder("PushInLineWideCapacityTest")
+
 
     @Test
     fun pushInAggregatesShrinkFromMultiplePrecedingClusters() {
+        testTrace.section("pushInAggregatesShrinkFromMultiplePrecedingClusters")
         // 5 ideographs + `、` + 5 ideographs + `。` at maxWidth=160. Greedy
         // fills line 0 up to char 9 (=160), pushes `、` to position 5 within
         // line 0 (still fits), and tries to put `。` at line 1 start. PushIn
@@ -72,6 +77,7 @@ class PushInLineWideCapacityTest {
 
     @Test
     fun pushInRejectsWhenLineWideCapacityStillInsufficient() {
+        testTrace.section("pushInRejectsWhenLineWideCapacityStillInsufficient")
         // Same shape but only 4 px of capacity remains (a single `、` worth
         // half-glue). Overflow 16 > capacity 4 → reject PushIn, fall to
         // CarryPrevious. CarryPrevious would put `文。` (=32) on a fresh
@@ -111,6 +117,7 @@ class PushInLineWideCapacityTest {
 
     @Test
     fun pushInOffenderOnlyCapacityStillWorksBackCompat() {
+        testTrace.section("pushInOffenderOnlyCapacityStillWorksBackCompat")
         // Offender carries its own 4 px capacity, no other capacity on the
         // line. Should still behave like the pre-refactor single-cluster
         // PushIn — exactly one allocation on the offender.
@@ -139,6 +146,7 @@ class PushInLineWideCapacityTest {
 
     @Test
     fun pushInMergesOffenderThatFitsAfterChainedRepairs() {
+        testTrace.section("pushInMergesOffenderThatFitsAfterChainedRepairs")
         // Regression for the `、` / `」` line-start escape: an earlier chained
         // PushIn shortens a line, after which a later forbidden offender
         // simply FITS on its previous line. `overflow <= 0` must be treated
@@ -194,6 +202,7 @@ class PushInLineWideCapacityTest {
 
     @Test
     fun carryPreviousRefusesToSplitUnbreakableSpan() {
+        testTrace.section("carryPreviousRefusesToSplitUnbreakableSpan")
         // 中中王小明。 maxWidth=80: line0 = 中中王小明 (80), line1 = 。
         // forbidden. PushIn rejected (overflow 16 > capacity 8); carrying
         // 明 (index 4) would split the 王小明 span (2..4) → the carry is
@@ -232,4 +241,9 @@ class PushInLineWideCapacityTest {
             fontKey = "test",
             advance = advance,
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

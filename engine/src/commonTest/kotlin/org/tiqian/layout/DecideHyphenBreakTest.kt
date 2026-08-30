@@ -3,9 +3,13 @@ package org.tiqian.layout
 import org.tiqian.core.Cluster
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class DecideHyphenBreakTest {
+    private val testTrace = TestTraceRecorder("DecideHyphenBreakTest")
+
     private fun cluster(start: Int, advance: Float) =
         Cluster(range = TextRange(start, start + 1), text = "x", fontKey = "k", advance = advance)
 
@@ -17,6 +21,7 @@ class DecideHyphenBreakTest {
 
     @Test
     fun chargesAllDeficitToCjkWhenNoSinoWesternCapacityIsKnown() {
+        testTrace.section("chargesAllDeficitToCjkWhenNoSinoWesternCapacityIsKnown")
         // 10 / 1 gap = 10 > 8 ⇒ too loose ⇒ hyphenate (break at the overflow, 4).
         assertEquals(
             4,
@@ -29,6 +34,7 @@ class DecideHyphenBreakTest {
 
     @Test
     fun discountsSinoWesternCapacityBeforeChargingCjkLooseness() {
+        testTrace.section("discountsSinoWesternCapacityBeforeChargingCjkLooseness")
         // The CJK↔Latin gap (idx 2) absorbs 4 first ⇒ cjkDeficit 6 ≤ 8 ⇒ not too
         // loose ⇒ wrap the word whole (break at the whole-word end, 3).
         assertEquals(
@@ -39,5 +45,10 @@ class DecideHyphenBreakTest {
                 sinoWesternBoundaries = setOf(2), sinoWesternStretchCap = 4f,
             ),
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

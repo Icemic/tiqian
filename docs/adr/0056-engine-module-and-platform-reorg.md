@@ -66,3 +66,21 @@ Web 前端迁回 `frontend/web`。按平台分组的迁移与 Losses 当时开�
 与 eslint ignore 的路径同步更新。`platforms/web/shaping` 退役：web 域的 Kotlin/JS
 target 已全部退役，canvas 度量由 npm 包内的 TS 实现提供，该模块无消费者。上文
 「web 域最终布局另定」的事项就此关闭。
+
+## Amendment (2026-08-29)
+
+删除 `test-support` 模块。它的全部消费者都在 `engine` 的测试 source set
+（commonTest、jvmTest），独立 KMP 模块只为向测试提供三个 common 文件，
+却要独立编译九个 target。`LayoutFixtures` / `ShapingEvidence` /
+`ShapingEvidenceJson` 连同 trace 脚手架移入
+`engine/src/commonTest/kotlin/org/tiqian/test/`，包名不变；
+`kotlinx-serialization-json` 依赖随之移入 engine 的 commonTest，
+jvmTest 原有的重复声明删除。上文「jvmTest 对 `:test-support` 形成测试
+作用域反向依赖边」的条目就此失效。
+
+trace 脚手架只做记录与生成：`TIQIAN_UPDATE_GOLDEN=1 ./gradlew
+:engine:jvmTest` 运行时把每个测试类的断言事件写成
+`engine/src/jvmTest/resources/golden/test-traces/` 与 `process-traces/`
+下的文本，普通运行只执行原断言，不记录、不比对。这批文本是 Haxe
+移植对照用的本地生成物，不入库（`.gitignore` 已列出），引擎测试的
+通过与失败不依赖它们是否存在。

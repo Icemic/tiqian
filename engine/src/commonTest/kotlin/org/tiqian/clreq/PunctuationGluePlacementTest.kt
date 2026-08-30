@@ -1,7 +1,9 @@
 package org.tiqian.clreq
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Regional glue placement per CLREQ 3.1.3 (Punctuation Position):
@@ -10,9 +12,12 @@ import kotlin.test.assertEquals
  * support three glue directions, not two.
  */
 class PunctuationGluePlacementTest {
+    private val testTrace = TestTraceRecorder("PunctuationGluePlacementTest")
+
 
     @Test
     fun mainlandAnchorsClosingAndPauseStopToTrailing() {
+        testTrace.section("mainlandAnchorsClosingAndPauseStopToTrailing")
         val placement = PunctuationGluePlacement.MainlandSimplified
         assertEquals(GlueSide.TrailingOnly, placement.glueSideFor(PunctuationClass.Closing))
         assertEquals(GlueSide.TrailingOnly, placement.glueSideFor(PunctuationClass.PauseOrStop))
@@ -20,12 +25,14 @@ class PunctuationGluePlacementTest {
 
     @Test
     fun mainlandAnchorsOpeningToLeading() {
+        testTrace.section("mainlandAnchorsOpeningToLeading")
         val placement = PunctuationGluePlacement.MainlandSimplified
         assertEquals(GlueSide.LeadingOnly, placement.glueSideFor(PunctuationClass.Opening))
     }
 
     @Test
     fun mainlandSplitsSymmetricPunctuationOnBothSides() {
+        testTrace.section("mainlandSplitsSymmetricPunctuationOnBothSides")
         val placement = PunctuationGluePlacement.MainlandSimplified
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.MiddleDot))
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.Ellipsis))
@@ -34,6 +41,7 @@ class PunctuationGluePlacementTest {
 
     @Test
     fun traditionalCentresClosingAndPauseStop() {
+        testTrace.section("traditionalCentresClosingAndPauseStop")
         // The key regional distinction: Traditional places 。 ， in the
         // middle of the em box, so glue is split on BOTH sides — not all on
         // the trailing side like Mainland.
@@ -44,12 +52,14 @@ class PunctuationGluePlacementTest {
 
     @Test
     fun traditionalCentresOpening() {
+        testTrace.section("traditionalCentresOpening")
         val placement = PunctuationGluePlacement.Traditional
         assertEquals(GlueSide.BothSides, placement.glueSideFor(PunctuationClass.Opening))
     }
 
     @Test
     fun forRegionMapsClreqRegionsToCorrectPlacement() {
+        testTrace.section("forRegionMapsClreqRegionsToCorrectPlacement")
         assertEquals(PunctuationGluePlacement.MainlandSimplified, PunctuationGluePlacement.forRegion(ClreqRegion.Mainland))
         assertEquals(PunctuationGluePlacement.Traditional, PunctuationGluePlacement.forRegion(ClreqRegion.Taiwan))
         assertEquals(PunctuationGluePlacement.Traditional, PunctuationGluePlacement.forRegion(ClreqRegion.HongKong))
@@ -59,8 +69,14 @@ class PunctuationGluePlacementTest {
 
     @Test
     fun builtInTaiwanAndHongKongProfilesUseTraditionalPlacement() {
+        testTrace.section("builtInTaiwanAndHongKongProfilesUseTraditionalPlacement")
         assertEquals(PunctuationGluePlacement.Traditional, ClreqProfile.TaiwanHorizontal.gluePlacement)
         assertEquals(PunctuationGluePlacement.Traditional, ClreqProfile.HongKongHorizontal.gluePlacement)
         assertEquals(PunctuationGluePlacement.MainlandSimplified, ClreqProfile.MainlandHorizontal.gluePlacement)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

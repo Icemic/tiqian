@@ -9,12 +9,17 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class BaselineAlignmentTest {
+    private val testTrace = TestTraceRecorder("BaselineAlignmentTest")
+
 
     @Test
     fun latinInsideCjkUsesSharedRomanBaseline() {
+        testTrace.section("latinInsideCjkUsesSharedRomanBaseline")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中A文"),
@@ -29,6 +34,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun explicitBaselineShiftAppliesToRomanClusters() {
+        testTrace.section("explicitBaselineShiftAppliesToRomanClusters")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(
@@ -46,6 +52,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun cjkPunctuationProvidesIdeographicReferenceWithoutHanBody() {
+        testTrace.section("cjkPunctuationProvidesIdeographicReferenceWithoutHanBody")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("MacBook。"),
@@ -64,6 +71,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun cjkMixedSizesAlignByIdeographicBoxBottom() {
+        testTrace.section("cjkMixedSizesAlignByIdeographicBoxBottom")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(
@@ -84,5 +92,10 @@ class BaselineAlignmentTest {
         assertEquals(0f, base.baselineShift)
         assertEquals(0.48f, small.baselineShift, 0.01f)
         assertEquals(-0.48f, large.baselineShift, 0.01f)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

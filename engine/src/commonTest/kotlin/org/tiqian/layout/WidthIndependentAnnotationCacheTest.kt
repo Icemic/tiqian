@@ -17,11 +17,15 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
 import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class WidthIndependentAnnotationCacheTest {
+    private val testTrace = TestTraceRecorder("WidthIndependentAnnotationCacheTest")
+
 
     private class CountingTextShaper(private val delegate: TextShaper = ExplainableStubTextShaper()) : TextShaper {
         var shapeCallCount: Int = 0
@@ -35,6 +39,7 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun relayoutWithDifferentWidthHitsCacheAndSkipsShaper() {
+        testTrace.section("relayoutWithDifferentWidthHitsCacheAndSkipsShaper")
         val shaper = CountingTextShaper()
         val cache = LruWidthIndependentAnnotationCache(maxEntries = 64)
         val engine = ExplainableStubParagraphLayoutEngine(
@@ -76,6 +81,7 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun cachedAndUncachedEnginesProduceIdenticalLayoutResultsAcrossWidths() {
+        testTrace.section("cachedAndUncachedEnginesProduceIdenticalLayoutResultsAcrossWidths")
         val testFixtures = listOf(
             "提椠是一个面向中文正文的段落排版引擎，遵循中文排版需求规范，支持两端对齐与标点挤压。",
             "在《中文排版需求》（CLREQ）中，要求正文「两端对齐」；当遇到『标点符号』与西文（如 OpenType / CSS Grid）混排时，应正确执行挤压与推入推出——即使在 120Hz 高频拖拽下也是如此！",
@@ -122,6 +128,7 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun reflowFuzzingRandomSequenceProducesExactOutput() {
+        testTrace.section("reflowFuzzingRandomSequenceProducesExactOutput")
         val fixture = "提椠段落排版：严格遵循简体中文 CLREQ 规范。包含“双引号”、‘单引号’、以及（括号）与【括号】；汉字与 English words 混排时自动添加 0.25em 间距，最后一行保持左对齐。"
         val cachedEngine = ExplainableStubParagraphLayoutEngine(
             annotationCache = LruWidthIndependentAnnotationCache(),
@@ -159,6 +166,7 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun cacheKeyDistinguishesTypographyDecorationsAndSpans() {
+        testTrace.section("cacheKeyDistinguishesTypographyDecorationsAndSpans")
         val cache = LruWidthIndependentAnnotationCache()
         val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
 
@@ -209,6 +217,7 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun lruCacheEvictsOldestEntriesWhenCapacityExceeded() {
+        testTrace.section("lruCacheEvictsOldestEntriesWhenCapacityExceeded")
         val cache = LruWidthIndependentAnnotationCache(maxEntries = 2)
         val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
 
@@ -232,5 +241,10 @@ class WidthIndependentAnnotationCacheTest {
         assertTrue(cache.get(key3) != null)
         assertTrue(cache.get(key2) != null)
         assertEquals(null, cache.get(key1), "Oldest entry key1 should be evicted")
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

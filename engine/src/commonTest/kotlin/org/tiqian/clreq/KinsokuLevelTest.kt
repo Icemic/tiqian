@@ -1,15 +1,19 @@
 package org.tiqian.clreq
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * CLREQ 第六节行首行尾禁则四档（[KinsokuLevel]）的逐档收紧验证。
  * 命名与原文对齐：不处理 / 基本处理(最推荐) / GB 法 / 严格处理。
  */
 class KinsokuLevelTest {
+    private val testTrace = TestTraceRecorder("KinsokuLevelTest")
+
     private fun start(char: Char, level: KinsokuLevel) =
         ClreqPunctuationPolicies.forbiddenAtLineStart(char, level)
 
@@ -18,6 +22,7 @@ class KinsokuLevelTest {
 
     @Test
     fun noneForbidsNothing() {
+        testTrace.section("noneForbidsNothing")
         for (c in listOf('。', '，', '、', '”', '）', '·', '／', '—', '…', '“', '（')) {
             assertFalse(start(c, KinsokuLevel.None), "$c start@None")
             assertFalse(end(c, KinsokuLevel.None), "$c end@None")
@@ -26,6 +31,7 @@ class KinsokuLevelTest {
 
     @Test
     fun basicForbidsPauseStopsClosingConnectorsAtStartAndOpeningAtEnd() {
+        testTrace.section("basicForbidsPauseStopsClosingConnectorsAtStartAndOpeningAtEnd")
         // 点号、结束引号/括号、连接号、间隔号、分隔号 不得居行首.
         for (c in listOf('。', '，', '、', '：', '；', '！', '？', '”', '）', '】', '·', '～', '／')) {
             assertTrue(start(c, KinsokuLevel.Basic), "$c start@Basic")
@@ -42,6 +48,7 @@ class KinsokuLevelTest {
 
     @Test
     fun gbStyleAddsSeparatorAtLineEnd() {
+        testTrace.section("gbStyleAddsSeparatorAtLineEnd")
         // GB 法 = 基本处理 + 分隔号也不得居行尾.
         assertFalse(end('／', KinsokuLevel.Basic))
         assertTrue(end('／', KinsokuLevel.GbStyle))
@@ -52,6 +59,7 @@ class KinsokuLevelTest {
 
     @Test
     fun strictAddsDashAndEllipsisAtLineStart() {
+        testTrace.section("strictAddsDashAndEllipsisAtLineStart")
         // 严格处理 = GB 法 + 破折号、省略号不得居行首.
         assertFalse(start('—', KinsokuLevel.GbStyle))
         assertTrue(start('—', KinsokuLevel.Strict))
@@ -63,11 +71,13 @@ class KinsokuLevelTest {
 
     @Test
     fun profileDefaultsToMeasureAdaptive() {
+        testTrace.section("profileDefaultsToMeasureAdaptive")
         assertTrue(ClreqProfile.MainlandHorizontal.kinsokuMode is KinsokuMode.MeasureAdaptive)
     }
 
     @Test
     fun cjkBracketVariantsClassifyAsOpeningAndClosing() {
+        testTrace.section("cjkBracketVariantsClassifyAsOpeningAndClosing")
         for (c in listOf('【', '〔', '〖', '〘', '〚')) {
             assertEquals(PunctuationClass.Opening, ClreqPunctuationPolicies.classify(c), "$c")
         }
@@ -78,6 +88,7 @@ class KinsokuLevelTest {
 
     @Test
     fun exposesUnambiguousAsciiPointMarksWithoutGuessingQuotesOrConnectors() {
+        testTrace.section("exposesUnambiguousAsciiPointMarksWithoutGuessingQuotesOrConnectors")
         for (c in listOf(',', '.', ':', ';', '!', '?')) {
             assertTrue(ClreqPunctuationPolicies.isAsciiPointMark(c), "$c point mark")
         }
@@ -88,6 +99,7 @@ class KinsokuLevelTest {
 
     @Test
     fun measureAdaptiveResolvesPerLineWidth() {
+        testTrace.section("measureAdaptiveResolvesPerLineWidth")
         val m = KinsokuMode.MeasureAdaptive()
         // < 14 字：基本处理 + 悬挂.
         m.resolve(10f).let {
@@ -103,5 +115,10 @@ class KinsokuLevelTest {
         assertEquals(KinsokuLevel.GbStyle, m.resolve(28f).level)
         // > 32 字：严格处理.
         assertEquals(KinsokuLevel.Strict, m.resolve(40f).level)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

@@ -19,13 +19,18 @@ import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.linebreak.NoHyphenator
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class AsciiPointMarkKinsokuTest {
+    private val testTrace = TestTraceRecorder("AsciiPointMarkKinsokuTest")
+
     @Test
     fun cjkAttachedAsciiPointMarksCannotStartWrappedLinesAndStayLatin() {
+        testTrace.section("cjkAttachedAsciiPointMarksCannotStartWrappedLinesAndStayLatin")
         for (mark in listOf(',', '.', ':', ';', '!', '?')) {
             for ((label, breaker) in breakers()) {
                 val text = "中文中文${mark}中文"
@@ -56,6 +61,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun leadingPointMarkRunIsSplitFromFollowingLatinText() {
+        testTrace.section("leadingPointMarkRunIsSplitFromFollowingLatinText")
         val text = "中文,anyway继续"
         for ((label, breaker) in breakers()) {
             val result = layout(text, maxWidth = 64f, breaker = breaker)
@@ -73,6 +79,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun LatinTokensAndAmbiguousAsciiCharactersKeepExistingSegmentation() {
+        testTrace.section("LatinTokensAndAmbiguousAsciiCharactersKeepExistingSegmentation")
         val text = "foo,bar 1,234 50% \"quoted\""
         val result = layout(text, maxWidth = 1_000f, breaker = GreedyLineBreaker())
         val clusterTexts = result.clusters.map { it.text }
@@ -91,6 +98,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun pointMarkSplitFromAnOverlongLatinTokenStillCannotStartALine() {
+        testTrace.section("pointMarkSplitFromAnOverlongLatinTokenStillCannotStartALine")
         val text = "anyway,你"
         for (width in listOf(32f, 36f, 40f, 48f)) {
             for ((label, breaker) in breakers()) {
@@ -106,6 +114,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun pointMarkExposedByASecondStageLatinCutIsSplitFromItsSuffix() {
+        testTrace.section("pointMarkExposedByASecondStageLatinCutIsSplitFromItsSuffix")
         val text = ".,A中"
         for ((label, breaker) in breakers()) {
             val result = layout(text, maxWidth = 32f, breaker = breaker)
@@ -120,6 +129,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun impossibleMeasureHangsThePointMarkInsteadOfLeavingItAtLineStart() {
+        testTrace.section("impossibleMeasureHangsThePointMarkInsteadOfLeavingItAtLineStart")
         val text = "中,文"
         for (width in listOf(1f, 8f, 15f, 23f, 31f)) {
             for ((label, breaker) in breakers()) {
@@ -146,6 +156,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun firstLineIndentUsesTheSameImpossibleMeasureFallback() {
+        testTrace.section("firstLineIndentUsesTheSameImpossibleMeasureFallback")
         val text = "中,文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -166,6 +177,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun lineBreakGeometryIncludesBopomofoSpreadWhenChoosingTheFallback() {
+        testTrace.section("lineBreakGeometryIncludesBopomofoSpreadWhenChoosingTheFallback")
         val text = "中,文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -188,6 +200,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun styledPointMarkRunCanExtendOneImpossibleMeasureHang() {
+        testTrace.section("styledPointMarkRunCanExtendOneImpossibleMeasureHang")
         val text = "中!,文"
         val spans = listOf(TextSpan(TextRange(2, 3), TextStyle(fontWeight = 700)))
         for ((label, breaker) in breakers()) {
@@ -223,6 +236,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun contextualRunCanExtendAProfileHangOnlyWithinTheSameProtectedGroup() {
+        testTrace.section("contextualRunCanExtendAProfileHangOnlyWithinTheSameProtectedGroup")
         val text = "中，,文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -247,6 +261,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun adjacentImpossibleGroupsDoNotShareHangProvenance() {
+        testTrace.section("adjacentImpossibleGroupsDoNotShareHangProvenance")
         val text = "中!，?"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -270,6 +285,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun compressedClosingAndPointMarkPairDoesNotReportAnUnusedHangFallback() {
+        testTrace.section("compressedClosingAndPointMarkPairDoesNotReportAnUnusedHangFallback")
         val text = "）,文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -287,6 +303,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun kinsokuNoneDisablesClreqButKeepsTheUax14AsciiPointMarkBoundary() {
+        testTrace.section("kinsokuNoneDisablesClreqButKeepsTheUax14AsciiPointMarkBoundary")
         val text = "中文中文,中文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -307,6 +324,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun authoredWhitespaceAndMandatoryBreakDoNotCreateContextualKinsoku() {
+        testTrace.section("authoredWhitespaceAndMandatoryBreakDoNotCreateContextualKinsoku")
         for (text in listOf("中\n,文", ",中文")) {
             for ((label, breaker) in breakers()) {
                 val result = layout(text, maxWidth = 1_000f, breaker = breaker)
@@ -329,6 +347,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun mandatoryBreakControlAfterAHungPointMarkStaysInTheTrailingSuffix() {
+        testTrace.section("mandatoryBreakControlAfterAHungPointMarkStaysInTheTrailingSuffix")
         val text = "中,\n文"
         for ((label, breaker) in breakers()) {
             val result = layout(text, maxWidth = 15f, breaker = breaker)
@@ -343,6 +362,7 @@ class AsciiPointMarkKinsokuTest {
 
     @Test
     fun reportedRealWorldParagraphNeverWrapsDirectlyBeforeAnAsciiComma() {
+        testTrace.section("reportedRealWorldParagraphNeverWrapsDirectlyBeforeAnAsciiComma")
         for (width in listOf(36f, 40f, 160f, 240f, 320f)) {
             for ((label, breaker) in breakers()) {
                 val result = layout(REPORTED_PARAGRAPH, width, breaker)
@@ -409,5 +429,10 @@ class AsciiPointMarkKinsokuTest {
                 "我乐意这种伪装成思辨的娱乐,这比大部分辩论赛有意思多了 .anyway,你完全有机会在一开始就讲清楚自己愤怒的来源," +
                 "而不是强行带上无所谓的面具却又如此的用力过猛,希望下一次你可以清晰表述,就像你自己提到的那样," +
                 "不要\"把解读的权利拱手让给对方\""
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

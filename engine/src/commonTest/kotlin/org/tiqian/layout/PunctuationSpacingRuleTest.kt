@@ -3,7 +3,9 @@ package org.tiqian.layout
 import org.tiqian.clreq.ClreqPunctuationPolicies
 import org.tiqian.clreq.PunctuationGluePlacement
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * CLREQ rule for adjacent half-width punctuation marks: collapse the inner
@@ -24,6 +26,8 @@ import kotlin.test.assertEquals
  * the natural inner glue.
  */
 class PunctuationSpacingRuleTest {
+    private val testTrace = TestTraceRecorder("PunctuationSpacingRuleTest")
+
 
     private val builder = PunctuationAtomBuilder(PunctuationGluePlacement.MainlandSimplified)
     private val compressor = PunctuationSpacingCompressor()
@@ -31,6 +35,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun closingPlusClosingCollapsesInnerToZero() {
+        testTrace.section("closingPlusClosingCollapsesInnerToZero")
         // 」 (Closing) + 。 (PauseOrStop): both trailing-anchored.
         // Natural inner = 」.trailing(8) + 。.leading(0) = 8.
         // CLREQ wants bodies to touch: adjusted=0, reduction=8.
@@ -44,6 +49,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun openingPlusOpeningCollapsesInnerToZero() {
+        testTrace.section("openingPlusOpeningCollapsesInnerToZero")
         // 「 (Opening) + （ (Opening): both leading-anchored.
         // Natural inner = 「.trailing(0) + （.leading(8) = 8.
         val atoms = listOf(atom('「', 0), atom('（', 1))
@@ -56,6 +62,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun closingPlusOpeningKeepsHalfEmGap() {
+        testTrace.section("closingPlusOpeningKeepsHalfEmGap")
         // 。 (PauseOrStop) + 「 (Opening): both faces toward each other.
         // Natural inner = 。.trailing(8) + 「.leading(8) = 16.
         // CLREQ wants half-em gap between bodies: adjusted=8, reduction=8.
@@ -69,6 +76,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun pauseStopPlusOpeningCollapsesByHalfEm() {
+        testTrace.section("pauseStopPlusOpeningCollapsesByHalfEm")
         // ， + 「: symmetric to 。「 above.
         val atoms = listOf(atom('，', 0), atom('「', 1))
         val plan = compressor.compress(atoms, em)
@@ -80,6 +88,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun consecutivePauseOrStopMarksCompressLikeAnyAdjacentPair() {
+        testTrace.section("consecutivePauseOrStopMarksCompressLikeAnyAdjacentPair")
         // ！ + ！ (PauseOrStop + PauseOrStop): expected MainlandSimplified
         // horizontal behaviour — adjacent marks compress; inner glue
         // ！.trailing(8) + ！.leading(0) = 8 collapses to 0. (The dedicated
@@ -95,6 +104,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun closingPlusPauseOrStopStillCompresses() {
+        testTrace.section("closingPlusPauseOrStopStillCompresses")
         // ” + ！ (Closing + PauseOrStop) remains a standard collapse pair —
         // the consecutive-PauseOrStop exclusion must not widen.
         val atoms = listOf(atom('”', 0), atom('！', 1))
@@ -107,6 +117,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun nonAdjacentPunctuationAtomsAreNotCompressed() {
+        testTrace.section("nonAdjacentPunctuationAtomsAreNotCompressed")
         // atoms whose ranges don't touch (different chars) are ignored.
         val a = atom('，', 0)
         val b = atom('。', 5) // non-adjacent range
@@ -116,6 +127,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun cjkClosingBeforeAsciiPointMarkConsumesOnlyClosingGlue() {
+        testTrace.section("cjkClosingBeforeAsciiPointMarkConsumesOnlyClosingGlue")
         val text = "」,"
         val plan = compressor.compressCjkClosingBeforeAsciiPointMark(
             atoms = listOf(atom('」', 0)),
@@ -133,6 +145,7 @@ class PunctuationSpacingRuleTest {
 
     @Test
     fun cjkClosingDoesNotCompressAcrossWhitespaceBeforeAsciiPointMark() {
+        testTrace.section("cjkClosingDoesNotCompressAcrossWhitespaceBeforeAsciiPointMark")
         val plan = compressor.compressCjkClosingBeforeAsciiPointMark(
             atoms = listOf(atom('」', 0)),
             text = "」 ,",
@@ -152,5 +165,10 @@ class PunctuationSpacingRuleTest {
                     "unexpected punctuation class for $char"
                 }
             }
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

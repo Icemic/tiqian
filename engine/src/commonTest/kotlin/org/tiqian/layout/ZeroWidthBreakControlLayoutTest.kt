@@ -1,8 +1,8 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
 import org.tiqian.core.Ic
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
@@ -11,8 +11,12 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.linebreak.NoHyphenator
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class ZeroWidthBreakControlLayoutTest {
+    private val testTrace = TestTraceRecorder("ZeroWidthBreakControlLayoutTest")
+
     private val style = ParagraphStyle(
         firstLineIndent = Ic(0f),
         lineLengthGrid = LineLengthGrid(enabled = false),
@@ -20,6 +24,7 @@ class ZeroWidthBreakControlLayoutTest {
 
     @Test
     fun zeroWidthSpaceIsUnshapedAndProvidesASoftBreakAfterIt() {
+        testTrace.section("zeroWidthSpaceIsUnshapedAndProvidesASoftBreakAfterIt")
         for (breaker in listOf(GreedyLineBreaker(), LookaheadLineBreaker())) {
             val result = layout("foo\u200Bbar", maxWidth = 48f, breaker = breaker)
             val control = result.clusters.single { it.text == "\u200B" }
@@ -47,6 +52,7 @@ class ZeroWidthBreakControlLayoutTest {
 
     @Test
     fun leadingZeroWidthSpaceCannotCreateAnEmptyAutoWrappedLine() {
+        testTrace.section("leadingZeroWidthSpaceCannotCreateAnEmptyAutoWrappedLine")
         for (breaker in listOf(GreedyLineBreaker(), LookaheadLineBreaker())) {
             val result = layout("\u200B中", maxWidth = 8f, breaker = breaker)
 
@@ -66,4 +72,9 @@ class ZeroWidthBreakControlLayoutTest {
                 paragraphStyle = style,
             ),
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

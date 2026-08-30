@@ -1,9 +1,11 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertNull
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * The Justifier's COMPRESSION direction (CLREQ §6.2.2.3 挤压处理的优先顺序):
@@ -12,6 +14,8 @@ import kotlin.test.assertTrue
  * `LineAdjustmentStrategy` decides when to call it (步骤 ①).
  */
 class JustifierCompressionTest {
+    private val testTrace = TestTraceRecorder("JustifierCompressionTest")
+
 
     private val justifier = Justifier()
 
@@ -20,6 +24,7 @@ class JustifierCompressionTest {
 
     @Test
     fun consumesTiersInAscendingOrder() {
+        testTrace.section("consumesTiersInAscendingOrder")
         val opps = listOf(opp(0, 1, 2f), opp(1, 2, 5f), opp(2, 3, 5f))
         val plan = justifier.compress(surplus = 3f, shrinkOpportunities = opps)
 
@@ -32,6 +37,7 @@ class JustifierCompressionTest {
 
     @Test
     fun sharesEqualFractionWithinATier() {
+        testTrace.section("sharesEqualFractionWithinATier")
         val opps = listOf(opp(0, 2, 2f), opp(1, 2, 6f)) // same tier, total capacity 8
         val plan = justifier.compress(surplus = 4f, shrinkOpportunities = opps) // factor 0.5
 
@@ -43,6 +49,7 @@ class JustifierCompressionTest {
 
     @Test
     fun reportsUnfilledWhenCapacityExhausted() {
+        testTrace.section("reportsUnfilledWhenCapacityExhausted")
         val opps = listOf(opp(0, 1, 1f), opp(1, 2, 1f)) // total capacity 2
         val plan = justifier.compress(surplus = 5f, shrinkOpportunities = opps)
 
@@ -51,9 +58,27 @@ class JustifierCompressionTest {
     }
 
     @Test
+    fun nanSurplusEmitsNoAllocations() {
+        testTrace.section("nanSurplusEmitsNoAllocations")
+        // NaN passes the <= 0 guard (NaN comparisons are false on every
+        // backend), every tier factor becomes NaN, and each NaN shrink fails
+        // the > 0 check, so the distributor emits nothing and reports the
+        // NaN surplus back unfilled.
+        val plan = justifier.compress(surplus = Float.NaN, shrinkOpportunities = listOf(opp(0, 1, 5f)))
+        assertTrue(plan.allocations.isEmpty())
+        assertTrue(plan.unfilledSurplus.isNaN())
+    }
+
+    @Test
     fun zeroSurplusIsNoOp() {
+        testTrace.section("zeroSurplusIsNoOp")
         val plan = justifier.compress(surplus = 0f, shrinkOpportunities = listOf(opp(0, 1, 5f)))
         assertTrue(plan.allocations.isEmpty())
         assertEquals(0f, plan.unfilledSurplus, 1e-4f)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

@@ -1,9 +1,9 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
 import org.tiqian.core.Cluster
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineObjectSpan
@@ -20,8 +20,12 @@ import org.tiqian.linebreak.EnglishHyphenation
 import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class EmergencyGraphemeTrackingTest {
+    private val testTrace = TestTraceRecorder("EmergencyGraphemeTrackingTest")
+
     private val noIndent = ParagraphStyle(
         firstLineIndent = Ic(0f),
         lineLengthGrid = LineLengthGrid(enabled = false),
@@ -29,6 +33,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun rejectedLetterDigitStructuralOffsetsRemainAvailableAsEmergencyCuts() {
+        testTrace.section("rejectedLetterDigitStructuralOffsetsRemainAvailableAsEmergencyCuts")
         val text = "Machine2Machine"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -55,6 +60,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun technicalIdentifierRelabelsLooseLetterDigitBoundaryAsEmergency() {
+        testTrace.section("technicalIdentifierRelabelsLooseLetterDigitBoundaryAsEmergency")
         val text = "Machine2Machine"
         val uniformAdvanceShaper = object : TextShaper {
             override fun shape(input: ShapingInput): ShapingResult {
@@ -96,6 +102,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun hashPieceInsideTechnicalUrlSkipsSyllableClassification() {
+        testTrace.section("hashPieceInsideTechnicalUrlSkipsSyllableClassification")
         val hash = "deadbeefcafebabefeedfaceabcdefabcdef"
         val text = "https://example.com/commit/$hash"
         val hashStart = text.indexOf(hash)
@@ -123,6 +130,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun standaloneTechnicalHashUsesTrackingToFillEveryAutoWrappedLine() {
+        testTrace.section("standaloneTechnicalHashUsesTrackingToFillEveryAutoWrappedLine")
         val text = "deadbeefcafebabefeedfaceabcdefabcdef"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -152,6 +160,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun repeatedPlainTokenGetsNarrowNonLexicalAuthorization() {
+        testTrace.section("repeatedPlainTokenGetsNarrowNonLexicalAuthorization")
         val text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -175,6 +184,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun longAllCapsWesternWordDoesNotBecomeTrackingEligible() {
+        testTrace.section("longAllCapsWesternWordDoesNotBecomeTrackingEligible")
         val text = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -196,6 +206,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun plainOpaqueHardBreakKeepsCombiningGraphemeIntact() {
+        testTrace.section("plainOpaqueHardBreakKeepsCombiningGraphemeIntact")
         val text = "abc123e\u0301def456ghi"
         val combiningMarkOffset = text.indexOf('\u0301')
         val result = ExplainableStubParagraphLayoutEngine(
@@ -219,6 +230,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun technicalTrackingDoesNotOpenEdgesTouchingInlineObjectsOrZeroWidthControls() {
+        testTrace.section("technicalTrackingDoesNotOpenEdgesTouchingInlineObjectsOrZeroWidthControls")
         val objectText = "aaaaaaaaaaaa\uFFFCbbbbbbbbbbbb"
         val objectRange = TextRange(12, 13)
         val objectResult = ExplainableStubParagraphLayoutEngine().layout(
@@ -286,6 +298,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun unannotatedUrlDoesNotAuthorizeTrackingAcrossOrdinaryPathComponents() {
+        testTrace.section("unannotatedUrlDoesNotAuthorizeTrackingAcrossOrdinaryPathComponents")
         val identity = "abc123def456ghi789"
         val text = "https://example.com/path/to/$identity"
         val identityStart = text.indexOf(identity)
@@ -312,6 +325,7 @@ class EmergencyGraphemeTrackingTest {
 
     @Test
     fun ordinaryWesternProseIsNeverInferredAsTrackingEligible() {
+        testTrace.section("ordinaryWesternProseIsNeverInferredAsTrackingEligible")
         val text = "ordinary Western paragraphs keep their natural word spacing"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -335,5 +349,10 @@ class EmergencyGraphemeTrackingTest {
             },
             "ordinary Western lines may remain ragged after bounded word-space adjustment",
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

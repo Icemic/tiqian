@@ -31,13 +31,18 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class QuoteClassificationEngineTest {
+    private val testTrace = TestTraceRecorder("QuoteClassificationEngineTest")
+
     @Test
     fun keepsLatinTechnicalPunctuationInLatinRun() {
+        testTrace.section("keepsLatinTechnicalPunctuationInLatinRun")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -56,6 +61,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun classifiesAsciiBracketsAsLatinRegardlessOfSurroundingContext() {
+        testTrace.section("classifiesAsciiBracketsAsLatinRegardlessOfSurroundingContext")
         // ASCII parens/brackets do NOT share a code point with CJK fullwidth
         // forms (（）「」 etc), so they are always Latin by typed intent.
         // (English) joins the surrounding Latin run and renders in latin font;
@@ -78,6 +84,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun classifiesAsciiBracketsAsLatinInsidePureCjkContent() {
+        testTrace.section("classifiesAsciiBracketsAsLatinInsidePureCjkContent")
         // Even with CJK on both sides AND inside, ASCII brackets stay Latin —
         // the author chose ASCII; if they wanted fullwidth they would type
         // U+FF08/FF09 (which is already CjkPunctuation by code point).
@@ -97,6 +104,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun asciiClosingBracketWithCjkInteriorIsForbiddenAtLineStart() {
+        testTrace.section("asciiClosingBracketWithCjkInteriorIsForbiddenAtLineStart")
         val text = "如今已占据超七成份额(国产品牌)，互联网大厂排队抢购？"
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -122,6 +130,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun asciiOpeningBracketWithCjkInteriorIsForbiddenAtLineEnd() {
+        testTrace.section("asciiOpeningBracketWithCjkInteriorIsForbiddenAtLineEnd")
         val text = "如今已占据超七成份额(国产品牌)，互联网大厂排队抢购？"
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -147,6 +156,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsTextStartLatinQuotePairInLatinRun() {
+        testTrace.section("keepsTextStartLatinQuotePairInLatinRun")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -171,6 +181,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun mixedQuoteContextsReachTheFontAndPunctuationPipeline() {
+        testTrace.section("mixedQuoteContextsReachTheFontAndPunctuationPipeline")
         val text = "中“文”中；that’s；（如 ‘O’, ‘Q’）；他说：“She said ‘hello’.”"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -210,6 +221,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun quoteRolesSurviveStyleAndSourceBoundaries() {
+        testTrace.section("quoteRolesSurviveStyleAndSourceBoundaries")
         val text = "中‘that’s’中"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -235,6 +247,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun adjacentQuotedListItemsKeepCjkQuoteGeometryAcrossMixedContent() {
+        testTrace.section("adjacentQuotedListItemsKeepCjkQuoteGeometryAcrossMixedContent")
         val texts = listOf(
             "便延伸出了“乃子”“大波”“大灯”“大雷”“大扎”“对A”“波霸”这些词",
             "这些太直白了是吧，\n “欧派”“double”“double may”呢",
@@ -278,6 +291,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun mi10sAdjacentLatinTranscriptionsKeepTheFinalQuotePairInCjkContext() {
+        testTrace.section("mi10sAdjacentLatinTranscriptionsKeepTheFinalQuotePairInCjkContext")
         val text = "所以这个和 “骑ji” “说shui”“斜xiá”不一样，港台是从众的，大陆读音大多数源自韵书。"
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -304,6 +318,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun skipsNeutralDashBeforeLatinQuotePairInLayout() {
+        testTrace.section("skipsNeutralDashBeforeLatinQuotePairInLayout")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -321,6 +336,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsSlashLedLatinTechnicalRunOutOfCjkPunctuationGeometry() {
+        testTrace.section("keepsSlashLedLatinTechnicalRunOutOfCjkPunctuationGeometry")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -339,6 +355,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun recordsRoleOverridesForResolvedQuotePairs() {
+        testTrace.section("recordsRoleOverridesForResolvedQuotePairs")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -360,6 +377,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun mixedChineseQuestionAtParagraphStartKeepsCjkQuoteGeometry() {
+        testTrace.section("mixedChineseQuestionAtParagraphStartKeepsCjkQuoteGeometry")
         val text = "“Json是谁？”"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -385,6 +403,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsNumberedCjkQuotePairOnCjkFace() {
+        testTrace.section("keepsNumberedCjkQuotePairOnCjkFace")
         val text = "1.\u201C\u4F60\u77E5\u9053\u674E\u767D\u662F\u600E\u4E48\u6B7B\u7684\u5417\uFF1F\u201D"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -406,6 +425,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun requestsFullWidthCjkQuotesAndSynthesizesTheCellWhenTheFontStaysProportional() {
+        testTrace.section("requestsFullWidthCjkQuotesAndSynthesizesTheCellWhenTheFontStaysProportional")
         // MiSans-like metrics: curly quotes are proportional (0.375em) even
         // after `fwid`. Layout keeps the source glyph box intact while placing
         // that box on the correct side of a synthesized 1em punctuation cell.
@@ -488,6 +508,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun leavesLatinContextCurlyQuotesOutsideCjkPunctuationGeometry() {
+        testTrace.section("leavesLatinContextCurlyQuotesOutsideCjkPunctuationGeometry")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -502,6 +523,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsContractionApostropheLatinInsideCjkSingleQuotes() {
+        testTrace.section("keepsContractionApostropheLatinInsideCjkSingleQuotes")
         val text = "中‘that’s’中"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -523,6 +545,11 @@ class QuoteClassificationEngineTest {
         val latinCluster = result.clusters.single { it.text == "that’s" }
         assertEquals("latin-primary", latinCluster.fontKey)
         assertTrue(result.debug.punctuationDecisions.none { it.range == TextRange(6, 7) })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
 

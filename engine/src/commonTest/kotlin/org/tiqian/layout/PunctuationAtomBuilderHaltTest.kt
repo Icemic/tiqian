@@ -6,18 +6,23 @@ import org.tiqian.clreq.PunctuationWidthPolicy
 import org.tiqian.core.Rect
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertNull
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /** Font-evidence punctuation compression contract (ADR 0014 amendment). */
 class PunctuationAtomBuilderHaltTest {
+    private val testTrace = TestTraceRecorder("PunctuationAtomBuilderHaltTest")
+
 
     private val builder = PunctuationAtomBuilder()
     private val em = 16f
 
     @Test
     fun haltAdvanceWithoutPlacementUsesNamedProfileFallback() {
+        testTrace.section("haltAdvanceWithoutPlacementUsesNamedProfileFallback")
         val atom = builder.build(
             char = '。',
             range = TextRange(0, 1),
@@ -34,6 +39,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun haltPlacementDirectlyDefinesBothCompressionSides() {
+        testTrace.section("haltPlacementDirectlyDefinesBothCompressionSides")
         val atom = builder.build(
             char = '（',
             range = TextRange(0, 1),
@@ -56,6 +62,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun haltPlacementOverridesRegionalProfileDirection() {
+        testTrace.section("haltPlacementOverridesRegionalProfileDirection")
         val traditional = PunctuationAtomBuilder(PunctuationGluePlacement.Traditional)
         val atom = traditional.build(
             char = '。',
@@ -76,6 +83,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun defaultInkCapsAHaltTrimThatWouldCutIntoThePaintedGlyph() {
+        testTrace.section("defaultInkCapsAHaltTrimThatWouldCutIntoThePaintedGlyph")
         val atom = builder.build(
             char = '（',
             range = TextRange(0, 1),
@@ -97,6 +105,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun equalHaltAdvanceFallsThroughToInkBounds() {
+        testTrace.section("equalHaltAdvanceFallsThroughToInkBounds")
         val atom = builder.build(
             char = '，',
             range = TextRange(0, 1),
@@ -116,6 +125,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun microsoftYaheiCentredCommaCompressesFromBothSides() {
+        testTrace.section("microsoftYaheiCentredCommaCompressesFromBothSides")
         // Microsoft YaHei Vista: advance=2048, comma ink x=821..1130.
         val atom = fontUnitAtom('，', 2048f, 821f, 1130f)
 
@@ -128,6 +138,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun microsoftYaheiBottomLeftStopKeepsItsLeadingSafetyMargin() {
+        testTrace.section("microsoftYaheiBottomLeftStopKeepsItsLeadingSafetyMargin")
         // Microsoft YaHei Vista: advance=2048, ideographic full stop ink x=131..632.
         val atom = fontUnitAtom('。', 2048f, 131f, 632f)
 
@@ -141,6 +152,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun founderHeitiCentredParenthesesStayMirrorImages() {
+        testTrace.section("founderHeitiCentredParenthesesStayMirrorImages")
         // Founder Heiti: （ ink=456..647, ） ink=353..544, advance=1000.
         val opening = fontUnitAtom('（', 1000f, 456f, 647f)
         val closing = fontUnitAtom('）', 1000f, 353f, 544f)
@@ -154,6 +166,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun underwidthOpeningQuoteCompletesTheLeadingSideOfItsFullWidthCell() {
+        testTrace.section("underwidthOpeningQuoteCompletesTheLeadingSideOfItsFullWidthCell")
         val atom = builder.build(
             char = '“',
             range = TextRange(0, 1),
@@ -175,6 +188,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun fixedHalfConsumesMeasuredSidebearingsInsteadOfApplyingAProfileShift() {
+        testTrace.section("fixedHalfConsumesMeasuredSidebearingsInsteadOfApplyingAProfileShift")
         val atom = builder.build(
             char = '《',
             range = TextRange(0, 1),
@@ -196,6 +210,7 @@ class PunctuationAtomBuilderHaltTest {
 
     @Test
     fun overhangReducesCompressionCapacityWithoutMovingInk() {
+        testTrace.section("overhangReducesCompressionCapacityWithoutMovingInk")
         val atom = builder.build(
             char = '《',
             range = TextRange(0, 1),
@@ -229,4 +244,9 @@ class PunctuationAtomBuilderHaltTest {
                 ),
             ),
         )!!
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

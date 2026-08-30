@@ -31,9 +31,11 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Display glyph substitution（ClreqPunctuationGlyphSubstitutor 替换、rollback、
@@ -41,8 +43,11 @@ import kotlin.test.assertTrue
  * 按主题拆出；引擎与断言方式不变。
  */
 class DisplayGlyphSubstitutionEngineTest {
+    private val testTrace = TestTraceRecorder("DisplayGlyphSubstitutionEngineTest")
+
     @Test
     fun preservesSourceTextWhenUsingClreqRecommendedDisplayGlyphs() {
+        testTrace.section("preservesSourceTextWhenUsingClreqRecommendedDisplayGlyphs")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -72,6 +77,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun honorsProfilePunctuationGlyphPolicy() {
+        testTrace.section("honorsProfilePunctuationGlyphPolicy")
         val engine = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
@@ -94,6 +100,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun coalesceSetIsDrivenByProfile() {
+        testTrace.section("coalesceSetIsDrivenByProfile")
         // Profile with empty coalesce set should split "——" into two clusters of "—"
         val engine = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
@@ -119,6 +126,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun usesTwoEmAdvanceForRecommendedDashCodepoint() {
+        testTrace.section("usesTwoEmAdvanceForRecommendedDashCodepoint")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -133,6 +141,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun preservesOpenTypeFeaturesAsFinalGlyphRunBoundaries() {
+        testTrace.section("preservesOpenTypeFeaturesAsFinalGlyphRunBoundaries")
         val proportionalQuoteFeatures = listOf("pwid", "palt")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
@@ -199,6 +208,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun stubShaperReportsProfileFallbackWhenInkBoundsAreUnavailable() {
+        testTrace.section("stubShaperReportsProfileFallbackWhenInkBoundsAreUnavailable")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -225,6 +235,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun shapingWithoutBoundsProducesNamedProfileFallback() {
+        testTrace.section("shapingWithoutBoundsProducesNamedProfileFallback")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
@@ -276,6 +287,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun substitutionRollsBackToSourceTextWhenFontLacksTheGlyph() {
+        testTrace.section("substitutionRollsBackToSourceTextWhenFontLacksTheGlyph")
         // SubstitutionRollbackOnMissingGlyph: the CLREQ substitution `——` →
         // `⸺` only stands if the font covers U+2E3A. This shaper reports a
         // .notdef for the substituted form (like PingFang SC / Hiragino /
@@ -313,6 +325,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun ellipsisSubstitutionRollsBackWhenCoverageCannotBeVerified() {
+        testTrace.section("ellipsisSubstitutionRollsBackWhenCoverageCannotBeVerified")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 val delegate = ExplainableStubTextShaper()
@@ -348,6 +361,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun dashSubstitutionRollsBackWhenInkDoesNotFillTheTwoEmAdvance() {
+        testTrace.section("dashSubstitutionRollsBackWhenInkDoesNotFillTheTwoEmAdvance")
         // DashSubstitutionInkCoverageRollback: the font HAS `⸺` but draws it as
         // a ~1.6em rule left-aligned in the 2em advance (Pixel's Noto CJK) — the
         // substitution would leave a ~0.35em hole against the next character, so
@@ -391,6 +405,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun dashSubstitutionRollsBackWhenFallbackReportsAFullOneEmGlyph() {
+        testTrace.section("dashSubstitutionRollsBackWhenFallbackReportsAFullOneEmGlyph")
         // Browser font fallback can return a healthy-looking one-em U+2E3A:
         // its ink fills 95% of its own (wrong) advance, but only 47.5% of the
         // required CLREQ two-em box. The target box, not fallback advance, is
@@ -438,6 +453,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun dashCoverageTargetUsesTheDashSpanFontSize() {
+        testTrace.section("dashCoverageTargetUsesTheDashSpanFontSize")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 private val delegate = ExplainableStubTextShaper()
@@ -483,6 +499,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun rolledBackDashStillKeepsItsBoundariesClosedUnderJustification() {
+        testTrace.section("rolledBackDashStillKeepsItsBoundariesClosedUnderJustification")
         // Regression (device): after DashSubstitutionInkCoverageRollback the dash
         // displays as TWO chars, whose atoms are PER-CHAR ranges — the coalesced
         // cluster-range lookup missed, dropping the dash out of
@@ -543,6 +560,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun dashInkCentersWithinTheTwoEmBodyWhenTheFontRuleUnderfills() {
+        testTrace.section("dashInkCentersWithinTheTwoEmBodyWhenTheFontRuleUnderfills")
         // DashInkCentering: ink 0.5..28 (width 27.5 = 86% ≥ 85% → substitution
         // kept) in a 32px body → inset = (32 − 27.5) / 2 − 0.5 = 1.75px, the
         // glyph draw origin shifts so the rule sits centred.
@@ -584,6 +602,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun dashSubstitutionIsKeptWhenInkFillsTheTwoEmAdvance() {
+        testTrace.section("dashSubstitutionIsKeptWhenInkFillsTheTwoEmAdvance")
         // Counterpart: a proper two-em rule (Source Han: ink ≈94% of advance)
         // keeps the `——` → `⸺` substitution.
         val engine = ExplainableStubParagraphLayoutEngine(
@@ -621,6 +640,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun substitutionIsKeptWhenFontCoversTheGlyph() {
+        testTrace.section("substitutionIsKeptWhenFontCoversTheGlyph")
         // Counterpart: the default stub shaper reports no missing glyphs, so
         // the `——` → `⸺` substitution stays in effect.
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -637,6 +657,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun ambiguousGlyphClusterMappingFallsBackToPolicyWithRecordedReason() {
+        testTrace.section("ambiguousGlyphClusterMappingFallsBackToPolicyWithRecordedReason")
         // A multi-character punctuation cluster shaped into a single glyph:
         // per-character ink cannot be attributed, so geometry must fall back
         // to pure policy AND record glyph-cluster-mapping-ambiguous instead
@@ -695,6 +716,7 @@ class DisplayGlyphSubstitutionEngineTest {
 
     @Test
     fun multiCharacterPunctuationUsesCharacterLocalInkBounds() {
+        testTrace.section("multiCharacterPunctuationUsesCharacterLocalInkBounds")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 private val delegate = ExplainableStubTextShaper()
@@ -751,5 +773,10 @@ class DisplayGlyphSubstitutionEngineTest {
         assertEquals(2, decisions.size)
         assertEquals(listOf(8f, 8f), decisions.map { it.inkCenter })
         assertEquals(listOf(16f, 16f), decisions.map { it.advance })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

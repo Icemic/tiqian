@@ -1,10 +1,14 @@
 package org.tiqian.linebreak
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class EnglishHyphenationTest {
+    private val testTrace = TestTraceRecorder("EnglishHyphenationTest")
+
     private fun hyphenated(word: String): String {
         val offsets = EnglishHyphenation.enUs.hyphenate(word)
         val sb = StringBuilder()
@@ -17,6 +21,7 @@ class EnglishHyphenationTest {
 
     @Test
     fun hyphenatesCommonWordsAtSyllablePoints() {
+        testTrace.section("hyphenatesCommonWordsAtSyllablePoints")
         assertEquals("hy-phen-ation", hyphenated("hyphenation"))
         // "com-puter", not "com-put-er": rightMin=3 forbids leaving "er" (2).
         assertEquals("com-puter", hyphenated("computer"))
@@ -26,6 +31,7 @@ class EnglishHyphenationTest {
 
     @Test
     fun respectsMarginsAndShortWords() {
+        testTrace.section("respectsMarginsAndShortWords")
         assertEquals(emptyList(), EnglishHyphenation.enUs.hyphenate("the"))
         assertEquals(emptyList(), EnglishHyphenation.enUs.hyphenate("a"))
         // No break in the first 2 / last 3 letters even for a long word.
@@ -35,9 +41,15 @@ class EnglishHyphenationTest {
 
     @Test
     fun honoursTheExceptionList() {
+        testTrace.section("honoursTheExceptionList")
         // "project"/"present" are in the file's \hyphenation exception block with
         // no break marks ⇒ must never hyphenate.
         assertEquals(emptyList(), EnglishHyphenation.enUs.hyphenate("project"))
         assertEquals(emptyList(), EnglishHyphenation.enUs.hyphenate("present"))
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

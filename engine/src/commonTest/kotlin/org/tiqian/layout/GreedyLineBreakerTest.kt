@@ -4,20 +4,26 @@ import org.tiqian.core.Cluster
 import org.tiqian.core.LineEndReason
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class GreedyLineBreakerTest {
+    private val testTrace = TestTraceRecorder("GreedyLineBreakerTest")
+
     private val breaker = GreedyLineBreaker()
 
     @Test
     fun emptyInputProducesNoLines() {
+        testTrace.section("emptyInputProducesNoLines")
         val solution = breaker.breakLines(emptyList(), emptyList(), maxWidth = 100f)
         assertEquals(0, solution.lines.size)
     }
 
     @Test
     fun singleClusterFitsOnOneLine() {
+        testTrace.section("singleClusterFitsOnOneLine")
         val clusters = listOf(cluster(0, 1, "中", 16f))
         val solution = breaker.breakLines(clusters, clusters, maxWidth = 64f)
         assertEquals(1, solution.lines.size)
@@ -30,6 +36,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun fillsLineUntilOverflowThenStartsNewLine() {
+        testTrace.section("fillsLineUntilOverflowThenStartsNewLine")
         val clusters = (0 until 5).map { i -> cluster(i, i + 1, "x", 16f) }
         // maxWidth = 48f -> 3 clusters fit (48f), 4th overflows.
         val solution = breaker.breakLines(clusters, clusters, maxWidth = 48f)
@@ -42,6 +49,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun naturalAndAdjustedWidthsTrackIndependently() {
+        testTrace.section("naturalAndAdjustedWidthsTrackIndependently")
         // Cluster 1 is compressed: natural=16f, adjusted=12f.
         val natural = listOf(cluster(0, 1, "，", 16f), cluster(1, 2, "。", 16f))
         val adjusted = listOf(cluster(0, 1, "，", 16f), cluster(1, 2, "。", 12f))
@@ -53,6 +61,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun clusterWiderThanMaxWidthGetsOwnLineRatherThanInfiniteLoop() {
+        testTrace.section("clusterWiderThanMaxWidthGetsOwnLineRatherThanInfiniteLoop")
         // First cluster narrow, second cluster wider than maxWidth.
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
@@ -67,6 +76,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun kinsokuCarryPreviousMovesPrevClusterToNextLine() {
+        testTrace.section("kinsokuCarryPreviousMovesPrevClusterToNextLine")
         val clusters = listOf(
             cluster(0, 1, "a", 16f),
             cluster(1, 2, "b", 16f),
@@ -88,6 +98,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun kinsokuPushesForbiddenPunctuationIntoPreviousLineWhenGlueCapacityCoversOverflow() {
+        testTrace.section("kinsokuPushesForbiddenPunctuationIntoPreviousLineWhenGlueCapacityCoversOverflow")
         val clusters = listOf(
             cluster(0, 1, "a", 16f),
             cluster(1, 2, "b", 16f),
@@ -128,6 +139,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun kinsokuCarriesPreviousWhenPushInCapacityCannotCoverOverflow() {
+        testTrace.section("kinsokuCarriesPreviousWhenPushInCapacityCannotCoverOverflow")
         val clusters = listOf(
             cluster(0, 1, "a", 16f),
             cluster(1, 2, "b", 16f),
@@ -157,6 +169,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun kinsokuRejectsCarryPreviousWhenCarriedLineWouldOverflow() {
+        testTrace.section("kinsokuRejectsCarryPreviousWhenCarriedLineWouldOverflow")
         val clusters = listOf(
             cluster(0, 1, "a", 16f),
             cluster(1, 2, "b", 16f),
@@ -193,6 +206,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun kinsokuLeaveRaggedWhenPrevLineIsSingleCluster() {
+        testTrace.section("kinsokuLeaveRaggedWhenPrevLineIsSingleCluster")
         // Force prev line to single cluster: clusters[0] alone is wider than maxWidth.
         val clusters = listOf(
             cluster(0, 7, "English", 112f),
@@ -208,6 +222,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun customKinsokuRuleOverridesDefault() {
+        testTrace.section("customKinsokuRuleOverridesDefault")
         // Inject a rule that never forbids -> no repair even when 。 would lead line.
         val breaker = GreedyLineBreaker(
             kinsoku = object : KinsokuRule {
@@ -229,6 +244,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun misalignedClusterListsThrow() {
+        testTrace.section("misalignedClusterListsThrow")
         val a = listOf(cluster(0, 1, "中", 16f), cluster(1, 2, "文", 16f))
         val b = listOf(cluster(0, 1, "中", 16f))
         assertFailsWith<IllegalArgumentException> {
@@ -238,6 +254,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun hangsPauseStopPastMeasureWhenEnabledAndPushInCannotFit() {
+        testTrace.section("hangsPauseStopPastMeasureWhenEnabledAndPushInCannotFit")
         // a,b,c,d,。 maxWidth=64: greedy = [a b c d](64), [。]. PushIn needs
         // 16 but 。 carries no shrink opportunity here → with hanging enabled
         // 。 hangs at the end of line 0 (beyond the measure) instead of
@@ -272,6 +289,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun doesNotHangWhenDisabled() {
+        testTrace.section("doesNotHangWhenDisabled")
         // Same shape, hanging off (empty set) → CarryPrevious pulls d down.
         val clusters = listOf(
             cluster(0, 1, "a", 16f),
@@ -293,6 +311,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun pushInStillPreferredOverHangWhenGlueCovers() {
+        testTrace.section("pushInStillPreferredOverHangWhenGlueCovers")
         // 。 carries trailing-glue capacity ≥ overflow → PushIn keeps it in
         // the measure; hanging is the fallback, not the first choice.
         val clusters = listOf(
@@ -318,6 +337,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun retreatsBreakSoLineDoesNotEndOnOpeningMark() {
+        testTrace.section("retreatsBreakSoLineDoesNotEndOnOpeningMark")
         // 中中（中中 maxWidth=48: greedy fills 中中（ (48), 中 overflows. The
         // line would END on （ (forbidden at line end) → break retreats to
         // 中中, the （ moves to the next line's start (cascade-free).
@@ -346,6 +366,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun keepsOpenerAtLineEndWhenItIsTheLineSoleCluster() {
+        testTrace.section("keepsOpenerAtLineEndWhenItIsTheLineSoleCluster")
         // （中中中 maxWidth=16: greedy line 0 = （ alone (next overflows).
         // Retreating would empty the line → the violation is kept (no
         // infinite shorten), 中 starts line 1.
@@ -366,6 +387,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun mandatoryBreakClosesLineAndPreservesTrailingEmptyLine() {
+        testTrace.section("mandatoryBreakClosesLineAndPreservesTrailingEmptyLine")
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
             cluster(1, 2, "\n", 0f, displayText = ""),
@@ -386,6 +408,7 @@ class GreedyLineBreakerTest {
 
     @Test
     fun mandatoryBreakBlocksKinsokuRepairAcrossBoundary() {
+        testTrace.section("mandatoryBreakBlocksKinsokuRepairAcrossBoundary")
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
             cluster(1, 2, "\n", 0f, displayText = ""),
@@ -418,4 +441,9 @@ class GreedyLineBreakerTest {
             fontKey = "test",
             advance = advance,
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

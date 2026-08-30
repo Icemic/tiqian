@@ -288,7 +288,8 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 - `demo/android`：只负责 Android 应用打包和启动的薄外壳。
 - `demo/apple`：一个 Xcode project 内的 macOS / iOS targets，共享 Swift 样例内容并消费
   `platforms/apple/frontend`。
-- `test-support` 与 `engine` 的报告任务：共享语料、布局诊断和文档样张生成。
+- `engine` 的报告任务与 `commonTest` 共享语料：布局诊断、文档样张生成，
+  以及 fixtures / shaping evidence / trace 格式化等测试语料。
 
 首次公开发布的套件统一使用 Maven group `org.tiqian`。提椠 artifact 保留 `tiqian-*`
 产品族前缀，其中 Compose 基础前端与 Material 3 适配层分别是 `tiqian-compose` 和
