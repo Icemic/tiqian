@@ -22,6 +22,18 @@ class FontExportsTest {
     }
 
     @Test
+    fun loweringRoleUsesStructuralQuotePairResolution() {
+        val text = "word“中文”word"
+
+        assertEquals("other", classifyFontRole(text, 4, 5, "zh-Hans"))
+        assertEquals("other", classifyFontRole(text, 7, 8, "zh-Hans"))
+        assertContentEquals(
+            arrayOf("other", "cjk-text", "other"),
+            classifyFontRoles(text, arrayOf(4, 5, 7), arrayOf(5, 6, 8), "zh-Hans"),
+        )
+    }
+
+    @Test
     fun fontMetricsResolveReturnsRawMetricsJsonForCjkRole() {
         val requestJson =
             """{"fontKey":"cjk-key","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Source Han Sans"],"fontWeight":400,"italic":false,"faceSelectionText":"中"}"""

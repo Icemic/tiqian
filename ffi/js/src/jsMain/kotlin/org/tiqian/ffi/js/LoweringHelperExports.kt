@@ -10,6 +10,7 @@ import org.tiqian.font.FontRoleClassifier
 import org.tiqian.font.FontRoleContext
 import org.tiqian.font.InlineShapingStylePolicy
 import org.tiqian.layout.withContextualDashEllipsisRoles
+import org.tiqian.layout.withContextualQuoteRoles
 
 /**
  * Lowering helper exports consumed by the TypeScript markdown lowering engine
@@ -68,11 +69,26 @@ fun classifyFontRoles(
     }
 }
 
+private var cachedClassifierKey: Pair<String, String>? = null
+private var cachedClassifier: FontRoleClassifier = fontRoleClassifier
+
+/**
+ * Assembles the same base → quote-pair → dash/ellipsis classifier chain as the engine's
+ * `prepareWidthIndependentAnnotation`. A single-entry memo keyed on (text, locale) keeps
+ * repeated single-range calls over one paragraph at one resolution pass.
+ */
 private fun contextualFontRoleClassifier(
     text: String,
     context: FontRoleContext,
 ): FontRoleClassifier {
-    return fontRoleClassifier.withContextualDashEllipsisRoles(text, context)
+    val key = text to context.locale
+    if (cachedClassifierKey != key) {
+        cachedClassifier = fontRoleClassifier
+            .withContextualQuoteRoles(text, context)
+            .withContextualDashEllipsisRoles(text, context)
+        cachedClassifierKey = key
+    }
+    return cachedClassifier
 }
 
 private fun FontRole.toLoweringRoleName(): String = when (this) {
