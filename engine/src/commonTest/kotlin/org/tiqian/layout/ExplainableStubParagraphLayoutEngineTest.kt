@@ -32,13 +32,18 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class ExplainableStubParagraphLayoutEngineTest {
+    private val testTrace = TestTraceRecorder("ExplainableStubParagraphLayoutEngineTest")
+
     @Test
     fun returnsDebuggableSingleLineResult() {
+        testTrace.section("returnsDebuggableSingleLineResult")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -54,6 +59,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun recordsInjectedLineBreakerStrategyInDebugDecisions() {
+        testTrace.section("recordsInjectedLineBreakerStrategyInDebugDecisions")
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
@@ -69,6 +75,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun mandatoryLineBreakClustersAreZeroWidthAndNotShaped() {
+        testTrace.section("mandatoryLineBreakClustersAreZeroWidthAndNotShaped")
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
@@ -92,6 +99,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun consecutiveMandatoryLineBreaksCreateOneEmptyLineBox() {
+        testTrace.section("consecutiveMandatoryLineBreaksCreateOneEmptyLineBox")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -116,6 +124,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun singleMandatoryBreakAfterWrappedLineDoesNotCreateEmptyLine() {
+        testTrace.section("singleMandatoryBreakAfterWrappedLineDoesNotCreateEmptyLine")
         val text = "很久以前，曾经有一个名叫小红帽的孩子，生活在大森林的边上，" +
             "大森林里充满了濒临灭绝的猫头鹰和珍稀植物，如果有人愿意花时间研究它们，" +
             "就会发现癌症的治疗方法。\n小红帽和一位称为母亲的养育者一起生活"
@@ -149,6 +158,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun crlfIsOneMandatoryBreakCluster() {
+        testTrace.section("crlfIsOneMandatoryBreakCluster")
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
@@ -168,6 +178,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun consecutiveAndTrailingMandatoryBreaksPreserveBlankLines() {
+        testTrace.section("consecutiveAndTrailingMandatoryBreaksPreserveBlankLines")
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
@@ -189,6 +200,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun mandatoryBreakLineIsNotJustified() {
+        testTrace.section("mandatoryBreakLineIsNotJustified")
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
@@ -207,6 +219,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun rejectsShaperClustersThatDoNotCoverFontDecisionRange() {
+        testTrace.section("rejectsShaperClustersThatDoNotCoverFontDecisionRange")
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
@@ -227,6 +240,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun preservesShaperGlyphBoundsInLayoutGlyphRuns() {
+        testTrace.section("preservesShaperGlyphBoundsInLayoutGlyphRuns")
         val shapedBounds = Rect(left = 1f, top = -10f, right = 12f, bottom = 2f)
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
@@ -276,6 +290,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun recordsFallbackDecisionsPerCluster() {
+        testTrace.section("recordsFallbackDecisionsPerCluster")
         val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -320,6 +335,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun combiningMarksStayInTheirBaseShapingRuns() {
+        testTrace.section("combiningMarksStayInTheirBaseShapingRuns")
         val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -335,6 +351,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun complexEmojiGraphemesStayAtomicAcrossGeometryOnlyBoundaries() {
+        testTrace.section("complexEmojiGraphemesStayAtomicAcrossGeometryOnlyBoundaries")
         val text = "👩🏽‍💻"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -353,6 +370,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun complexEmojiSequencesReachTheShaperAsCompleteEmojiRanges() {
+        testTrace.section("complexEmojiSequencesReachTheShaperAsCompleteEmojiRanges")
         val text = "前👩🏽‍💻后🇨🇳与1️⃣和❤️。"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -378,6 +396,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun emojiRoleMatrixSeparatesSupportedSequencesFromAdjacentAndUnrelatedText() {
+        testTrace.section("emojiRoleMatrixSeparatesSupportedSequencesFromAdjacentAndUnrelatedText")
         data class Case(
             val text: String,
             val expectedRoles: List<Pair<String, FontRole>>,
@@ -492,6 +511,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun sourceGraphemeBoundariesDoNotJoinZwJWithOrdinaryText() {
+        testTrace.section("sourceGraphemeBoundariesDoNotJoinZwJWithOrdinaryText")
         assertEquals(
             listOf(0, 3, 4),
             "👩‍中".sourceGraphemeBoundaries(TextRange(0, "👩‍中".length)),
@@ -504,6 +524,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun recordsUnicodeEmojiSequenceRolePromotions() {
+        testTrace.section("recordsUnicodeEmojiSequenceRolePromotions")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -531,6 +552,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun complexEmojiGraphemesHonorTextSpanStyleBoundaries() {
+        testTrace.section("complexEmojiGraphemesHonorTextSpanStyleBoundaries")
         val text = "👩🏽‍💻"
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -549,5 +571,10 @@ class ExplainableStubParagraphLayoutEngineTest {
             result.debug.fontDecisions.filter { it.role == FontRole.Emoji.name }.map { it.range },
         )
         assertEquals(listOf("👩", "🏽‍💻"), result.debug.shapingDecisions.map { it.sourceText })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

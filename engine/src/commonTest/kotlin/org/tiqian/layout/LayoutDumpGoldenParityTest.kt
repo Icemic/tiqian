@@ -2,7 +2,10 @@ package org.tiqian.layout
 
 import org.tiqian.test.EarlyLayoutFixtures
 import kotlin.test.Test
-import kotlin.test.fail
+import org.tiqian.test.trace.fail
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
+import org.tiqian.test.trace.assertTrue
 
 /**
  * Cross-target golden net: the checked-in layout-dump goldens are embedded at
@@ -16,9 +19,12 @@ import kotlin.test.fail
  * ```
  */
 class LayoutDumpGoldenParityTest {
+    private val testTrace = TestTraceRecorder("LayoutDumpGoldenParityTest")
+
 
     @Test
     fun layoutDecisionDumpsMatchEmbeddedGolden() {
+        testTrace.section("layoutDecisionDumpsMatchEmbeddedGolden")
         val failures = mutableListOf<String>()
         for (fixture in EarlyLayoutFixtures.all) {
             val golden = LayoutDumpGoldens.byId[fixture.id]
@@ -32,12 +38,16 @@ class LayoutDumpGoldenParityTest {
                 failures += layoutDumpDiffMessage(fixture.id, golden, dump)
             }
         }
-        if (failures.isNotEmpty()) {
-            fail(
-                failures.joinToString("\n\n") +
-                    "\n\nIf the change is intentional, regenerate with " +
-                    "TIQIAN_UPDATE_GOLDEN=1 on the JVM and review the golden diff.",
-            )
-        }
+        assertTrue(
+            failures.isEmpty(),
+            failures.joinToString("\n\n") +
+                "\n\nIf the change is intentional, regenerate with " +
+                "TIQIAN_UPDATE_GOLDEN=1 on the JVM and review the golden diff.",
+        )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

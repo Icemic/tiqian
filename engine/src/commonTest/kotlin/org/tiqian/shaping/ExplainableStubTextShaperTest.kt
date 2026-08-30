@@ -6,13 +6,18 @@ import org.tiqian.font.FontCandidate
 import org.tiqian.font.FontDecision
 import org.tiqian.font.FontRole
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class ExplainableStubTextShaperTest {
+    private val testTrace = TestTraceRecorder("ExplainableStubTextShaperTest")
+
     private val shaper = ExplainableStubTextShaper()
 
     @Test
     fun shapesSingleCjkClusterWithOneEmAdvance() {
+        testTrace.section("shapesSingleCjkClusterWithOneEmAdvance")
         val result = shaper.shape(input(text = "中", role = FontRole.CjkText))
 
         assertEquals(1, result.clusters.size)
@@ -25,6 +30,7 @@ class ExplainableStubTextShaperTest {
 
     @Test
     fun keepsLatinRunAsSingleShapedClusterWithNominalGlyphs() {
+        testTrace.section("keepsLatinRunAsSingleShapedClusterWithNominalGlyphs")
         val result = shaper.shape(input(text = "Hello", role = FontRole.LatinText))
 
         assertEquals(1, result.clusters.size)
@@ -36,6 +42,7 @@ class ExplainableStubTextShaperTest {
 
     @Test
     fun shapesClreqDashSubstitutionAsTwoEmDisplayCluster() {
+        testTrace.section("shapesClreqDashSubstitutionAsTwoEmDisplayCluster")
         val result = shaper.shape(
             input(
                 text = "——",
@@ -72,4 +79,9 @@ class ExplainableStubTextShaperTest {
             ),
             displayText = displayText,
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

@@ -1,8 +1,8 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.InlineBoxOuterSpacing
@@ -13,10 +13,15 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.positionedClusters
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class InlineBoxLayoutTest {
+    private val testTrace = TestTraceRecorder("InlineBoxLayoutTest")
+
     @Test
     fun inlineEdgesReserveAdvanceAndMoveTheGlyphOrigin() {
+        testTrace.section("inlineEdgesReserveAdvanceAndMoveTheGlyphOrigin")
         val engine = ExplainableStubParagraphLayoutEngine()
         val paragraphStyle = ParagraphStyle(
             firstLineIndent = Ic(0f),
@@ -58,6 +63,7 @@ class InlineBoxLayoutTest {
 
     @Test
     fun everyNarrowInlineBoxGetsOuterAutospaceWithoutRoleSpecificCode() {
+        testTrace.section("everyNarrowInlineBoxGetsOuterAutospaceWithoutRoleSpecificCode")
         val engine = ExplainableStubParagraphLayoutEngine()
         val paragraphStyle = ParagraphStyle(
             firstLineIndent = Ic(0f),
@@ -93,5 +99,10 @@ class InlineBoxLayoutTest {
         val sourceWrapped = layout(InlineBoxOuterSpacing.Source)
         assertTrue(sourceWrapped.debug.autoSpaceDecisions.isEmpty())
         assertEquals("Source", sourceWrapped.debug.inlineBoxDecisions.single().outerSpacing)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

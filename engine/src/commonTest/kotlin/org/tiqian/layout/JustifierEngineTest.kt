@@ -17,8 +17,10 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Engine-level justification behaviour: 双齐 is the baseline (CLREQ — every
@@ -31,6 +33,8 @@ import kotlin.test.assertTrue
  * is exercised separately by `LineAdjustmentPushInTest`.
  */
 class JustifierEngineTest {
+    private val testTrace = TestTraceRecorder("JustifierEngineTest")
+
     private val engine = ExplainableStubParagraphLayoutEngine(
         clreqProfileResolver = {
             ClreqProfile.MainlandHorizontal.let { p ->
@@ -75,6 +79,7 @@ class JustifierEngineTest {
 
     @Test
     fun connectorBoundariesAvoidStretchUnderJustification() {
+        testTrace.section("connectorBoundariesAvoidStretchUnderJustification")
         // AvoidStretchAroundConnectors（CLREQ 拉伸限制②）：连接号（～）
         // 前后的边界不参与均匀拉大字距。中～文中Example @80：line0 =
         // 中～文中 (64)，deficit 16 全部落在唯一合法边界 文|中 上。
@@ -96,6 +101,7 @@ class JustifierEngineTest {
 
     @Test
     fun inseparableNumberAndUnitBoundaryAvoidsStretchUnderJustification() {
+        testTrace.section("inseparableNumberAndUnitBoundaryAvoidsStretchUnderJustification")
         // CLREQ 拉伸限制①：50℃ 可以整体换行，但 50|℃ 中间不能被拉开。
         // 128px 下 50℃ 位于非末行，行内其他合法间距确实发生两端对齐。
         val text = "中文50℃中文中文中文Example"
@@ -134,6 +140,7 @@ class JustifierEngineTest {
 
     @Test
     fun lastLineAlignmentPositionsTheLastLineViaIndent() {
+        testTrace.section("lastLineAlignmentPositionsTheLastLineViaIndent")
         // 9 hanzi at maxWidth=100: line 0 (6 clusters) justifies to 100;
         // line 1 (3 clusters, 48) is the last line — its position comes from
         // ParagraphStyle.lastLineAlignment expressed as LineBox.indent.
@@ -167,6 +174,7 @@ class JustifierEngineTest {
 
     @Test
     fun mandatoryBreakLinesTakeLastLineAlignment() {
+        testTrace.section("mandatoryBreakLinesTakeLastLineAlignment")
         // A MandatoryBreak-ended line is the last line of ITS 段 (ADR 0037): it is
         // ragged like a last line, so it must ALSO take lastLineAlignment. Only
         // AutoWrap lines stay pinned (they are justified instead).
@@ -192,6 +200,7 @@ class JustifierEngineTest {
 
     @Test
     fun lastLineIsNeverJustified() {
+        testTrace.section("lastLineIsNeverJustified")
         val result = engine.layout(
             LayoutInput(
                 content = TiqianTextContent("中文中"),
@@ -207,6 +216,7 @@ class JustifierEngineTest {
 
     @Test
     fun latinGlyphPositionsSurviveAutospaceAndJustification() {
+        testTrace.section("latinGlyphPositionsSurviveAutospaceAndJustification")
         val result = ExplainableStubParagraphLayoutEngine(
             textShaper = PositionedPairShaper(),
             hyphenator = NoHyphenator,
@@ -247,6 +257,7 @@ class JustifierEngineTest {
 
     @Test
     fun justifiesNonLastLineUsingCjkInterCharGapsAsLastResort() {
+        testTrace.section("justifiesNonLastLineUsingCjkInterCharGapsAsLastResort")
         // 5 CJK clusters split by greedy into 4 + 1 at maxWidth=64.
         // Line 0 is full, line 1 is last (skipped). Only line 0 might justify —
         // but line 0 is already at maxWidth so deficit=0. Use a wider input:
@@ -274,6 +285,7 @@ class JustifierEngineTest {
 
     @Test
     fun usesPunctuationGlueFirstWhenDeficitMatchesCompression() {
+        testTrace.section("usesPunctuationGlueFirstWhenDeficitMatchesCompression")
         // 4 CJK clusters with adjacent punctuation `，。`: natural width 64,
         // compressed by 4f -> adjusted 60. Plus 2 more clusters = total 60 + 32 = 92.
         // Wait, layout reorders. Let's pick: "中，。文" with maxWidth=64.
@@ -296,6 +308,7 @@ class JustifierEngineTest {
 
     @Test
     fun justifyDistributesDeficitAcrossPriorityChain() {
+        testTrace.section("justifyDistributesDeficitAcrossPriorityChain")
         // Two-line text where line 0 has punctuation-spacing compression.
         // text = "中」。文中文中文中"  (9 clusters, CJK = 16f)
         // maxWidth = 80
@@ -339,6 +352,7 @@ class JustifierEngineTest {
 
     @Test
     fun cjkInterCharActsAsLastResortWhenPunctGlueExhausted() {
+        testTrace.section("cjkInterCharActsAsLastResortWhenPunctGlueExhausted")
         // 6 clusters, maxWidth=120, no punct. Greedy line 0 fits all 6
         // (advance 96), so line 0 IS the last line. Force two lines:
         // 10 clusters, maxWidth=96. line 0 = 6 clusters (96), line 1 = 4 (64).
@@ -374,6 +388,7 @@ class JustifierEngineTest {
 
     @Test
     fun uniformTrackingIncludesBracketInnerSides() {
+        testTrace.section("uniformTrackingIncludesBracketInnerSides")
         // text = "中（中文）文中文中文中"  (11 CJK-width clusters @16f)
         // maxWidth=100 → greedy line 0 = clusters 0..5 (96), deficit 4.
         // CjkOnlyInterCharBoundary: uniform tracking over ALL five CJK↔CJK
@@ -402,6 +417,7 @@ class JustifierEngineTest {
 
     @Test
     fun bracketWesternInteriorStretchesInTierThreeNotTierTwo() {
+        testTrace.section("bracketWesternInteriorStretchesInTierThreeNotTierTwo")
         // text = "中文（Hello）中文中文"; stub Latin advance = 5em = 80.
         // maxWidth=170 → line 0 = 中文（Hello）中 (160), deficit 10.
         // （→Hello and Hello→） are 标点↔西文 boundaries: NOT 中西间距 (tier ②,
@@ -429,6 +445,7 @@ class JustifierEngineTest {
 
     @Test
     fun dashBoundariesDoNotReceiveUniformTracking() {
+        testTrace.section("dashBoundariesDoNotReceiveUniformTracking")
         // The two-em dash is an indivisible long punctuation mark. If tier-③
         // CjkInterChar opens the boundary after it, `下——不` looks like
         // `下—— 不` in justified article text.
@@ -459,6 +476,7 @@ class JustifierEngineTest {
 
     @Test
     fun typedSinoWesternSpacesStretchInTierTwo() {
+        testTrace.section("typedSinoWesternSpacesStretchInTierTwo")
         // text = "中文 Hello 中文中文中文": the author-typed U+0020 around
         // "Hello" are 中西间距 (separate space clusters, autospace base 0.25em).
         // They MUST stretch in tier ② (`TypedSinoWesternSpaceStretches`), each
@@ -485,6 +503,7 @@ class JustifierEngineTest {
 
     @Test
     fun punctuationToWesternBoundaryStretchesInTierThree() {
+        testTrace.section("punctuationToWesternBoundaryStretchesInTierThree")
         // 「World」 mid-line, justified: CLREQ tier ③「剩余所有字符间距」includes
         // 标点↔西文 (only 不可断标点 + 连接号/分隔号 are excluded), so the
         // bracket's Western-facing face stretches like every other 字符间距.
@@ -511,6 +530,7 @@ class JustifierEngineTest {
 
     @Test
     fun lineEdgeSinoWesternSpaceStaysCollapsed() {
+        testTrace.section("lineEdgeSinoWesternSpaceStaysCollapsed")
         // "中文中文 word 中文中" wraps with the typed space after 中文中文 at
         // line 0's end. LineEdgeWordSpaceCollapse trims it to 0; the typed-中西
         // stretch must NOT revive it to 0.5em (a trimmed line-edge blank).
@@ -527,5 +547,10 @@ class JustifierEngineTest {
                 assertEquals(0f, edge.advance, "line-edge sino-western space must stay collapsed")
             }
         }
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

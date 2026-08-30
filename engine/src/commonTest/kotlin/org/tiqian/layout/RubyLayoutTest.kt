@@ -15,8 +15,10 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * 行间注 (拼音 ruby, ADR 0032):注文 first consumes existing inter-line space,
@@ -24,6 +26,8 @@ import kotlin.test.assertTrue
  * base x-span.
  */
 class RubyLayoutTest {
+    private val testTrace = TestTraceRecorder("RubyLayoutTest")
+
 
     private val engine = ExplainableStubParagraphLayoutEngine()
     private fun input(ruby: List<RubySpan>) = LayoutInput(
@@ -35,6 +39,7 @@ class RubyLayoutTest {
 
     @Test
     fun rubyDoesNotChangeLineBoxAndCentresOverBase() {
+        testTrace.section("rubyDoesNotChangeLineBoxAndCentresOverBase")
         val plain = engine.layout(input(emptyList()))
         val ruby = engine.layout(input(listOf(RubySpan(TextRange(0, 1), "zhōng"))))
 
@@ -68,6 +73,7 @@ class RubyLayoutTest {
 
     @Test
     fun rubyOnOneLineKeepsTheWholeBaselineGridStable() {
+        testTrace.section("rubyOnOneLineKeepsTheWholeBaselineGridStable")
         fun layout(ruby: List<RubySpan>) = engine.layout(
             LayoutInput(
                 content = TiqianTextContent("甲乙丙丁戊己庚辛"),
@@ -92,6 +98,7 @@ class RubyLayoutTest {
 
     @Test
     fun tightLineHeightRaisesOnlyTheAnnotatedLineByDefault() {
+        testTrace.section("tightLineHeightRaisesOnlyTheAnnotatedLineByDefault")
         fun layout(ruby: List<RubySpan>) = engine.layout(
             LayoutInput(
                 content = TiqianTextContent("甲乙丙丁戊己庚辛壬癸子丑"),
@@ -125,6 +132,7 @@ class RubyLayoutTest {
 
     @Test
     fun uniformModeAddsTheSameDeficitToEveryLine() {
+        testTrace.section("uniformModeAddsTheSameDeficitToEveryLine")
         val result = engine.layout(
             LayoutInput(
                 content = TiqianTextContent("甲乙丙丁戊己庚辛壬癸子丑"),
@@ -154,6 +162,7 @@ class RubyLayoutTest {
 
     @Test
     fun rubyVerticalGeometryUsesLatinMetricsNotReadingInk() {
+        testTrace.section("rubyVerticalGeometryUsesLatinMetricsNotReadingInk")
         val delegate = ExplainableStubTextShaper()
         val engineWithContradictoryInk = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
@@ -206,6 +215,7 @@ class RubyLayoutTest {
 
     @Test
     fun noRubyIsUnchanged() {
+        testTrace.section("noRubyIsUnchanged")
         // The default path (no ruby) emits no annotation geometry.
         val plain = engine.layout(input(emptyList()))
         assertTrue(plain.debug.rubyDecisions.isEmpty())
@@ -213,6 +223,7 @@ class RubyLayoutTest {
 
     @Test
     fun wideAdjacentReadingsSpreadButNarrowDoNot() {
+        testTrace.section("wideAdjacentReadingsSpreadButNarrowDoNot")
         fun totalWidth(rubyTexts: List<String>): Double {
             val spans = rubyTexts.mapIndexed { i, t -> RubySpan(TextRange(i, i + 1), t) }
             return engine.layout(
@@ -235,5 +246,10 @@ class RubyLayoutTest {
         // full-width — and is covered by the render probe instead.)
         assertTrue(narrow >= plain, "spread never shrinks the line ($narrow vs $plain)")
         assertTrue(wide > narrow, "wider readings spread more ($wide vs $narrow)")
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

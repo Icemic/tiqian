@@ -10,8 +10,10 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * `text-autospace: replace` per CSS Text 4 + ADR 0009 must collapse ALL
@@ -23,9 +25,12 @@ import kotlin.test.assertTrue
  * the boundary width. That violates the spec and the project's intent.
  */
 class AutoSpaceSingleGapTest {
+    private val testTrace = TestTraceRecorder("AutoSpaceSingleGapTest")
+
 
     @Test
     fun attachedReferenceBetweenCjkTextDoesNotInventAnAutospaceGap() {
+        testTrace.section("attachedReferenceBetweenCjkTextDoesNotInventAnAutospaceGap")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -47,6 +52,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun attachedReferenceBeforeLatinTextGetsTheVirtualCjkLatinGap() {
+        testTrace.section("attachedReferenceBeforeLatinTextGetsTheVirtualCjkLatinGap")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -74,6 +80,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun attachedReferenceAtParagraphEndHasNoAutospaceGap() {
+        testTrace.section("attachedReferenceAtParagraphEndHasNoAutospaceGap")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -95,6 +102,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun oneTypedSpaceBecomesOneAutospaceGap() {
+        testTrace.section("oneTypedSpaceBecomesOneAutospaceGap")
         // `中文 CJK 段落` — LatinWordSegmentation makes each space its own
         // cluster. CJK-adjacent space clusters ARE the sino-western gap:
         // their advance normalises from 1em (stub) to gapEm (default 0.125em).
@@ -114,6 +122,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun twoTypedSpacesAtBoundaryStillCollapseToOneGap() {
+        testTrace.section("twoTypedSpacesAtBoundaryStillCollapseToOneGap")
         // `中文  CJK 段落` — the 2-space run is ONE cluster and still
         // normalises to a single gapEm gap, same as one typed space.
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -131,6 +140,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun threeTypedSpacesStillOneGap() {
+        testTrace.section("threeTypedSpacesStillOneGap")
         // 3 leading spaces, 0 trailing — the 3-space run normalises to one
         // 2 px gap, and the space-less trailing boundary CJK→段 gains an
         // Insert gap inside the word cluster (48 + 2 = 50).
@@ -149,6 +159,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun zeroSpacesGetInsertedGaps() {
+        testTrace.section("zeroSpacesGetInsertedGaps")
         // TextAutoSpaceInsert (CLREQ:「汉字与西文字母、数字间使用不多于四分
         // 之一个汉字宽的字距或空白」——1/8 合规): boundaries WITHOUT typed
         // spaces gain a gapEm gap per side. "CJK" nominal 48 → 48 + 2 + 2 = 52.
@@ -171,6 +182,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun unicodeEastAsianSpacingCoversNarrowScriptsWithoutScriptWhitelists() {
+        testTrace.section("unicodeEastAsianSpacingCoversNarrowScriptsWithoutScriptWhitelists")
         for (sample in listOf("α", "я", "ա")) {
             val result = ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
@@ -195,6 +207,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun conditionalPunctuationFollowsChineseLanguageResolution() {
+        testTrace.section("conditionalPunctuationFollowsChineseLanguageResolution")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -209,6 +222,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun autospaceDoesNotFireBetweenLatinAndCjkPunctuation() {
+        testTrace.section("autospaceDoesNotFireBetweenLatinAndCjkPunctuation")
         // Per CSS Text 4, `text-autospace` fires at ideograph ↔ alpha/numeric
         // boundaries only. Punctuation has its own spacing model. The text
         // `Tiqian ）说明` has a typed space between Latin and a closing
@@ -228,6 +242,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun autospaceDoesNotFireBeforeSlashLedLatinTechnicalRun() {
+        testTrace.section("autospaceDoesNotFireBeforeSlashLedLatinTechnicalRun")
         // `/TERFism` is shaped as one LatinText run so slash + acronym use a
         // compatible western font and escape CJK punctuation geometry, but the
         // boundary at `跨/` is still ideograph ↔ punctuation, not ideograph ↔
@@ -248,6 +263,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun autospaceStillFiresBetweenLatinAndCjkTextEvenWithPunctuationNearby() {
+        testTrace.section("autospaceStillFiresBetweenLatinAndCjkTextEvenWithPunctuationNearby")
         // The boundary is between Latin "shaping" and the CjkText `之`. The
         // closing bracket `）` next to it does not cancel the firing.
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -264,6 +280,7 @@ class AutoSpaceSingleGapTest {
 
     @Test
     fun autospaceDistinguishesLetterFromDigitAtBoundary() {
+        testTrace.section("autospaceDistinguishesLetterFromDigitAtBoundary")
         // CLREQ 字母/数字之分: the boundary-adjacent western char selects
         // cjkLatin (letter) vs cjkDigit (digit). Disable cjkDigit only —
         // 汉字↔字母 still inserts a gap, 汉字↔数字 does not.
@@ -289,5 +306,10 @@ class AutoSpaceSingleGapTest {
         val nineRange = result.clusters.single { it.text == "9" }.range
         assertTrue(decided.isNotEmpty() && decided.all { it.clusterRange == aRange }, "only the letter fires: $decided")
         assertTrue(decided.none { it.clusterRange == nineRange }, "digit boundary must not fire when cjkDigit disabled")
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

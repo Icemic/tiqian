@@ -1,9 +1,9 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertNotNull
+import org.tiqian.test.trace.assertTrue
 import org.tiqian.clreq.ClreqProfile
 import org.tiqian.clreq.ClreqProfileResolver
 import org.tiqian.clreq.HangingPunctuationStyle
@@ -23,8 +23,12 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.positionedClusters
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class InlineObjectLayoutTest {
+    private val testTrace = TestTraceRecorder("InlineObjectLayoutTest")
+
     private val style = ParagraphStyle(
         firstLineIndent = Ic(0f),
         lineHeight = 24f,
@@ -33,6 +37,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun lineBoundaryClosesOneUlpGapWithoutChangingBaselineDistance() {
+        testTrace.section("lineBoundaryClosesOneUlpGapWithoutChangingBaselineDistance")
         val boundary = resolveInlineObjectLineBoundaryExtent(
             nominalBoundaryExtent = 80f,
             currentContentBottomExtent = 84.14f,
@@ -45,6 +50,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectUsesExistingInterlineSpaceWithoutMovingBaselines() {
+        testTrace.section("inlineObjectUsesExistingInterlineSpaceWithoutMovingBaselines")
         fun layout(inlineObjects: List<InlineObjectSpan>) =
             ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
@@ -91,6 +97,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectExpandsBaselineGapOnlyForActualCollision() {
+        testTrace.section("inlineObjectExpandsBaselineGapOnlyForActualCollision")
         fun layout(paragraphStyle: ParagraphStyle) = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("甲乙"),
@@ -125,6 +132,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectSkipsFontShapingAndExpandsItsOwnLineMetrics() {
+        testTrace.section("inlineObjectSkipsFontShapingAndExpandsItsOwnLineMetrics")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中${INLINE_OBJECT_REPLACEMENT_CHAR}文"),
@@ -160,6 +168,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectIsOneIndivisibleBreakCluster() {
+        testTrace.section("inlineObjectIsOneIndivisibleBreakCluster")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中${INLINE_OBJECT_REPLACEMENT_CHAR}文"),
@@ -179,6 +188,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectKeepsAlternateSourceTextWhileSkippingItsGlyphShaping() {
+        testTrace.section("inlineObjectKeepsAlternateSourceTextWhileSkippingItsGlyphShaping")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中图片文"),
@@ -202,6 +212,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun formulaBoundaryCompressionPushesAttachedCommaIntoPreviousLine() {
+        testTrace.section("formulaBoundaryCompressionPushesAttachedCommaIntoPreviousLine")
         val text = "x+，后"
         val engine = fixedBasicKinsokuEngine()
         val result = engine.layout(
@@ -236,6 +247,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun adjustBreakForUnbreakablesRetreatsPastTheWholeContiguousRun() {
+        testTrace.section("adjustBreakForUnbreakablesRetreatsPastTheWholeContiguousRun")
         // A per-atom formula (e.g. `P(0.5)`) produces a CHAIN of adjacent unbreakable ranges. A
         // break landing inside it must retreat past the ENTIRE run, not a single range — the
         // closure gap that let `0.5|)` slip back onto the phone. Ranges below forbid breaks at
@@ -256,6 +268,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun perAtomFormulaChainNeverBreaksMidRun() {
+        testTrace.section("perAtomFormulaChainNeverBreaksMidRun")
         // A per-atom formula (`10^{34}x^3`-style) splits into a CHAIN of adjacent unbreakable
         // ranges. When it overflows, the whole chain must move to the next line together — the fill
         // push-in pass must not refill a break back inside it (the `10^{34}|x^3` slip). Four atoms
@@ -292,6 +305,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun punctuationAttachedToInlineObjectNeverStartsWrappedLine() {
+        testTrace.section("punctuationAttachedToInlineObjectNeverStartsWrappedLine")
         val breakers = listOf(
             GreedyLineBreaker(),
             LookaheadLineBreaker(),
@@ -334,6 +348,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun separatorSpaceBeforePunctuationCollapsesAndStaysWithInlineObject() {
+        testTrace.section("separatorSpaceBeforePunctuationCollapsesAndStaysWithInlineObject")
         val breakers = listOf(
             GreedyLineBreaker(),
             LookaheadLineBreaker(),
@@ -393,6 +408,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun relationStretchMovesBothFormulaSidesByTheSameFinalGeometry() {
+        testTrace.section("relationStretchMovesBothFormulaSidesByTheSameFinalGeometry")
         val naturalRelationGap = 5f / 18f * 16f
         val targetGap = 0.5f * 16f
         val formulaBodyWidth = 10f
@@ -460,6 +476,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun formulaBreakKeepsBaselineOperatorOnPreviousLine() {
+        testTrace.section("formulaBreakKeepsBaselineOperatorOnPreviousLine")
         val text = "a+b"
         val inlineObjects = listOf(
             InlineObjectSpan(TextRange(0, 1), advance = 12f, ascent = 12f, descent = 4f),
@@ -563,4 +580,9 @@ class InlineObjectLayoutTest {
             )
         },
     )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

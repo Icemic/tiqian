@@ -5,10 +5,14 @@ import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleContext
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class QuotePairAnalyzerTest {
+    private val testTrace = TestTraceRecorder("QuotePairAnalyzerTest")
+
     private val analyzer = QuotePairAnalyzer()
     private val classifier = CjkFontRoleClassifier()
 
@@ -16,6 +20,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun matchesDoubleQuotePair() {
+        testTrace.section("matchesDoubleQuotePair")
         // 他说"你好"
         val pairs = analyzer.analyze("\u4ED6\u8BF4\u201C\u4F60\u597D\u201D")
         assertEquals(1, pairs.size)
@@ -24,6 +29,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun matchesSingleQuotePair() {
+        testTrace.section("matchesSingleQuotePair")
         // 他说'你好'
         val pairs = analyzer.analyze("\u4ED6\u8BF4\u2018\u4F60\u597D\u2019")
         assertEquals(1, pairs.size)
@@ -32,6 +38,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun matchesNestedQuotePairs() {
+        testTrace.section("matchesNestedQuotePairs")
         // 他说："她说'你好'。"
         val text = "\u4ED6\u8BF4\uFF1A\u201C\u5979\u8BF4\u2018\u4F60\u597D\u2019\u3002\u201D"
         val pairs = analyzer.analyze(text)
@@ -43,6 +50,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun unmatchedQuotesProduceNoPairs() {
+        testTrace.section("unmatchedQuotesProduceNoPairs")
         // it's — unmatched right single quote (apostrophe)
         val pairs = analyzer.analyze("it\u2019s")
         assertEquals(0, pairs.size)
@@ -50,6 +58,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun contractionApostropheDoesNotCloseOuterSingleQuote() {
+        testTrace.section("contractionApostropheDoesNotCloseOuterSingleQuote")
         val text = "\u2018that\u2019s\u2019"
 
         assertEquals(
@@ -60,6 +69,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun contractionInsideCjkSingleQuotesKeepsApostropheLatin() {
+        testTrace.section("contractionInsideCjkSingleQuotesKeepsApostropheLatin")
         val text = "\u4E2D\u2018that\u2019s\u2019\u4E2D"
         val pairs = analyzer.analyze(text)
         val roles = analyzer.classifyPairs(text, pairs)
@@ -72,6 +82,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun inWordApostropheMatrixDoesNotConsumeOuterQuotePairs() {
+        testTrace.section("inWordApostropheMatrixDoesNotConsumeOuterQuotePairs")
         for (word in listOf("that’s", "l’été", "rock’n’roll", "version2’s", "α’β", "а’б", "e\u0301’s")) {
             assertTrue(analyzer.analyze(word).isEmpty(), word)
             val decisions = analyzer.classifyQuoteRoles(word, emptyList())
@@ -91,6 +102,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun unmatchedCurlyQuotesUseDirectionalContext() {
+        testTrace.section("unmatchedCurlyQuotesUseDirectionalContext")
         val cases = listOf(
             QuoteRoleCase("leading elision at text start", "’90s", "L"),
             QuoteRoleCase("leading elision after CJK and Western space", "中文 ’90s", "L"),
@@ -107,6 +119,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun mismatchedNestingLeavesQuotesUnmatched() {
+        testTrace.section("mismatchedNestingLeavesQuotesUnmatched")
         // "hello' — double open, single close, no match
         val pairs = analyzer.analyze("\u201Chello\u2019")
         assertEquals(0, pairs.size)
@@ -116,6 +129,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesPairAsCjkWhenOuterContextIsCjk() {
+        testTrace.section("classifiesPairAsCjkWhenOuterContextIsCjk")
         // 他说"你好"
         val text = "\u4ED6\u8BF4\u201C\u4F60\u597D\u201D"
         val pairs = analyzer.analyze(text)
@@ -126,6 +140,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesPairAsLatinWhenOuterContextIsLatin() {
+        testTrace.section("classifiesPairAsLatinWhenOuterContextIsLatin")
         // he said "hello" world
         val text = "he said \u201Chello\u201D world"
         val pairs = analyzer.analyze(text)
@@ -136,6 +151,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesBothQuotesAsCjkForCjkQuotedLatinContent() {
+        testTrace.section("classifiesBothQuotesAsCjkForCjkQuotedLatinContent")
         // 他说"hello" — opening quote's outer context is CJK
         val text = "\u4ED6\u8BF4\u201Chello\u201D"
         val pairs = analyzer.analyze(text)
@@ -146,6 +162,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun whitespaceDelimitedLatinQuotePairOverridesCjkOuterContext() {
+        testTrace.section("whitespaceDelimitedLatinQuotePairOverridesCjkOuterContext")
         val text = "（如 ‘O’, ‘Q’）"
         val decisions = analyzer.classifyQuoteRoles(
             text,
@@ -162,6 +179,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun unspacedCjkQuotationOfLatinTextRemainsCjk() {
+        testTrace.section("unspacedCjkQuotationOfLatinTextRemainsCjk")
         val text = "他说‘hello’"
         val roles = analyzer.classifyPairs(text, analyzer.analyze(text))
 
@@ -171,6 +189,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun adjacentQuotedListItemsDoNotUsePreviousItemContentAsOuterContext() {
+        testTrace.section("adjacentQuotedListItemsDoNotUsePreviousItemContentAsOuterContext")
         val cases = listOf(
             QuoteRoleCase(
                 "CJK list item after mixed-script item",
@@ -202,6 +221,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun spacedCjkQuotedContentRemainsCjk() {
+        testTrace.section("spacedCjkQuotedContentRemainsCjk")
         val text = "他说 ‘你好’"
         val roles = analyzer.classifyPairs(text, analyzer.analyze(text))
 
@@ -211,6 +231,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesPairAsCjkAtTextBoundary() {
+        testTrace.section("classifiesPairAsCjkAtTextBoundary")
         // "你好" — no outer context, defaults to CJK
         val text = "\u201C\u4F60\u597D\u201D"
         val pairs = analyzer.analyze(text)
@@ -221,6 +242,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesTextStartLatinPairFromQuotedContent() {
+        testTrace.section("classifiesTextStartLatinPairFromQuotedContent")
         val text = "\u201CHello\u201D world"
         val pairs = analyzer.analyze(text)
         val roles = analyzer.classifyPairs(text, pairs)
@@ -230,6 +252,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun mixedChineseQuestionAtParagraphStartUsesParagraphLanguage() {
+        testTrace.section("mixedChineseQuestionAtParagraphStartUsesParagraphLanguage")
         val text = "“Json是谁？”"
         val decisions = analyzer.classifyQuoteRoles(text, analyzer.analyze(text))
 
@@ -240,6 +263,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun explicitEnglishParagraphLanguageWinsForMixedQuotation() {
+        testTrace.section("explicitEnglishParagraphLanguageWinsForMixedQuotation")
         val text = "“Json是谁？”"
         val decisions = analyzer.classifyQuoteRoles(
             text,
@@ -253,6 +277,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun commonDigitsDoNotChooseTheQuoteRole() {
+        testTrace.section("commonDigitsDoNotChooseTheQuoteRole")
         val text = "“2024”"
         val pairs = analyzer.analyze(text)
 
@@ -267,6 +292,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun nonLatinWesternScriptsParticipateAsStrongScriptEvidence() {
+        testTrace.section("nonLatinWesternScriptsParticipateAsStrongScriptEvidence")
         val cases = listOf(
             QuoteRoleCase("standalone Cyrillic quotation", "“Привет”", "LL"),
             QuoteRoleCase("mixed Greek and Chinese quotation", "“π是谁？”", "CC"),
@@ -278,6 +304,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun numberedCjkQuotePrefixUsesQuotedContent() {
+        testTrace.section("numberedCjkQuotePrefixUsesQuotedContent")
         val text = "1.\u201C\u4F60\u77E5\u9053\u674E\u767D\u662F\u600E\u4E48\u6B7B\u7684\u5417\uFF1F\u201D"
         val pairs = analyzer.analyze(text)
         val decisions = analyzer.classifyQuoteRoles(text, pairs)
@@ -289,6 +316,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun numberedLatinQuotePrefixStillUsesLatinContent() {
+        testTrace.section("numberedLatinQuotePrefixStillUsesLatinContent")
         val text = "1.\u201CHello\u201D"
         val pairs = analyzer.analyze(text)
         val roles = analyzer.classifyPairs(text, pairs)
@@ -299,6 +327,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesNestedPairsByOutermostContext() {
+        testTrace.section("classifiesNestedPairsByOutermostContext")
         // 他说："她说'你好'。"
         val text = "\u4ED6\u8BF4\uFF1A\u201C\u5979\u8BF4\u2018\u4F60\u597D\u2019\u3002\u201D"
         val pairs = analyzer.analyze(text)
@@ -313,6 +342,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun classifiesLatinNestedQuotesByOuterContext() {
+        testTrace.section("classifiesLatinNestedQuotesByOuterContext")
         // She said "he said 'hello' today" end
         val text = "She said \u201Che said \u2018hello\u2019 today\u201D end"
         val pairs = analyzer.analyze(text)
@@ -325,6 +355,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun skipsAsciiPunctuationWhenResolvingContext() {
+        testTrace.section("skipsAsciiPunctuationWhenResolvingContext")
         // English: "hello" — colon and space before quote
         val text = "English: \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
@@ -336,6 +367,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun skipsNeutralDashWhenResolvingContext() {
+        testTrace.section("skipsNeutralDashWhenResolvingContext")
         val text = "English \u2014 \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
         val roles = analyzer.classifyPairs(text, pairs)
@@ -345,6 +377,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun endOfTextQuotePairClassifiedByOuterContext() {
+        testTrace.section("endOfTextQuotePairClassifiedByOuterContext")
         // he said "hello"
         val text = "he said \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
@@ -355,6 +388,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun representativeQuoteContextMatrixRemainsStable() {
+        testTrace.section("representativeQuoteContextMatrixRemainsStable")
         val cases = listOf(
             QuoteRoleCase("Latin content at text start", "“Hello”", "LL"),
             QuoteRoleCase("CJK content at text start", "“你好”", "CC"),
@@ -382,6 +416,7 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun roleDecisionSourcesStayExplainableAcrossFallbackPaths() {
+        testTrace.section("roleDecisionSourcesStayExplainableAcrossFallbackPaths")
         val cases = listOf(
             "“Hello”" to "PairedPunctuationContentScriptContext",
             "“Json是谁？”" to "ParagraphLanguageQuoteContext",
@@ -428,4 +463,9 @@ class QuotePairAnalyzerTest {
 
     private fun Char.isCurlyQuote(): Boolean =
         this == '\u2018' || this == '\u2019' || this == '\u201C' || this == '\u201D'
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

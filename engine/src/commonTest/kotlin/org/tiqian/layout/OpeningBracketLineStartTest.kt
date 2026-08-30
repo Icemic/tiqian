@@ -6,12 +6,17 @@ import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.Ic
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class OpeningBracketLineStartTest {
+    private val testTrace = TestTraceRecorder("OpeningBracketLineStartTest")
+
     @Test
     fun testOpeningBracketAtLineStartCompression() {
+        testTrace.section("testOpeningBracketAtLineStartCompression")
         val text = "这是第一行测试文字这是第一行测试\n（Shaping & Font Metrics）这是第二行文字\n（GPOS / GSUB 特性表查询）这是第三行文字"
         val engine = ExplainableStubParagraphLayoutEngine()
         val result = engine.layout(
@@ -36,5 +41,10 @@ class OpeningBracketLineStartTest {
         val startTrims = result.debug.lineEdgeTrimDecisions.filter { it.reason == "LineStartHalfWidthPunctuation" }
         assertEquals(2, startTrims.size)
         assertTrue(startTrims.all { it.side == "leading" && it.trimAmount == 8.0f })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

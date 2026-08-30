@@ -3,7 +3,10 @@ package org.tiqian.layout
 import org.tiqian.test.EarlyLayoutFixtures
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.fail
+import org.tiqian.test.trace.fail
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
+import org.tiqian.test.trace.assertTrue
 
 /**
  * Golden regression baseline for layout decisions (Slice 6 验收).
@@ -28,12 +31,15 @@ import kotlin.test.fail
  * then review the golden diff like any other code change.
  */
 class LayoutDumpGoldenTest {
+    private val testTrace = TestTraceRecorder("LayoutDumpGoldenTest")
+
 
     private val goldenDir = File("src/jvmTest/resources/golden/layout-dumps")
     private val updateMode = System.getenv("TIQIAN_UPDATE_GOLDEN") == "1"
 
     @Test
     fun layoutDecisionDumpsMatchGolden() {
+        testTrace.section("layoutDecisionDumpsMatchGolden")
         val failures = mutableListOf<String>()
         for (fixture in EarlyLayoutFixtures.all) {
             val dump = layoutFixtureDump(fixture)
@@ -52,15 +58,19 @@ class LayoutDumpGoldenTest {
                 failures += layoutDumpDiffMessage(fixture.id, expected, dump)
             }
         }
-        if (failures.isNotEmpty()) {
-            fail(
-                failures.joinToString("\n\n") +
-                    "\n\nIf the change is intentional, regenerate with " +
-                    "TIQIAN_UPDATE_GOLDEN=1 and review the golden diff.",
-            )
-        }
+        assertTrue(
+            failures.isEmpty(),
+            failures.joinToString("\n\n") +
+                "\n\nIf the change is intentional, regenerate with " +
+                "TIQIAN_UPDATE_GOLDEN=1 and review the golden diff.",
+        )
         if (updateMode) {
             println("golden dumps written to ${goldenDir.absolutePath}")
         }
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

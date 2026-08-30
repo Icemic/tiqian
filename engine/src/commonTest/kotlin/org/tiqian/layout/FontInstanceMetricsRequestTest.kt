@@ -1,7 +1,7 @@
 package org.tiqian.layout
 
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertTrue
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.RubySpan
@@ -14,10 +14,15 @@ import org.tiqian.font.FontMetricsResolver
 import org.tiqian.font.FontRole
 import org.tiqian.font.RawFontMetrics
 import org.tiqian.font.StubFontMetricsResolver
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class FontInstanceMetricsRequestTest {
+    private val testTrace = TestTraceRecorder("FontInstanceMetricsRequestTest")
+
     @Test
     fun perSpanWeightAndItalicReachTheMetricsResolver() {
+        testTrace.section("perSpanWeightAndItalicReachTheMetricsResolver")
         val requests = mutableListOf<FontMetricsRequest>()
         val stub = StubFontMetricsResolver()
         val resolver = object : FontMetricsResolver {
@@ -60,6 +65,7 @@ class FontInstanceMetricsRequestTest {
 
     @Test
     fun faceSelectionUsesTheDisplayTextThatWasActuallyShaped() {
+        testTrace.section("faceSelectionUsesTheDisplayTextThatWasActuallyShaped")
         val requests = mutableListOf<FontMetricsRequest>()
         val stub = StubFontMetricsResolver()
         val resolver = object : FontMetricsResolver {
@@ -82,6 +88,7 @@ class FontInstanceMetricsRequestTest {
 
     @Test
     fun rubyMetricsUseTheSameItalicInstanceAsRubyShaping() {
+        testTrace.section("rubyMetricsUseTheSameItalicInstanceAsRubyShaping")
         val requests = mutableListOf<FontMetricsRequest>()
         val stub = StubFontMetricsResolver()
         val resolver = object : FontMetricsResolver {
@@ -107,5 +114,10 @@ class FontInstanceMetricsRequestTest {
         assertTrue(requests.any {
             it.role == FontRole.LatinText && it.faceSelectionText == "zhōng" && it.italic
         })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

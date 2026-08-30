@@ -2,18 +2,24 @@ package org.tiqian.font
 
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class CjkFontRoleClassifierTest {
+    private val testTrace = TestTraceRecorder("CjkFontRoleClassifierTest")
+
     private val classifier = CjkFontRoleClassifier()
 
     @Test
     fun classifiesCjkText() {
+        testTrace.section("classifiesCjkText")
         assertEquals(FontRole.CjkText, classifier.classify("提", TextRange(0, 1)))
     }
 
     @Test
     fun classifiesCjkPunctuation() {
+        testTrace.section("classifiesCjkPunctuation")
         assertEquals(FontRole.CjkPunctuation, classifier.classify("……", TextRange(0, 1)))
         assertEquals(FontRole.CjkPunctuation, classifier.classify("⋯⋯", TextRange(0, 1)))
         assertEquals(FontRole.CjkPunctuation, classifier.classify("——", TextRange(0, 1)))
@@ -27,11 +33,13 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesLatinText() {
+        testTrace.section("classifiesLatinText")
         assertEquals(FontRole.LatinText, classifier.classify("English", TextRange(0, 1)))
     }
 
     @Test
     fun classifiesUnicodeEmojiPresentationWithoutReclassifyingPlainKeycapBases() {
+        testTrace.section("classifiesUnicodeEmojiPresentationWithoutReclassifyingPlainKeycapBases")
         for (text in listOf("⌚", "🀄", "🫪")) {
             assertEquals(FontRole.Emoji, classifier.classify(text, TextRange(0, text.length)), text)
         }
@@ -41,6 +49,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesAsciiSymbolsAndPunctuationAsLatin() {
+        testTrace.section("classifiesAsciiSymbolsAndPunctuationAsLatin")
         // The percent-sign bug: typed ASCII punctuation/symbols are Western → Latin face,
         // not the CJK fallback. Covers Po punctuation and S* symbols alike.
         val samples = listOf('%', '.', ',', ':', ';', '!', '?', '#', '@', '&', '*', '+', '=', '<', '>', '|', '^', '_', '$', '\'', '"')
@@ -53,6 +62,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesAsciiHyphenSlashTildeAsLatinRegardlessOfContext() {
+        testTrace.section("classifiesAsciiHyphenSlashTildeAsLatinRegardlessOfContext")
         assertEquals(FontRole.LatinText, classifier.classify("well-known", TextRange(4, 5)))
         assertEquals(FontRole.LatinText, classifier.classify("https://example", TextRange(6, 7)))
         assertEquals(FontRole.LatinText, classifier.classify("https://example", TextRange(7, 8)))
@@ -65,6 +75,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesCurlyQuotesAsCjkWhenSurroundedByCjk() {
+        testTrace.section("classifiesCurlyQuotesAsCjkWhenSurroundedByCjk")
         // U+201C/201D between CJK text -> CjkPunctuation
         assertEquals(FontRole.CjkPunctuation, classifier.classify("\u4ED6\u8BF4\u201C\u4F60\u597D\u201D", TextRange(2, 3)))
         assertEquals(FontRole.CjkPunctuation, classifier.classify("\u4ED6\u8BF4\u201C\u4F60\u597D\u201D", TextRange(5, 6)))
@@ -75,6 +86,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesCurlyQuotesAsLatinWhenSurroundedByLatin() {
+        testTrace.section("classifiesCurlyQuotesAsLatinWhenSurroundedByLatin")
         // said "hello" -> quotes between Latin chars are LatinText
         assertEquals(FontRole.LatinText, classifier.classify("said \u201Chello\u201D end", TextRange(5, 6)))
         assertEquals(FontRole.LatinText, classifier.classify("said \u201Chello\u201D end", TextRange(11, 12)))
@@ -84,6 +96,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesCurlyQuotesAsCjkInMixedContext() {
+        testTrace.section("classifiesCurlyQuotesAsCjkInMixedContext")
         // CJK"Latin" -> opening quote has CJK on left, so CjkPunctuation
         assertEquals(FontRole.CjkPunctuation, classifier.classify("\u4ED6\u8BF4\u201Chello\u201D", TextRange(2, 3)))
         // CJK"Latin" -> closing quote has Latin on left but nothing/end on right, so CjkPunctuation
@@ -92,6 +105,7 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesAsciiBracketsAsLatin() {
+        testTrace.section("classifiesAsciiBracketsAsLatin")
         // ASCII parens/brackets do not share a code point with CJK fullwidth
         // forms, so they are classified as Latin regardless of context. (For
         // context-aware classification of genuinely shared code points see
@@ -109,9 +123,15 @@ class CjkFontRoleClassifierTest {
 
     @Test
     fun classifiesCurlyQuotesAsCjkAtTextBoundary() {
+        testTrace.section("classifiesCurlyQuotesAsCjkAtTextBoundary")
         // Quote at start of text -> no left neighbor -> CjkPunctuation
         assertEquals(FontRole.CjkPunctuation, classifier.classify("\u201C\u4F60\u597D\u201D", TextRange(0, 1)))
         // Quote at end of text -> no right neighbor -> CjkPunctuation
         assertEquals(FontRole.CjkPunctuation, classifier.classify("\u201C\u4F60\u597D\u201D", TextRange(3, 4)))
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

@@ -1,14 +1,19 @@
 package org.tiqian.font
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class ScriptAwareFontMetricsNormalizerTest {
+    private val testTrace = TestTraceRecorder("ScriptAwareFontMetricsNormalizerTest")
+
     private val resolver = StubFontMetricsResolver()
     private val normalizer = ScriptAwareFontMetricsNormalizer()
 
     @Test
     fun cjkTextUsesFontDeclaredTypoBoxInsteadOfSynthesizedSquare() {
+        testTrace.section("cjkTextUsesFontDeclaredTypoBoxInsteadOfSynthesizedSquare")
         val request = FontMetricsRequest(
             fontKey = "cjk-primary",
             fontSize = 16f,
@@ -31,6 +36,7 @@ class ScriptAwareFontMetricsNormalizerTest {
 
     @Test
     fun cjkTextFallsBackToHheaWhenFontHasNoTypoMetrics() {
+        testTrace.section("cjkTextFallsBackToHheaWhenFontHasNoTypoMetrics")
         val request = FontMetricsRequest(
             fontKey = "cjk-bad",
             fontSize = 16f,
@@ -47,6 +53,7 @@ class ScriptAwareFontMetricsNormalizerTest {
 
     @Test
     fun latinTextKeepsRomanRawMetrics() {
+        testTrace.section("latinTextKeepsRomanRawMetrics")
         val request = FontMetricsRequest(
             fontKey = "latin-primary",
             fontSize = 16f,
@@ -60,6 +67,11 @@ class ScriptAwareFontMetricsNormalizerTest {
         assertEquals(raw.descent, layout.descent)
         assertEquals(BaselineClass.Roman, layout.baselineClass)
         assertEquals(MetricBox.RawFontBox, layout.metricBox)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
 

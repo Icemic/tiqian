@@ -1,11 +1,16 @@
 package org.tiqian.font
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class CjkDashCapabilityPolicyTest {
+    private val testTrace = TestTraceRecorder("CjkDashCapabilityPolicyTest")
+
     @Test
     fun nullStatusNamesMissingConformingGlyphAndUnpreparedDetail() {
+        testTrace.section("nullStatusNamesMissingConformingGlyphAndUnpreparedDetail")
         assertEquals(
             CjkDashCapabilityPolicy.NoConformingCjkDashGlyph,
             CjkDashCapabilityPolicy.issueNameFor(null),
@@ -18,6 +23,7 @@ class CjkDashCapabilityPolicyTest {
 
     @Test
     fun conformingStatusWithBlankDetailNamesTheMissingSession() {
+        testTrace.section("conformingStatusWithBlankDetailNamesTheMissingSession")
         assertEquals(
             CjkDashCapabilityPolicy.ConformingCjkDashRequiresExactFontSession,
             CjkDashCapabilityPolicy.issueNameFor("conforming"),
@@ -30,6 +36,7 @@ class CjkDashCapabilityPolicyTest {
 
     @Test
     fun conformingStatusWithDetailAppendsHostEvidence() {
+        testTrace.section("conformingStatusWithDetailAppendsHostEvidence")
         assertEquals(
             CjkDashCapabilityPolicy.ConformingCjkDashRequiresExactFontSession,
             CjkDashCapabilityPolicy.issueNameFor("conforming"),
@@ -42,6 +49,7 @@ class CjkDashCapabilityPolicyTest {
 
     @Test
     fun nonConformingStatusWithDetailNamesMissingGlyphAndAppendsEvidence() {
+        testTrace.section("nonConformingStatusWithDetailNamesMissingGlyphAndAppendsEvidence")
         assertEquals(
             CjkDashCapabilityPolicy.NoConformingCjkDashGlyph,
             CjkDashCapabilityPolicy.issueNameFor("unavailable"),
@@ -54,6 +62,7 @@ class CjkDashCapabilityPolicyTest {
 
     @Test
     fun nonConformingStatusWithBlankDetailKeepsOnlyStatusPrefix() {
+        testTrace.section("nonConformingStatusWithBlankDetailKeepsOnlyStatusPrefix")
         assertEquals(
             CjkDashCapabilityPolicy.NoConformingCjkDashGlyph,
             CjkDashCapabilityPolicy.issueNameFor("unavailable"),
@@ -62,5 +71,10 @@ class CjkDashCapabilityPolicyTest {
             "status=unavailable",
             CjkDashCapabilityPolicy.issueDetailFor("unavailable", null),
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

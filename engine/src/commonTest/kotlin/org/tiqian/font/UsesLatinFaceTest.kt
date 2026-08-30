@@ -1,9 +1,11 @@
 package org.tiqian.font
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Guards `LatinVsCjkFaceSelection` — the single rule shaping, metrics, and rendering
@@ -11,8 +13,11 @@ import kotlin.test.assertTrue
  * face but drawn in the other overflows its slot.
  */
 class UsesLatinFaceTest {
+    private val testTrace = TestTraceRecorder("UsesLatinFaceTest")
+
     @Test
     fun onlyLatinTextUsesLatinFace() {
+        testTrace.section("onlyLatinTextUsesLatinFace")
         assertTrue(FontRole.LatinText.usesLatinFace())
         FontRole.entries.filter { it != FontRole.LatinText }.forEach {
             assertFalse(it.usesLatinFace(), "$it must fall back to the CJK face")
@@ -21,6 +26,7 @@ class UsesLatinFaceTest {
 
     @Test
     fun nameOverloadAgreesWithEnum() {
+        testTrace.section("nameOverloadAgreesWithEnum")
         FontRole.entries.forEach { role ->
             assertEquals(
                 role.usesLatinFace(),
@@ -30,5 +36,10 @@ class UsesLatinFaceTest {
         }
         assertFalse(fontRoleNameUsesLatinFace(null))
         assertFalse(fontRoleNameUsesLatinFace("NotARole"))
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
