@@ -32,6 +32,7 @@ import {
 } from "./lifecycle.js";
 import {
   classifyFontRole,
+  classifyFontRoles,
   firstDivergentInlineShapingProperty,
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
@@ -109,6 +110,7 @@ interface ProcessInlineShapingDecisionResult {
   function loweringHelpers(): Record<string, unknown> {
     return {
       classifyRole: classifyFontRole,
+      classifyRoles: classifyFontRoles,
       inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): ProcessInlineShapingDecisionResult | null {
         const property = firstDivergentInlineShapingProperty(elementValues, paragraphValues);
         return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };

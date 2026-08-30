@@ -157,7 +157,7 @@ internal fun ExplainableStubParagraphLayoutEngine.buildLayoutDebugInfo(stage: La
 LayoutDebugInfo(
             fontDecisions = fontDecisions.map { decision ->
                 val clusterText = text.substring(decision.range.start, decision.range.end)
-                val substitution = punctuationGlyphSubstitutor.substitute(clusterText)
+                val substitution = punctuationGlyphSubstitutor.substituteForRole(clusterText, decision.role)
                 val rollbackCause = substitutionRollbacks.entries.firstOrNull { it.key.isInside(decision.range) }?.value
                 FontDecisionInfo(
                     range = decision.range,

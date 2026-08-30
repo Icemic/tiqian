@@ -577,7 +577,7 @@ data class CjkPunctuationGlyphSubstitution(
 class ClreqPunctuationGlyphSubstitutor(
     private val policy: CjkPunctuationGlyphPolicy = CjkPunctuationGlyphPolicy.PreferClreqRecommendedCodepoints,
 ) {
-    fun substitute(sourceText: String): CjkPunctuationGlyphSubstitution {
+    internal fun substitute(sourceText: String): CjkPunctuationGlyphSubstitution {
         val displayText = when (policy) {
             CjkPunctuationGlyphPolicy.PreserveInput -> sourceText
             CjkPunctuationGlyphPolicy.PreferClreqRecommendedCodepoints,

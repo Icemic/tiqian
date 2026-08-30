@@ -789,9 +789,11 @@ export function createTextShaper(
 
   /**
    * Shape one segment, mirroring ShapingResult: ellipsis display
-   * substitution carries the UNVERIFIED issue pair, a CJK dash source (or
-   * the two-em-dash display) carries the CjkDashCapabilityPolicy issue, and
-   * everything else shapes plainly.
+   * substitution carries the UNVERIFIED issue pair, a CjkPunctuation-role
+   * dash source (or the two-em-dash display) carries the
+   * CjkDashCapabilityPolicy issue, and everything else shapes plainly.
+   * A Western-resolved `——` keeps its source display on the Latin face and
+   * needs no CJK dash capability.
    *
    * @param {ShapeInput} input
    * @returns {Object}
@@ -804,7 +806,10 @@ export function createTextShaper(
         detail: CANVAS_CANNOT_VERIFY_SAME_FACE_U22EF_COVERAGE,
       });
     }
-    if (source === CJK_DASH_SOURCE || input.displayText === TWO_EM_DASH) {
+    if (
+      (source === CJK_DASH_SOURCE && input.fontDecision.role === "CjkPunctuation") ||
+      input.displayText === TWO_EM_DASH
+    ) {
       return shapeWithCanvas(input, dashCapabilityIssue());
     }
     return shapeWithCanvas(input);

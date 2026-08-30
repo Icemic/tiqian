@@ -17,7 +17,13 @@ import type {
   DomSourceSpan,
   LineBreakSpan,
 } from "./lowered-paragraph.js";
+import { textStylesEqual } from "./lowered-paragraph.js";
 import { isNonTextInlineTag, isOpaqueInlineDisplay, isOpaqueInlineLevelDisplay } from "./eligibility.js";
+import {
+  appendProjectedStrongStyles,
+  type ClassifyRolesFn,
+  type PendingStrongTextRange,
+} from "./strong-emphasis-lowering.js";
 
 // --- Internal types (module-scoped) ---
 
@@ -54,7 +60,6 @@ interface LoweringOptions {
 }
 
 type ClassifyRoleFn = (text: string, start: number, end: number, locale: string) => string;
-
 interface InlineShapingDecisionResult {
   name: string;
   detail: string;
@@ -69,6 +74,7 @@ type InlineShapingDecisionFn = (
 /** Inline-shaping helpers provided by the host for role classification. */
 interface InlineShapingHelpers {
   classifyRole?: ClassifyRoleFn;
+  classifyRoles?: ClassifyRolesFn;
   inlineShapingProperties?: string[];
   inlineShapingDecision?: InlineShapingDecisionFn;
   [key: string]: unknown;
@@ -88,6 +94,7 @@ interface AppendNodeLike {
 /** Normalized inline-shaping helpers after null-guarding. */
 interface NormalizedInlineShapingHelpers {
   classifyRole: ClassifyRoleFn;
+  classifyRoles: ClassifyRolesFn;
   inlineShapingProperties: string[];
   inlineShapingDecision: InlineShapingDecisionFn;
 }
@@ -566,39 +573,6 @@ function collectShapingValues(element: Element, properties: string[]): string[] 
   return values;
 }
 
-let graphemeSegmenter: Intl.Segmenter | null = null;
-if (typeof Intl !== "undefined" && Intl.Segmenter) {
-  try {
-    graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  } catch (error) {
-    graphemeSegmenter = null;
-  }
-}
-
-// Grapheme boundaries as UTF-16 offsets, including 0 and the full length.
-// Falls back to code-point traversal when the host has no Intl.Segmenter,
-// mirroring lowererGraphemeBoundaries in WebEnhancerSupport.kt.
-function graphemeBoundaries(value: string): number[] {
-  const boundaries = [0];
-  if (graphemeSegmenter) {
-    const items = graphemeSegmenter.segment(value);
-    const iterator = items[Symbol.iterator]();
-    for (let step = iterator.next(); !step.done; step = iterator.next()) {
-      const index = step.value.index;
-      if (index > 0 && index < value.length) boundaries.push(index);
-    }
-  } else {
-    let offset = 0;
-    const points = Array.from(value);
-    for (let i = 0; i < points.length; i++) {
-      offset += points[i].length;
-      if (offset < value.length) boundaries.push(offset);
-    }
-  }
-  boundaries.push(value.length);
-  return boundaries;
-}
-
 // LocaleChannel: the lowerer must answer the same default locale as the
 // Kotlin core TextStyle ("zh-Hans") because locale travels into LayoutInput
 // and drives font selection plus the punctuation profile. An explicit
@@ -666,25 +640,6 @@ function computedInlineStyle(element: Element, fallback: InlineStyleContext): In
     whiteSpace: cssWhiteSpaceMode(computedStyle(element, "white-space"), fallback.whiteSpace),
     cjkStrongBaseWeight: fallback.cjkStrongBaseWeight,
   };
-}
-
-function textStylesEqual(left: TextStyle | null | undefined, right: TextStyle | null | undefined): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  if (
-    left.fontSize !== right.fontSize ||
-    left.fontWeight !== right.fontWeight ||
-    left.italic !== right.italic ||
-    left.baselineShift !== right.baselineShift ||
-    left.locale !== right.locale ||
-    left.fontFamilies.length !== right.fontFamilies.length
-  ) {
-    return false;
-  }
-  for (let i = 0; i < left.fontFamilies.length; i++) {
-    if (left.fontFamilies[i] !== right.fontFamilies[i]) return false;
-  }
-  return true;
 }
 
 function parseOpaqueInlineObjectGeometry(value: string): InlineObjectGeometry | null {
@@ -882,6 +837,7 @@ interface LoweringBuilderInstance {
   sourceBoundaries: number[];
   whitespaceModes: WhiteSpaceMode[];
   hardBreakOffsets: number[];
+  pendingStrongTextRanges: PendingStrongTextRange[];
 }
 
 interface LoweringBuilderMethods {
@@ -894,8 +850,7 @@ interface LoweringBuilderMethods {
   appendOpaqueInlineObject(element: Element, whiteSpace: WhiteSpaceMode): boolean;
   appendSemantic(element: Element, style: InlineStyleContext, depth: number, cjkStrongBaseWeight: number | null): boolean;
   appendText(value: string, style: InlineStyleContext): void;
-  appendStrongTextSegment(value: string, style: InlineStyleContext, isCjk: boolean, strongBaseWeight: number): void;
-  appendTextSegment(value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void;
+  appendTextSegment(value: string, style: TextStyle, whiteSpace: WhiteSpaceMode): void;
   build(): LoweredParagraph;
 }
 
@@ -947,6 +902,7 @@ function LoweringBuilder(
   this.sourceBoundaries = [];
   this.whitespaceModes = [];
   this.hardBreakOffsets = [];
+  this.pendingStrongTextRanges = [];
 }
 
 LoweringBuilder.prototype.addBoundary = function (this: LoweringBuilder, offset: number): void {
@@ -1120,60 +1076,29 @@ LoweringBuilder.prototype.appendText = function (this: LoweringBuilder, value: s
   if (value.length === 0) return;
   const strongBaseWeight = style.cjkStrongBaseWeight;
   if (strongBaseWeight === null || strongBaseWeight === undefined) {
-    this.appendTextSegment(value, style.textStyle, style.whiteSpace, false);
+    this.appendTextSegment(value, style.textStyle, style.whiteSpace);
     return;
   }
-  const boundaries = graphemeBoundaries(value);
-  let runStart = boundaries[0];
-  let runIsCjk = false;
-  let hasRun = false;
-  for (let i = 0; i + 1 < boundaries.length; i++) {
-    const start = boundaries[i];
-    const end = boundaries[i + 1];
-    if (end <= start) continue;
-    const role = this.helpers.classifyRole(value, start, end, style.textStyle.locale);
-    const isCjk = role === "cjk-text" || role === "cjk-punctuation";
-    if (hasRun && isCjk !== runIsCjk) {
-      this.appendStrongTextSegment(value.substring(runStart, start), style, runIsCjk, strongBaseWeight);
-      runStart = start;
-    }
-    runIsCjk = isCjk;
-    hasRun = true;
-  }
-  if (hasRun && runStart < value.length) {
-    this.appendStrongTextSegment(value.substring(runStart), style, runIsCjk, strongBaseWeight);
-  }
+  const start = this.text.length;
+  this.appendRawText(value, style.whiteSpace);
+  const end = this.text.length;
+  this.pendingStrongTextRanges.push({
+    start: start,
+    end: end,
+    style: style.textStyle,
+    strongBaseWeight: strongBaseWeight,
+  });
+  this.addBoundary(start);
+  this.addBoundary(end);
 };
 
-LoweringBuilder.prototype.appendStrongTextSegment = function (this: LoweringBuilder, value: string, style: InlineStyleContext, isCjk: boolean, strongBaseWeight: number): void {
-  let textStyle: TextStyle;
-  if (isCjk) {
-    textStyle = {
-      fontFamilies: style.textStyle.fontFamilies,
-      fontSize: style.textStyle.fontSize,
-      fontWeight: strongBaseWeight,
-      italic: style.textStyle.italic,
-      baselineShift: style.textStyle.baselineShift,
-      locale: style.textStyle.locale,
-    };
-  } else {
-    textStyle = style.textStyle;
-  }
-  this.appendTextSegment(value, textStyle, style.whiteSpace, isCjk);
-};
-
-LoweringBuilder.prototype.appendTextSegment = function (this: LoweringBuilder, value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void {
+LoweringBuilder.prototype.appendTextSegment = function (this: LoweringBuilder, value: string, style: TextStyle, whiteSpace: WhiteSpaceMode): void {
   if (value.length === 0) return;
   const start = this.text.length;
   this.appendRawText(value, whiteSpace);
   const end = this.text.length;
   if (!textStylesEqual(style, this.baseInlineStyle.textStyle)) {
     this.spans.push({ start: start, end: end, style: style });
-    this.addBoundary(start);
-    this.addBoundary(end);
-  }
-  if (emphasis) {
-    this.decorations.push({ start: start, end: end, kind: "Emphasis" });
     this.addBoundary(start);
     this.addBoundary(end);
   }
@@ -1270,12 +1195,27 @@ LoweringBuilder.prototype.build = function (this: LoweringBuilder): LoweredParag
       inlineBoxStyle: item.inlineBoxStyle,
     };
   };
+  const spans = mapProjectedRanges(this.spans, projection, spanCopy);
+  const decorations = mapProjectedRanges(this.decorations, projection, decorationCopy);
+  appendProjectedStrongStyles(
+    this.pendingStrongTextRanges,
+    loweredText,
+    function (start: number, end: number): [number, number] | null {
+      return projectionRange(projection, start, end);
+    },
+    this.helpers.classifyRoles,
+    this.baseInlineStyle.textStyle,
+    spans,
+    decorations,
+  );
+  spans.sort(function (left, right) { return left.start - right.start || left.end - right.end; });
+  decorations.sort(function (left, right) { return left.start - right.start || left.end - right.end; });
   return {
     text: loweredText,
     textStyle: this.baseInlineStyle.textStyle,
     lineHeight: this.baseLineHeight,
-    spans: mapProjectedRanges(this.spans, projection, spanCopy),
-    decorations: mapProjectedRanges(this.decorations, projection, decorationCopy),
+    spans: spans,
+    decorations: decorations,
     inlineBoxes: mapProjectedRanges(this.inlineBoxes, projection, inlineBoxCopy),
     inlineObjects: mapProjectedRanges(this.inlineObjects, projection, inlineObjectCopy),
     domInlineObjects: mapProjectedRanges(this.domInlineObjects, projection, domInlineObjectCopy),
@@ -1295,6 +1235,13 @@ export function lowerMarkdown(paragraph: Element, options: LoweringOptions, help
   const classifyRole = (helpers && typeof helpers.classifyRole === "function")
     ? helpers.classifyRole
     : function (): string { return "other"; };
+  const classifyRoles = (helpers && typeof helpers.classifyRoles === "function")
+    ? helpers.classifyRoles
+    : function (text: string, starts: number[], ends: number[], locale: string): string[] {
+        return starts.map(function (start, index) {
+          return classifyRole(text, start, ends[index], locale);
+        });
+      };
   const inlineShapingProperties: string[] = Array.isArray(helpers?.inlineShapingProperties)
     ? helpers.inlineShapingProperties
     : [];
@@ -1303,6 +1250,7 @@ export function lowerMarkdown(paragraph: Element, options: LoweringOptions, help
     : null;
   const safeHelpers: NormalizedInlineShapingHelpers = {
     classifyRole: classifyRole,
+    classifyRoles: classifyRoles,
     inlineShapingProperties: inlineShapingProperties,
     inlineShapingDecision: inlineShapingDecision as NormalizedInlineShapingHelpers["inlineShapingDecision"],
   };

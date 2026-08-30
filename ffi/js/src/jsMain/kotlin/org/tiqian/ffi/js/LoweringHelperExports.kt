@@ -6,8 +6,11 @@ import kotlin.js.JsExport
 import org.tiqian.core.TextRange
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
+import org.tiqian.font.FontRoleClassifier
 import org.tiqian.font.FontRoleContext
 import org.tiqian.font.InlineShapingStylePolicy
+import org.tiqian.layout.withContextualDashEllipsisRoles
+import org.tiqian.layout.withContextualQuoteRoles
 
 /**
  * Lowering helper exports consumed by the TypeScript markdown lowering engine
@@ -21,7 +24,7 @@ import org.tiqian.font.InlineShapingStylePolicy
 private val fontRoleClassifier = CjkFontRoleClassifier()
 
 /**
- * Classifies the typographic font role of the substring [text] in [start]..<[end].
+ * Classifies the typographic font role of [start]..<[end] within the complete paragraph [text].
  *
  * Maps [FontRole.CjkText] to `"cjk-text"`, [FontRole.CjkPunctuation] to `"cjk-punctuation"`,
  * and any other role (e.g. Latin, Symbol, Emoji, Unknown) to `"other"`.
@@ -33,16 +36,65 @@ fun classifyFontRole(
     end: Int,
     locale: String,
 ): String {
-    val role = fontRoleClassifier.classify(
+    val context = FontRoleContext(locale = locale)
+    val role = contextualFontRoleClassifier(text, context).classify(
         text = text,
         range = TextRange(start, end),
-        context = FontRoleContext(locale = locale),
+        context = context,
     )
-    return when (role) {
-        FontRole.CjkText -> "cjk-text"
-        FontRole.CjkPunctuation -> "cjk-punctuation"
-        else -> "other"
+    return role.toLoweringRoleName()
+}
+
+/**
+ * Classifies several ranges against one complete paragraph and resolves contextual dash and
+ * ellipsis roles once. The batch boundary keeps markdown lowering linear while preserving
+ * surrounding-script evidence across DOM text-node boundaries.
+ */
+@JsExport
+fun classifyFontRoles(
+    text: String,
+    starts: Array<Int>,
+    ends: Array<Int>,
+    locale: String,
+): Array<String> {
+    require(starts.size == ends.size) { "starts and ends must have the same size" }
+    val context = FontRoleContext(locale = locale)
+    val classifier = contextualFontRoleClassifier(text, context)
+    return Array(starts.size) { index ->
+        classifier.classify(
+            text = text,
+            range = TextRange(starts[index], ends[index]),
+            context = context,
+        ).toLoweringRoleName()
     }
+}
+
+private var cachedClassifierKey: Pair<String, FontRoleContext>? = null
+private var cachedClassifier: FontRoleClassifier = fontRoleClassifier
+
+/**
+ * Assembles the same base → quote-pair → dash/ellipsis classifier chain as the engine's
+ * `prepareWidthIndependentAnnotation`. A single-entry memo keyed on (text, locale) keeps
+ * repeated single-range calls over one paragraph at one resolution pass.
+ */
+private fun contextualFontRoleClassifier(
+    text: String,
+    context: FontRoleContext,
+): FontRoleClassifier {
+    val key = text to context
+    if (cachedClassifierKey != key) {
+        cachedClassifier = fontRoleClassifier
+            .withContextualQuoteRoles(text, context)
+            .withContextualDashEllipsisRoles(text, context)
+        cachedClassifierKey = key
+    }
+    return cachedClassifier
+}
+
+private fun FontRole.toLoweringRoleName(): String = when (this) {
+    FontRole.CjkText -> "cjk-text"
+    FontRole.CjkPunctuation -> "cjk-punctuation"
+    else -> "other"
 }
 
 /**
