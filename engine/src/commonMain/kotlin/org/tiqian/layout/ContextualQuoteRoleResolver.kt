@@ -80,6 +80,14 @@ internal class ContextualQuoteRoleResolver(
             )
         }
 
+        if (text.isNonCjkWordInternalQuotePair(pair)) {
+            return Resolution(
+                role = FontRole.LatinText,
+                source = "NonCjkWordInternalQuotePair",
+                reason = "non-cjk-word-internal-quotation",
+            )
+        }
+
         outerEvidence.unambiguousRole()?.let { role ->
             return Resolution(
                 role = role,
@@ -121,6 +129,18 @@ internal class ContextualQuoteRoleResolver(
                 role = FontRole.LatinText,
                 source = "NonCjkInWordApostrophe",
                 reason = "non-cjk-in-word-apostrophe",
+            )
+        }
+
+        // `NumericPrimeUnmatchedQuote`: an unmatched closing quote directly
+        // after a digit is minute/second/inch notation (`1\u201930\u201d`, `6.1\u201d`), not
+        // a quotation; a genuine accent pair (`\u201c1\u20182\u20193\u201d`) never reaches the
+        // unmatched path because its marks pair up.
+        if (text.isDigitBoundClosingQuote(index)) {
+            return Resolution(
+                role = FontRole.LatinText,
+                source = "NumericPrimeUnmatchedQuote",
+                reason = "digit-bound-unmatched-quote-as-prime",
             )
         }
 

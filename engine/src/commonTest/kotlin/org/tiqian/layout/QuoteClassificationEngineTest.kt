@@ -524,6 +524,179 @@ class QuoteClassificationEngineTest {
         assertEquals("latin-primary", latinCluster.fontKey)
         assertTrue(result.debug.punctuationDecisions.none { it.range == TextRange(6, 7) })
     }
+
+    @Test
+    fun keepsLatinWordInternalCurlyQuotesInLatinRunInsideMixedParagraph() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中文 Latin: le“t”ters 中文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val word = result.clusters.single { it.text == "le“t”ters" }
+        assertEquals("latin-primary", word.fontKey)
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all { it.overriddenRole == FontRole.LatinText.name })
+    }
+
+    @Test
+    fun supportsSupplementaryLettersInsideLatinWordInternalQuotes() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中文 a“𝐀”b 中文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsLetterBoundedWordInternalQuotesLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中a“b”c文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsDigitContentInsideLetterBoundedQuotesLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中a“1”c文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsDigitBoundedWordInternalQuotesCjk() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中1“1”2文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "PairedPunctuationOuterScriptContext"
+        })
+    }
+
+    @Test
+    fun keepsFullwidthLetterBoundedWordInternalQuotesCjk() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中Ａ“Ｂ”Ｃ文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "ParagraphLanguageQuoteContext"
+        })
+    }
+
+    @Test
+    fun keepsEmptyWordInternalQuotesLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中文a“”b中文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsDigitBoundedSingleQuotePairCjkViaEnclosingQuotation() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("尾号是“1‘2’3”。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val singles = result.debug.roleOverrides.filter { it.sourceText == "‘" || it.sourceText == "’" }
+        assertEquals(2, singles.size)
+        assertTrue(singles.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "PairedPunctuationEnclosingQuoteContext"
+        }, singles.toString())
+        val doubles = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertTrue(doubles.all { it.overriddenRole == FontRole.CjkPunctuation.name })
+    }
+
+    @Test
+    fun resolvesDigitBoundUnmatchedQuotesAsPrimes() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("他用时1’30”，屏幕是6.1”的。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val marks = result.debug.roleOverrides.filter { it.sourceText == "’" || it.sourceText == "”" }
+        assertEquals(3, marks.size)
+        assertTrue(marks.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NumericPrimeUnmatchedQuote"
+        }, marks.toString())
+    }
+
+    @Test
+    fun keepsDecadeStyleApostropheWithLetterFlankLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("那是90’s的音乐。"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val apostrophe = result.debug.roleOverrides.single { it.sourceText == "’" }
+        assertEquals(FontRole.LatinText.name, apostrophe.overriddenRole)
+        assertEquals("NonCjkInWordApostrophe", apostrophe.source)
+    }
 }
 
 private fun Char.isCurlyQuoteForTest(): Boolean =

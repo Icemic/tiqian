@@ -28,6 +28,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("derived_general_category_txt", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--category-prefix", default="LMN")
+    parser.add_argument("--object-name", default="UnicodeWordCharacterData")
     args = parser.parse_args()
 
     source = args.derived_general_category_txt.read_bytes()
@@ -41,7 +43,7 @@ def main() -> None:
         if not content:
             continue
         code_points, category = (part.strip() for part in content.split(";", 1))
-        if category.startswith(("L", "M", "N")):
+        if category.startswith(tuple(args.category_prefix)):
             source_ranges.append(parse_range(code_points))
 
     ranges: list[tuple[int, int]] = []
@@ -62,7 +64,7 @@ def main() -> None:
  * Copyright © 2025 Unicode, Inc.
  * Terms of Use: https://www.unicode.org/terms_of_use.html
  */
-internal object UnicodeWordCharacterData {{
+internal object {args.object_name} {{
     fun contains(codePoint: Int): Boolean {{
         var low = 0
         var high = RANGES.size / 2 - 1

@@ -3,6 +3,7 @@ package org.tiqian.layout
 import org.tiqian.core.TextRange
 import org.tiqian.core.UnicodeScriptEvidence
 import org.tiqian.core.UnicodeScriptEvidenceClassifier
+import org.tiqian.core.UnicodeNumber
 import org.tiqian.core.UnicodeWordCharacter
 import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleClassifier
@@ -94,13 +95,52 @@ class QuotePairAnalyzer {
 
 }
 
-internal fun String.isNonCjkInWordApostrophe(index: Int): Boolean =
-    codePointBefore(index)?.isNonCjkWordCharacter() == true &&
-        codePointAtOrNull(index + 1)?.isNonCjkWordCharacter() == true
+internal fun String.isNonCjkInWordApostrophe(index: Int): Boolean {
+    val before = codePointBefore(index) ?: return false
+    val after = codePointAtOrNull(index + 1) ?: return false
+    // At least one flank must be a non-numeric, non-fullwidth word character:
+    // digits alone stay neutral, so `1‘2’3` keeps its single quotes pairable
+    // while `don’t` and `90’s` remain in-word apostrophes.
+    return before.isNonCjkWordCharacter() && after.isNonCjkWordCharacter() &&
+        (before.isNonCjkNonNumericWordCharacter() || after.isNonCjkNonNumericWordCharacter())
+}
+
+internal fun String.isDigitBoundClosingQuote(index: Int): Boolean =
+    (this[index] == '\u2019' || this[index] == '\u201D') &&
+        codePointBefore(index)?.let { UnicodeNumber.contains(it) } == true
+
+internal fun String.isNonCjkWordInternalQuotePair(pair: QuotePair): Boolean {
+    if (
+        codePointBefore(pair.openIndex)?.isNonCjkNonNumericWordCharacter() != true ||
+        codePointAtOrNull(pair.closeIndex + 1)?.isNonCjkNonNumericWordCharacter() != true
+    ) {
+        return false
+    }
+
+    // UTF-16 indices must advance by code point to avoid inspecting a low surrogate.
+    var index = pair.openIndex + 1
+    while (index < pair.closeIndex) {
+        val codePoint = codePointAtOrNull(index) ?: return false
+        if (!codePoint.isNonCjkWordCharacter()) return false
+        index += if (codePoint > 0xFFFF) 2 else 1
+    }
+    return true
+}
 
 private fun Int.isNonCjkWordCharacter(): Boolean =
     UnicodeWordCharacter.contains(this) &&
         UnicodeScriptEvidenceClassifier.classify(this) != UnicodeScriptEvidence.EastAsian
+
+private fun Int.isNonCjkNonNumericWordCharacter(): Boolean =
+    isNonCjkWordCharacter() && !UnicodeNumber.contains(this) && !isFullwidthEastAsianWidth()
+
+/**
+ * Pinned Unicode 17.0.0 East_Asian_Width=F ranges from EastAsianWidth.txt.
+ * This narrow check only rejects fullwidth exterior boundaries for the paired
+ * quote Latin-word fast path; it does not change global script classification.
+ */
+private fun Int.isFullwidthEastAsianWidth(): Boolean =
+    this == 0x3000 || this in 0xFF01..0xFF60 || this in 0xFFE0..0xFFE6
 
 private fun String.codePointBefore(index: Int): Int? {
     if (index <= 0) return null
