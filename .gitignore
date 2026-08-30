@@ -33,3 +33,15 @@ demo/web-history/.dist-adapters/
 demo/web-history/*.js
 demo/web-history/*.d.ts
 demo/web-history/*.tsbuildinfo
+
+# Haxe port scratch: instrumentation scripts, coverage baselines, porting
+# notes. Never committed.
+/porting/
+
+# Locally generated trace goldens (Haxe port contract); regenerate with
+# TIQIAN_UPDATE_GOLDEN=1 ./gradlew :engine:jvmTest
+engine/src/jvmTest/resources/golden/test-traces/
+engine/src/jvmTest/resources/golden/process-traces/
+
+# Regenerated into the source tree by porting/instrument_tests.py
+engine/src/commonTest/kotlin/org/tiqian/test/trace/TracedTestManifest.kt
