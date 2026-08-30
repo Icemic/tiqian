@@ -917,6 +917,39 @@ rejectedForSpan）、L413（justificationPlans 的 getOrNull null 臂）。
 验证：全量 `:engine:jvmTest` 加 `:engine:koverXmlReportJvm` 构建成功；
 该文件的 17 行未覆盖与上述裁定一一对应，没有未主张的行。
 
+### 条目 64 补记：维护裁定执行（2026-08-30）
+
+条目列举的 17 行按五类维护裁定处置。第一类（旧 L388）、第二类
+（旧 L416/448/486）、第三类（旧 L426/427/491）删除；第四类
+（旧 L258/350/414/433/445/478/489/498）与第五类（旧 L493/500）保留。
+
+- 第一类：U+2019 分支内 `codePoint > 0xFFFF` 的条件永远为假，右邻
+  偏移改为 `offset + 1`。
+- 第二类：空白码点全部在 BMP，firstSignificantCodePoint 与
+  followsAuthoredBoundary 的游走步进改为常量 1。firstCodePointLength
+  函数整体删除，唯一调用方 isDecimalMarkAfterSpace 的后继码点探测
+  从 char 1 开始（IS 标记与前导空白各占一个 char）。
+- 第三类的删除前提是入口拒绝孤立代理。validateLayoutInput 新增
+  UTF-16 扫描：高代理必须后随低代理，低代理必须前有高代理，违者抛
+  IllegalArgumentException。拒绝路径由
+  ParagraphLayoutEngineValidationCoverageTest 的
+  sourceTextMustNotContainUnpairedSurrogates 覆盖，四个输入分别走
+  串尾高代理、前导低位代理、高代理后随高代理（区间检查低侧出口）、
+  高代理后随 U+F900（区间检查高侧出口）。此后
+  lastSignificantCodePoint 不再检查 end ≥ 2 与前邻高位代理，
+  codePointAtOrNull 删除 `index + 1 >= length` 臂。
+- 第四类保留：删除会使返回值可空，调用方需要补判空处理。当前行号
+  258/350/416/430/442/477/485/496。
+- 第五类保留：区间检查降级产生的空交集方向是编译器产物。当前行号
+  491/498。旧 L493 的 `low !in 0xDC00..0xDFFF` 检查保留，串中孤立
+  高位代理返回该单元的行为有直达测试。
+
+验证：全量 `:engine:jvmTest`（含 LayoutDumpGoldenTest）与
+js/linuxX64/linuxArm64/mingwX64 测试编译、compileAndroidHostTest 通过。
+135 份 trace txt 中仅 ParagraphLayoutEngineValidationCoverageTest.txt
+增加新小节，其余逐字节不变。kover 复测（reportJvm.xml）该文件未
+覆盖降为 10 行，即第四类 8 行与第五类 2 行，无新增未主张的行。
+
 ### 条目 65：commonMain 覆盖验收（2026-08-29）
 
 全量 `:engine:jvmTest` 加 `:engine:koverXmlReportJvm` 构建成功
@@ -932,6 +965,14 @@ modifierBaseWithABmpSelectorWalksTheSelectorTrueArm 用例、PGP 测试
 已随 76537615 删除 Quote 断言、多出 org/tiqian/test 共享语料目录），
 并行副本独有的 UnicodePunctuationBoundaryResolverCoverageTest 已
 并入合并树。
+
+### 条目 65 补记（2026-08-30）
+
+条目 64 补记的裁定执行后复测（reportJvm.xml）：27 个文件共 226 行
+（commonMain 224 行；jvmMain 2 行不变），acceptance-check 以裁定后
+的主张行重跑，差集为空。条目 42 的 ParagraphLayoutEngine.kt 四行因
+validateLayoutInput 新增代理扫描行号整体加 17，当前行号
+94/106/112/126，构造不变（四组 `range.start >= 0` 冗余合取）。
 
 ### 条目 66：PreparedParagraph.kt 数字序列化重写后的未覆盖行（2026-08-29 复测）
 
