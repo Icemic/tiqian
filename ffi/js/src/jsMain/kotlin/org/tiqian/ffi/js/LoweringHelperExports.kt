@@ -69,7 +69,7 @@ fun classifyFontRoles(
     }
 }
 
-private var cachedClassifierKey: Pair<String, String>? = null
+private var cachedClassifierKey: Pair<String, FontRoleContext>? = null
 private var cachedClassifier: FontRoleClassifier = fontRoleClassifier
 
 /**
@@ -81,7 +81,7 @@ private fun contextualFontRoleClassifier(
     text: String,
     context: FontRoleContext,
 ): FontRoleClassifier {
-    val key = text to context.locale
+    val key = text to context
     if (cachedClassifierKey != key) {
         cachedClassifier = fontRoleClassifier
             .withContextualQuoteRoles(text, context)
