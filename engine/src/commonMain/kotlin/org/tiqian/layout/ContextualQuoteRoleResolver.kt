@@ -80,6 +80,14 @@ internal class ContextualQuoteRoleResolver(
             )
         }
 
+        if (text.isNonCjkWordInternalQuotePair(pair)) {
+            return Resolution(
+                role = FontRole.LatinText,
+                source = "NonCjkWordInternalQuotePair",
+                reason = "non-cjk-word-internal-quotation",
+            )
+        }
+
         outerEvidence.unambiguousRole()?.let { role ->
             return Resolution(
                 role = role,

@@ -98,6 +98,24 @@ internal fun String.isNonCjkInWordApostrophe(index: Int): Boolean =
     codePointBefore(index)?.isNonCjkWordCharacter() == true &&
         codePointAtOrNull(index + 1)?.isNonCjkWordCharacter() == true
 
+internal fun String.isNonCjkWordInternalQuotePair(pair: QuotePair): Boolean {
+    if (
+        codePointBefore(pair.openIndex)?.isNonCjkWordCharacter() != true ||
+        codePointAtOrNull(pair.closeIndex + 1)?.isNonCjkWordCharacter() != true
+    ) {
+        return false
+    }
+
+    // UTF-16 indices must advance by code point to avoid inspecting a low surrogate.
+    var index = pair.openIndex + 1
+    while (index < pair.closeIndex) {
+        val codePoint = codePointAtOrNull(index) ?: return false
+        if (!codePoint.isNonCjkWordCharacter()) return false
+        index += if (codePoint > 0xFFFF) 2 else 1
+    }
+    return true
+}
+
 private fun Int.isNonCjkWordCharacter(): Boolean =
     UnicodeWordCharacter.contains(this) &&
         UnicodeScriptEvidenceClassifier.classify(this) != UnicodeScriptEvidence.EastAsian
