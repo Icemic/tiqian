@@ -26,28 +26,17 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
  * The fake backend writes the same packed buffers the Rust session produces,
  * so these tests pin the request byte layout and the packed plan return
- * without linking Rust. The JSON dump entry is covered by the Rust parity
- * oracle. staticCFunction callbacks cannot capture state; the fake reads its
- * inputs from the call arguments only.
+ * without linking Rust. staticCFunction callbacks cannot capture state; the
+ * fake reads its inputs from the call arguments only.
  */
 class LayoutAbiTest {
     @BeforeTest
     fun installBackend() {
         assertEquals(0, tiqianInstallFontBackendCabi(fakeVtable()))
-    }
-
-    @Test
-    fun layoutWrapsPlainTextIntoTwoLines() {
-        val plan = runLayoutRequest(request(text = "字字字字字字字字字字"))
-        assertTrue(plan.startsWith("{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\""), plan)
-        assertEquals(2, plan.split("\"endReason\":").size - 1, plan)
-        assertTrue(plan.contains("\"rangeStart\":0,"), plan)
-        assertTrue(plan.contains("\"rangeStart\":5,"), plan)
     }
 
     @Test

@@ -203,12 +203,12 @@ jobs:
       - name: Replay the fixture through the js corpus test
         run: node --test platforms/web/client/web-component/tests/prepared-dom-corpus.test.js
 
-  # ADR 0050 Verification: the native lane must reproduce the js oracle's plan
-  # JSON byte for byte. The Gradle tasks build both sides of the comparison
-  # (engine archive plus js bundle), the oracle script dumps the js lane, and
-  # the engine-linked cargo run compares against it.
-  rust-engine-parity:
-    name: Rust engine-linked plan parity
+  # The engine archive linked into the Rust tests: the cargo run below
+  # exercises the C ABI through the real Kotlin/Native archive, and the npm
+  # steps after it run the loader over the same engine-linked addon. The js
+  # bundle feeds the npm suite.
+  rust-engine-linked:
+    name: Rust engine-linked tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -234,9 +234,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-engine-parity-${{ hashFiles('**/*.gradle.kts') }}
+          key: konan-${{ runner.os }}-engine-linked-${{ hashFiles('**/*.gradle.kts') }}
           restore-keys: |
-            konan-${{ runner.os }}-engine-parity-
+            konan-${{ runner.os }}-engine-linked-
             konan-${{ runner.os }}-
       - name: Build engine archive and js bundle
         run: >
@@ -244,16 +244,13 @@ jobs:
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:js:compileProductionExecutableKotlinJs
           :ffi:js:assembleNpmPackage
-      - name: Dump the js oracle
-        run: node platforms/web/server/core/scripts/plan-parity-oracle.ts
-      - name: Compare the native lane against the oracle
+      - name: Run the engine-linked cargo tests
         run: >
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic
-          TIQIAN_REQUIRE_PARITY_ORACLE=1
           cargo test --manifest-path platforms/web/server/precompute/Cargo.toml
       # The npm loader over an engine-linked addon; the font-dependent lanes
       # self-skip on runners without fonts, so this exercises the wiring and
-      # the pure entries, while the parity tests above exercise the engine.
+      # the pure entries, while the cargo run above exercises the engine.
       # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
       # the redirect order (core full checks -> prose --noCheck -> precompute)
       # preserves the ffi declarations prerequisite from commit 81d2330c.

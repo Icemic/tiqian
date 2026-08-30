@@ -94,18 +94,6 @@ int32_t tiqian_layout_paragraph(
     uint64_t* response_len,
     char** error_out);
 
-/*
- * Diagnostic dump: same request, but the payload is the plan JSON dump that
- * the engine has long produced (PreparedParagraphJson). Only for parity oracle
- * and golden; the production lane must not use it. Error and release
- * semantics match the packed entry; the JSON string is NUL terminated.
- */
-int32_t tiqian_layout_paragraph_json(
-    const uint8_t* request,
-    uint64_t request_len,
-    char** plan_json_out,
-    char** error_out);
-
 /* Releases a buffer this ABI allocated (packed or error string). Accepts NULL. */
 void tiqian_release_buffer(void* buffer);
 

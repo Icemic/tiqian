@@ -11,12 +11,11 @@ extern "C" {
  * Tiqian plan packed ABI (corrective-2).
  *
  * The engine is the single writer; Rust is the reader. The bytes are the
- * single production cross-boundary payload. The JSON plan stays only as a
- * diagnostic dump (tiqian_layout_paragraph_json). This header is the single
- * source of truth for the packed layout; the Kotlin writer in
- * engine/nativeMain and the Rust decoder in ffi/rust mirror it. Little endian
- * throughout, f64 for geometry (the widening argument of
- * snapshot_table_binary), per-column partitions, string pool with u32 deltas.
+ * single cross-boundary payload. This header is the single source of truth
+ * for the packed layout; the Kotlin writer in engine/nativeMain and the Rust
+ * decoder in ffi/rust mirror it. Little endian throughout, f64 for geometry
+ * (the widening argument of snapshot_table_binary), per-column partitions,
+ * string pool with u32 deltas.
  */
 
 #define TIQIAN_PLAN_ABI_PROTOCOL_REVISION 1u

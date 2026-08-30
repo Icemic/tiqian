@@ -22,12 +22,6 @@ extern "C" {
         response_len: *mut u64,
         error_out: *mut *mut c_char,
     ) -> c_int;
-    fn tiqian_layout_paragraph_json(
-        request: *const u8,
-        request_len: u64,
-        plan_json_out: *mut *mut c_char,
-        error_out: *mut *mut c_char,
-    ) -> c_int;
     fn tiqian_release_buffer(buffer: *mut std::ffi::c_void);
     fn tiqian_install_font_backend(vtable: *const FontBackendVtable) -> c_int;
     /// Forces the Kotlin/Native runtime to initialize before any engine call.
@@ -94,38 +88,6 @@ pub fn layout_paragraph(request: &[u8]) -> Result<Vec<u8>, NamedError> {
         }
         1 => {
             // unsafe: the engine returns a NUL-terminated error name on status 1.
-            let name = unsafe { CStr::from_ptr(error) }
-                .to_string_lossy()
-                .into_owned();
-            unsafe { tiqian_release_buffer(error as *mut std::ffi::c_void) };
-            Err(NamedError(name))
-        }
-        code => Err(NamedError(format!("InvalidLayoutResponseStatus{code}"))),
-    }
-}
-
-/// Diagnostic dump: same request, JSON bytes for parity oracle and golden.
-/// Only for testing; production must use the packed entry.
-pub fn layout_paragraph_json(request: &[u8]) -> Result<String, NamedError> {
-    ensure_runtime();
-    if request.is_empty() {
-        return Err(NamedError("InvalidLayoutRequest".to_string()));
-    }
-    let mut plan: *mut c_char = std::ptr::null_mut();
-    let mut error: *mut c_char = std::ptr::null_mut();
-    let request_len = u64::try_from(request.len())
-        .map_err(|_| NamedError("InvalidLayoutRequestLength".to_string()))?;
-    let status = unsafe {
-        tiqian_layout_paragraph_json(request.as_ptr(), request_len, &mut plan, &mut error)
-    };
-    match status {
-        0 => {
-            let bytes = unsafe { CStr::from_ptr(plan) }.to_bytes().to_vec();
-            unsafe { tiqian_release_buffer(plan as *mut std::ffi::c_void) };
-            String::from_utf8(bytes)
-                .map_err(|_| NamedError("InvalidLayoutResponseUtf8".to_string()))
-        }
-        1 => {
             let name = unsafe { CStr::from_ptr(error) }
                 .to_string_lossy()
                 .into_owned();
