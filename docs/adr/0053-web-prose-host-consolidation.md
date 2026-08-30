@@ -1513,8 +1513,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
    （`TQLR` 与 `tiqian_plan_abi.h` 打包契约）一律以声明 DTO 或打包契约
    跨界传递。生产跨界路径禁止分隔符拼接字符串与未声明 JSON 文本。
 2. **冻结 JSON 只服务字节比对。** plan JSON 与 snapshot 文本形态保留给
-   golden、parity oracle 与引擎 dump（`toPlanWithDiagnosticsJson`）；
-   生产路径不产生也不解析整段文本载荷。
+   golden 证据与快照 bundle 产物；native 引擎 dump 与 parity oracle 已于
+   2026-08-30 移除（ADR 0050 修订）；生产路径不产生也不解析整段文本载荷。
 3. **Kotlin/JS 导出面承载规则。** 数据 DTO 用 @JsExport 接口承载，集合用
    Array 字段，边界断言只允许 `as` 到带 brand 标记的接口；函数型回调
    @JsExport 不支持函数属性，用非导出接口加 @JsName 固定属性名承载。

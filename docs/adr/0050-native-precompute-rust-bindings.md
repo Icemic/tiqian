@@ -667,3 +667,17 @@ workspace 根随迁，两个 crate 目录取 `engine`（`tiqian-precompute`）�
 候选文本提出的 `tiqian-precompute-core` / `tiqian-precompute-binding` crate 命名
 未采用：目录名已表达同一分层，crate 改名会带来发布名漂移。本 ADR 正文与既往
 修订中的 `frontend/` 路径按历史正文不改写原则保留。
+
+## Amendment（2026-08-30）：移除调试 plan JSON dump
+
+corrective-2 保留的 `tiqian_layout_paragraph_json` dump 入口经确认业务侧零使用：native
+生产路径自 corrective-2 起只走打包缓冲，其唯一消费者是 CI 的 native↔JS plan 字节比对。
+按裁定移除全部相关环节：C ABI dump 入口与 `tiqian_layout_abi.h` 声明、Kotlin 侧
+`runLayoutRequest`、Rust 绑定 `layout_paragraph_json`、`engine_bridge` 的
+`precompute_paragraph_json` 包装（零调用）、`plan_parity` 集成测试、
+`plan-parity-oracle.ts`，以及 CI `rust-engine-parity` job 的 oracle 步骤；job 更名
+`rust-engine-linked`，保留引擎归档链接态的 cargo test 与 npm 套件。plan JSON 的 Rust
+读取端不在移除范围内：`Plan::from_json_str` 服务快照 bundle 回放
+（`render_prepared_paragraph_artifact`），`Plan::to_json_value` 服务快照写入
+（`precomputer`）与 binding 返回，`tiqian_precompute::json` 为 crate 共享模块。既往
+修订中 dump 与 parity 的记载按历史正文不改写原则保留。

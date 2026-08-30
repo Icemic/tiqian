@@ -219,7 +219,7 @@ Web 列表保留原生 marker 与语义，只把列表正文交给 Tiqian 排版
 
 构建期 precompute 由 `platforms/web/server/precompute` 的 Rust 编排承担：从站点明确发布的字体文件建立
 HarfBuzz session，并调用同一个 `layout` 生成宽度无关的字体回放证据，以及可选的最大版心预排结果。
-引擎的 Kotlin/JS 出口在 `ffi/js` 编译，服务浏览器 exact-font 回退 worker 与 parity oracle；
+引擎的 Kotlin/JS 出口在 `ffi/js` 编译，服务浏览器 exact-font 回退 worker；
 Kotlin/Native 出口在 `ffi/native`，以引擎级 C ABI 供 Rust 编排调用（ADR 0050）。纯文本与受控语义 inline
 共用 source / semantic artifact / typography / font / width 证据；prepared DOM 留在正文之外的 inert
 template，SSR 正文始终是可响应的 native semantic backing。浏览器只有在 live width、字体与 artifact

@@ -35,7 +35,7 @@ File `ffi/rust/tiqian/src/engine.rs`.
 | `ensure_runtime`, inside `call_once` | `libnative_symbols()` | forces the linker to keep the Kotlin/Native runtime symbols, so the runtime is initialized before any engine call |
 | `install_font_backend` | `tiqian_install_font_backend(vtable as *const _)` | the C ABI takes a pointer; the vtable is a static and lives for the process lifetime |
 | `layout_paragraph` | `tiqian_layout_paragraph(...)` | the call crosses the ABI; the protocol obligations are held by this function |
-| status 0 branch | `CStr::from_ptr(plan)` | the engine returns a NUL-terminated UTF-8 buffer per the protocol |
+| status 0 branch | `slice::from_raw_parts(response, len)` | the engine returns the packed plan buffer per the protocol; the bytes are copied once and the buffer released |
 | status 0 branch | `tiqian_release_buffer(plan)` | releases the nativeHeap buffer the engine allocated |
 | status 1 branch | `CStr::from_ptr(error)` | the error name is a NUL-terminated string |
 | status 1 branch | `tiqian_release_buffer(error)` | releases the error buffer |
@@ -101,18 +101,6 @@ from `dlopen` is never closed and holds the reference for the process
 lifetime; a failed call leaves the library unpinned, which matches the
 behavior before the fix. The unix path is verified against this crash; the
 windows and arm64 paths compile, and no run in this repository exercises them.
-
-## plan_parity.rs: test fixture backend
-
-File `platforms/web/server/precompute/engine/tests/plan_parity.rs`.
-The test runs a deterministic font backend over the same C ABI and compares
-its plan dump with the js oracle byte for byte. Its `unsafe` sites mirror
-`engine_bridge.rs`: the three callback declarations `fixture_shape`,
-`fixture_metrics`, `fixture_release_string`; `CStr::from_ptr` for argument
-decoding; `from_raw_parts_mut` for the shape buffer write;
-`*out_metrics.add` for the metrics out-buffer. The test passes through the
-same boundary as the production callbacks, so the protocol obligations are
-the same.
 
 ## Residual risk
 
