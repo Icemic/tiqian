@@ -122,7 +122,15 @@ private fun Int.isNonCjkWordCharacter(): Boolean =
         UnicodeScriptEvidenceClassifier.classify(this) != UnicodeScriptEvidence.EastAsian
 
 private fun Int.isNonCjkNonNumericWordCharacter(): Boolean =
-    isNonCjkWordCharacter() && !UnicodeNumber.contains(this)
+    isNonCjkWordCharacter() && !UnicodeNumber.contains(this) && !isFullwidthEastAsianWidth()
+
+/**
+ * Pinned Unicode 17.0.0 East_Asian_Width=F ranges from EastAsianWidth.txt.
+ * This narrow check only rejects fullwidth exterior boundaries for the paired
+ * quote Latin-word fast path; it does not change global script classification.
+ */
+private fun Int.isFullwidthEastAsianWidth(): Boolean =
+    this == 0x3000 || this in 0xFF01..0xFF60 || this in 0xFFE0..0xFFE6
 
 private fun String.codePointBefore(index: Int): Int? {
     if (index <= 0) return null
