@@ -419,46 +419,35 @@ private fun LayoutResult.appendParagraphRenderEvidence(
  * Plan JSON numbers use ECMAScript `Number::toString` layout on every Kotlin
  * backend. `Float.toString` differs per platform: Kotlin/JS prints the f64
  * widening, JVM and Native print the f32 shortest form with a forced fraction.
- * Without normalization the same LayoutResult yields different plan bytes per
- * host. Digits come from `Double.toString`; the last digit is normalized from
- * the exact Float expansion; only the layout is normalized here.
+ * `Double.toString` also differs per platform: Kotlin/Native prints strings
+ * that do not round-trip for powers of two. The digit count therefore comes
+ * from the exact shortest-round-trip search of [shortestRoundTripDigits], and
+ * the digit content from the f32 grid value through [canonicalFloatDigits];
+ * only the layout is normalized here.
  */
 private fun StringBuilder.appendJsonNumber(value: Float): StringBuilder =
     append(if (value == -0f) "0" else ecmaJsonNumber(value))
 
 /**
  * Single source for boundary serialization; `ffi/js` consumes these helpers.
+ *
+ * A Kotlin/JS `Float` is a double at runtime and can hold a value off the
+ * f32 grid (literals and mixed arithmetic are not rounded to f32 there), so
+ * the digit count is taken from the runtime double while the digit content
+ * is re-derived from the f32 grid value the `Float` type denotes. On JVM and
+ * Native the runtime value already is the widened f32, so the two agree.
  */
 public fun ecmaJsonNumber(floatValue: Float): String {
-    val raw = floatValue.toDouble().toString()
-    val negative = raw.startsWith("-")
-    val body = if (negative) raw.substring(1) else raw
-    val exponentAt = body.indexOfFirst { it == 'e' || it == 'E' }
-    val mantissa = if (exponentAt >= 0) body.substring(0, exponentAt) else body
-    val exponent = if (exponentAt >= 0) body.substring(exponentAt + 1).toInt() else 0
-    val dotAt = mantissa.indexOf('.')
-    val integerPart = if (dotAt >= 0) mantissa.substring(0, dotAt) else mantissa
-    val fractionPart = if (dotAt >= 0) mantissa.substring(dotAt + 1) else ""
-
-    // digits × 10^(n - digits.length) == value, digits without leading or
-    // trailing zeros.
-    var digits = if (integerPart.any { it != '0' }) integerPart + fractionPart else fractionPart
-    var decimalExponent = if (integerPart.any { it != '0' }) integerPart.length else 0
-    decimalExponent += exponent
-    val firstSignificant = digits.indexOfFirst { it != '0' }
-    if (firstSignificant < 0) return "0"
-    if (firstSignificant > 0) {
-        digits = digits.substring(firstSignificant)
-        decimalExponent -= firstSignificant
-    }
-    val lastSignificant = digits.indexOfLast { it != '0' }
-    if (lastSignificant < digits.length - 1) {
-        digits = digits.substring(0, lastSignificant + 1)
-    }
+    if (floatValue.isNaN()) return "NaN"
+    if (floatValue.isInfinite()) return if (floatValue < 0f) "-Infinity" else "Infinity"
+    if (floatValue == 0f) return "0"
+    val negative = floatValue < 0f
+    val magnitudeValue = abs(floatValue)
+    val (shortestDigits, decimalExponent) = shortestRoundTripDigits(magnitudeValue)
+    val digits = canonicalFloatDigits(magnitudeValue, shortestDigits)
 
     val k = digits.length
     val n = decimalExponent
-    digits = canonicalTieBreak(digits, floatValue)
     val magnitude = if (negative) "-" else ""
     return when {
         k <= n && n <= 21 -> magnitude + digits + "0".repeat(n - k)
@@ -474,18 +463,92 @@ public fun ecmaJsonNumber(floatValue: Float): String {
 }
 
 /**
- * dtoa libraries disagree only in the last digit of their shortest strings:
- * on exact decimal ties ECMAScript rounds half to even while some dtoa round
- * half up. Every number here is a Float, so the exact decimal expansion
- * (mantissa × 2^exponent with a 24-bit mantissa) is finite and small; rounding
- * that expansion to the platform digit count with half to even reproduces the
- * ECMAScript choice on every backend.
+ * The shortest round-trip digits of the runtime double behind [magnitude],
+ * with the decimal exponent `n` such that the value is
+ * `digits × 10^(n - digits.length)`.
+ *
+ * The digit count is the shortest length at which a decimal parses back to
+ * the double (the platform `Double.toString` length); the digits are the
+ * exact binary expansion rounded half to even at that count. The two agree
+ * except at an exact decimal half beside an asymmetric power-of-two
+ * boundary, where the half-even candidate sits outside the rounding
+ * interval: the engine keeps the even digit there, and the Float still
+ * round-trips through the f32 parse the consumers perform.
+ *
+ * The search expands the value and both rounding-interval boundaries of the
+ * f64 into exact decimal integers, so the result depends on the bits alone
+ * and never on a platform `Double.toString` (Kotlin/Native prints
+ * non-round-tripping strings for powers of two). A widened Float is always
+ * normal in f64, so the two boundary cases below cover every input.
  */
-private fun canonicalTieBreak(digits: String, value: Float): String {
-    val bits = value.toRawBits() and 0x7FFFFFFF
+internal fun shortestRoundTripDigits(magnitude: Float): Pair<String, Int> {
+    val bits64 = magnitude.toDouble().toRawBits()
+    val mantissa = (bits64 and 0x000FFFFFFFFFFFFFL) or 0x0010000000000000L
+    val exponent = ((bits64 ushr 52) and 0x7FF).toInt() - 1075
+    // magnitude == mantissa × 2^exponent exactly.
+
+    // Exact decimal digits of the value; n places the leading digit. For a
+    // negative exponent the expansion is mantissa × 5^k with the value at
+    // (that integer) × 10^exponent, so n folds in the exponent; for a
+    // non-negative exponent the expansion is the plain integer mantissa × 2^k.
+    val expansion = dyadicDecimal(mantissa, exponent)
+    var exact = expansion.first
+    val n = expansion.second
+    exact = exact.trimEnd('0')
+
+    // The interval of decimals that parse back to the value: value ± half
+    // ulp. At a binade floor (mantissa == 2^52) the neighbor below lives in
+    // the finer binade, so the lower boundary is one quarter of the ulp
+    // away instead of one half.
+    val hi = dyadicDecimal(mantissa * 2 + 1, exponent - 1)
+    val lo = if (mantissa == 0x0010000000000000L) {
+        dyadicDecimal(mantissa * 4 - 1, exponent - 2)
+    } else {
+        dyadicDecimal(mantissa * 2 - 1, exponent - 1)
+    }
+    // A decimal exactly on a boundary parses half to even; that lands on the
+    // value only when its mantissa is even.
+    val boundaryParsesToValue = mantissa % 2 == 0L
+
+    fun insideInterval(digits: String, digitsN: Int): Boolean {
+        val versusLo = compareDecimal(digits, digitsN, lo.first, lo.second)
+        val versusHi = compareDecimal(digits, digitsN, hi.first, hi.second)
+        val aboveLo = versusLo > 0 || (versusLo == 0 && boundaryParsesToValue)
+        val belowHi = versusHi < 0 || (versusHi == 0 && boundaryParsesToValue)
+        return aboveLo && belowHi
+    }
+
+    // The digit count is the shortest length at which the truncated or the
+    // incremented candidate parses back; any other digit of that length is
+    // farther out on the same side, so the disjunction decides existence.
+    // The emitted digits are the half-even rounding at that count.
+    for (length in 1..17) {
+        val keep = exact.substring(0, length)
+        val up = incrementDecimal(keep)
+        val upN = n + (up.length - length)
+        if (insideInterval(keep, n) || insideInterval(up, upN)) {
+            val candidate = roundToSignificant(exact, length)
+            return Pair(candidate.first, n + candidate.second)
+        }
+    }
+    // Unreachable for finite doubles: a 17-significant-digit decimal always
+    // parses back.
+    return Pair(exact, n)
+}
+
+/**
+ * Re-derives the digit content from the f32 grid value behind [magnitude]
+ * (a Kotlin/JS `Float` can hold a double off the grid; the bits quantize it)
+ * and rounds the exact expansion half to even at the digit count of
+ * [doubleDigits]. A shorter result means the double digits were not
+ * shortest; a longer one means a carry changed the digit count. Either way
+ * the double digits are the safer answer.
+ */
+private fun canonicalFloatDigits(magnitude: Float, doubleDigits: String): String {
+    val bits = magnitude.toRawBits() and 0x7FFFFFFF
     val biasedExponent = (bits ushr 23) and 0xFF
     var mantissa = bits and 0x7FFFFF
-    if (mantissa == 0 && biasedExponent == 0) return digits
+    if (mantissa == 0 && biasedExponent == 0) return doubleDigits
     val exponent = if (biasedExponent == 0) {
         -149
     } else {
@@ -493,19 +556,124 @@ private fun canonicalTieBreak(digits: String, value: Float): String {
         biasedExponent - 150
     }
 
-    var exact = mantissa.toString()
-    if (exponent >= 0) {
-        repeat(exponent) { exact = timesSmall(exact, 2) }
+    val exact = if (exponent >= 0) {
+        timesLong(twoToThe(exponent), mantissa.toLong())
     } else {
         // value = mantissa × 5^k × 10^-k; only the digits matter here, the
         // caller keeps the decimal scale.
-        repeat(-exponent) { exact = timesSmall(exact, 5) }
+        timesLong(fiveToThe(-exponent), mantissa.toLong())
     }
     val stripped = exact.trimEnd('0')
-    if (stripped.length <= digits.length) return digits
+    if (stripped.length <= doubleDigits.length) return doubleDigits
 
-    val keep = stripped.substring(0, digits.length)
-    val remainder = stripped.substring(digits.length)
+    val rounded = roundToSignificant(stripped, doubleDigits.length).first
+    return if (rounded.length == doubleDigits.length) rounded else doubleDigits
+}
+
+/**
+ * p × 2^f as an exact decimal in the digits-and-n form: the value is
+ * `digits × 10^(n - digits.length)`. The power strings are memoized, so a
+ * sweep of same-binade values expands each quantity with one small-times-big
+ * multiply instead of a chain of small multiplies.
+ */
+private fun dyadicDecimal(p: Long, f: Int): Pair<String, Int> {
+    val digits = if (f < 0) {
+        timesLong(fiveToThe(-f), p)
+    } else {
+        timesLong(twoToThe(f), p)
+    }
+    val n = if (f < 0) digits.length + f else digits.length
+    return Pair(digits, n)
+}
+
+/**
+ * 5^k as exact decimal digits; the layout engine is single-threaded, so a
+ * plain map caches the chains across calls. The exponent of a finite double
+ * keeps k below ~1100 and the digits below ~800.
+ */
+private val fivePowers = HashMap<Int, String>()
+
+private fun fiveToThe(k: Int): String = fivePowers.getOrPut(k) {
+    var anchorK = 0
+    var digits = "1"
+    for ((j, cached) in fivePowers) {
+        if (j in 0 until k && j > anchorK) {
+            anchorK = j
+            digits = cached
+        }
+    }
+    repeat(k - anchorK) { digits = timesSmall(digits, 5) }
+    digits
+}
+
+/** 2^k as exact decimal digits, memoized like [fiveToThe]. */
+private val twoPowers = HashMap<Int, String>()
+
+private fun twoToThe(k: Int): String = twoPowers.getOrPut(k) {
+    var anchorK = 0
+    var digits = "1"
+    for ((j, cached) in twoPowers) {
+        if (j in 0 until k && j > anchorK) {
+            anchorK = j
+            digits = cached
+        }
+    }
+    repeat(k - anchorK) { digits = timesSmall(digits, 2) }
+    digits
+}
+
+/**
+ * Multiplies a digit string by a factor below 2^57 exactly. The factor is
+ * processed in 8-decimal-digit chunks so every per-digit product stays inside
+ * Int; a Kotlin/JS `Long` is boxed, and the chunked form keeps the hot
+ * serialization path free of boxed arithmetic.
+ */
+private fun timesLong(digits: String, factor: Long): String {
+    var result: String? = null
+    var shift = 0
+    var remaining = factor
+    while (remaining > 0) {
+        val chunk = (remaining % 100000000L).toInt()
+        remaining /= 100000000L
+        if (chunk != 0) {
+            var part = timesSmall(digits, chunk)
+            if (shift > 0) part += "0".repeat(shift)
+            result = if (result == null) part else addDecimal(result, part)
+        } else if (result == null && remaining == 0L) {
+            return "0"
+        }
+        shift += 8
+    }
+    return result ?: "0"
+}
+
+/** Adds two decimal digit strings exactly. */
+private fun addDecimal(a: String, b: String): String {
+    val out = StringBuilder(maxOf(a.length, b.length) + 1)
+    var i = a.length - 1
+    var j = b.length - 1
+    var carry = 0
+    while (i >= 0 || j >= 0 || carry > 0) {
+        val sum = (if (i >= 0) a[i] - '0' else 0) +
+            (if (j >= 0) b[j] - '0' else 0) +
+            carry
+        out.append(('0' + sum % 10))
+        carry = sum / 10
+        i--
+        j--
+    }
+    return out.toString().reversed()
+}
+
+/**
+ * Rounds the exact digit string (value `exact × 10^(n - exact.length)`) to
+ * [length] significant digits, half to even. Returns the stripped digits and
+ * the n shift caused by a carry past the kept window (999 -> 1000).
+ */
+private fun roundToSignificant(exact: String, length: Int): Pair<String, Int> {
+    if (length >= exact.length) return Pair(exact, 0)
+    val keep = exact.substring(0, length)
+    val remainder = exact.substring(length)
     val pastHalf = remainder.length > 1 && remainder.substring(1).any { it != '0' }
     val roundUp = when {
         remainder[0] > '5' -> true
@@ -513,11 +681,23 @@ private fun canonicalTieBreak(digits: String, value: Float): String {
         // Exact half rounds to even.
         else -> pastHalf || (keep.last() - '0') % 2 != 0
     }
-    val canonical = if (roundUp) incrementDecimal(keep) else keep
-    // A shorter result means the platform string was not shortest; a longer
-    // one means a carry changed the digit count. Either way the platform
-    // string is the safer answer.
-    return if (canonical.trimEnd('0').length == digits.length) canonical else digits
+    val rounded = if (roundUp) incrementDecimal(keep) else keep
+    return Pair(rounded.trimEnd('0'), rounded.length - length)
+}
+
+/**
+ * Compares `a × 10^(nA - a.length)` with `b × 10^(nB - b.length)` exactly;
+ * both digit strings are free of leading zeros.
+ */
+private fun compareDecimal(a: String, nA: Int, b: String, nB: Int): Int {
+    val eA = nA - a.length
+    val eB = nB - b.length
+    val aa = if (eA >= eB) a + "0".repeat(eA - eB) else a
+    val bb = if (eB >= eA) b + "0".repeat(eB - eA) else b
+    return when {
+        aa.length != bb.length -> aa.length - bb.length
+        else -> aa.compareTo(bb)
+    }
 }
 
 private fun timesSmall(digits: String, factor: Int): String {
@@ -532,7 +712,7 @@ private fun timesSmall(digits: String, factor: Int): String {
         out.append('0' + carry % 10)
         carry /= 10
     }
-    return out.reverse().toString()
+    return out.toString().reversed()
 }
 
 private fun incrementDecimal(digits: String): String {
