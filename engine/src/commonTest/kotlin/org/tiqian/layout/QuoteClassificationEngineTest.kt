@@ -612,6 +612,24 @@ class QuoteClassificationEngineTest {
     }
 
     @Test
+    fun keepsFullwidthLetterBoundedWordInternalQuotesCjk() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中Ａ“Ｂ”Ｃ文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "ParagraphLanguageQuoteContext"
+        })
+    }
+
+    @Test
     fun keepsEmptyWordInternalQuotesLatin() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
