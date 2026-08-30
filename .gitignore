@@ -37,6 +37,7 @@ demo/web-history/*.tsbuildinfo
 # Haxe port scratch: instrumentation scripts, coverage baselines, porting
 # notes. Never committed.
 /porting/
+.haxelib
 
 # Locally generated trace goldens (Haxe port contract); regenerate with
 # TIQIAN_UPDATE_GOLDEN=1 ./gradlew :engine:jvmTest
