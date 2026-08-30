@@ -1,4 +1,5 @@
 import type { DecorationSpan, TextSpan, TextStyle } from "./lowered-paragraph.js";
+import { textStylesEqual } from "./lowered-paragraph.js";
 
 export type ClassifyRolesFn = (
   text: string,
@@ -21,7 +22,6 @@ interface ProjectedStrongCluster {
 }
 
 type ProjectRangeFn = (start: number, end: number) => [number, number] | null;
-type TextStylesEqualFn = (left: TextStyle, right: TextStyle) => boolean;
 
 let graphemeSegmenter: Intl.Segmenter | null = null;
 if (typeof Intl !== "undefined" && Intl.Segmenter) {
@@ -64,7 +64,6 @@ export function appendProjectedStrongStyles(
   projectRange: ProjectRangeFn,
   classifyRoles: ClassifyRolesFn,
   baseStyle: TextStyle,
-  textStylesEqual: TextStylesEqualFn,
   spans: TextSpan[],
   decorations: DecorationSpan[],
 ): void {

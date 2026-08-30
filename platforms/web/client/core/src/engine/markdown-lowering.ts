@@ -17,6 +17,7 @@ import type {
   DomSourceSpan,
   LineBreakSpan,
 } from "./lowered-paragraph.js";
+import { textStylesEqual } from "./lowered-paragraph.js";
 import { isNonTextInlineTag, isOpaqueInlineDisplay, isOpaqueInlineLevelDisplay } from "./eligibility.js";
 import {
   appendProjectedStrongStyles,
@@ -641,25 +642,6 @@ function computedInlineStyle(element: Element, fallback: InlineStyleContext): In
   };
 }
 
-function textStylesEqual(left: TextStyle | null | undefined, right: TextStyle | null | undefined): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  if (
-    left.fontSize !== right.fontSize ||
-    left.fontWeight !== right.fontWeight ||
-    left.italic !== right.italic ||
-    left.baselineShift !== right.baselineShift ||
-    left.locale !== right.locale ||
-    left.fontFamilies.length !== right.fontFamilies.length
-  ) {
-    return false;
-  }
-  for (let i = 0; i < left.fontFamilies.length; i++) {
-    if (left.fontFamilies[i] !== right.fontFamilies[i]) return false;
-  }
-  return true;
-}
-
 function parseOpaqueInlineObjectGeometry(value: string): InlineObjectGeometry | null {
   const rawParts = String(value).split(",");
   const parts: number[] = [];
@@ -868,7 +850,7 @@ interface LoweringBuilderMethods {
   appendOpaqueInlineObject(element: Element, whiteSpace: WhiteSpaceMode): boolean;
   appendSemantic(element: Element, style: InlineStyleContext, depth: number, cjkStrongBaseWeight: number | null): boolean;
   appendText(value: string, style: InlineStyleContext): void;
-  appendTextSegment(value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void;
+  appendTextSegment(value: string, style: TextStyle, whiteSpace: WhiteSpaceMode): void;
   build(): LoweredParagraph;
 }
 
@@ -1094,7 +1076,7 @@ LoweringBuilder.prototype.appendText = function (this: LoweringBuilder, value: s
   if (value.length === 0) return;
   const strongBaseWeight = style.cjkStrongBaseWeight;
   if (strongBaseWeight === null || strongBaseWeight === undefined) {
-    this.appendTextSegment(value, style.textStyle, style.whiteSpace, false);
+    this.appendTextSegment(value, style.textStyle, style.whiteSpace);
     return;
   }
   const start = this.text.length;
@@ -1110,18 +1092,13 @@ LoweringBuilder.prototype.appendText = function (this: LoweringBuilder, value: s
   this.addBoundary(end);
 };
 
-LoweringBuilder.prototype.appendTextSegment = function (this: LoweringBuilder, value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void {
+LoweringBuilder.prototype.appendTextSegment = function (this: LoweringBuilder, value: string, style: TextStyle, whiteSpace: WhiteSpaceMode): void {
   if (value.length === 0) return;
   const start = this.text.length;
   this.appendRawText(value, whiteSpace);
   const end = this.text.length;
   if (!textStylesEqual(style, this.baseInlineStyle.textStyle)) {
     this.spans.push({ start: start, end: end, style: style });
-    this.addBoundary(start);
-    this.addBoundary(end);
-  }
-  if (emphasis) {
-    this.decorations.push({ start: start, end: end, kind: "Emphasis" });
     this.addBoundary(start);
     this.addBoundary(end);
   }
@@ -1228,7 +1205,6 @@ LoweringBuilder.prototype.build = function (this: LoweringBuilder): LoweredParag
     },
     this.helpers.classifyRoles,
     this.baseInlineStyle.textStyle,
-    textStylesEqual,
     spans,
     decorations,
   );
