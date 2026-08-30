@@ -87,6 +87,7 @@ interface FfiExports {
   liangHyphenate: (word: string, patternsJson: string, exceptionsJson: string, leftMin?: number, rightMin?: number) => string;
   unicodePunctuationLineBreakClassOf: (codePoint: number) => string;
   classifyFontRole: (text: string, start: number, end: number, locale: string) => string;
+  classifyFontRoles: (text: string, starts: number[], ends: number[], locale: string) => string[];
   unsupportedInlineShapingProperties: () => string[];
   firstDivergentInlineShapingProperty: (elementValues: string[], paragraphValues: string[]) => string | null;
   precomputeParagraphWithDiagnostics: (
@@ -143,6 +144,7 @@ test("the generated declarations name the whole export surface", async () => {
     "liangHyphenate",
     "unicodePunctuationLineBreakClassOf",
     "classifyFontRole",
+    "classifyFontRoles",
     "unsupportedInlineShapingProperties",
     "firstDivergentInlineShapingProperty",
     "precomputeParagraphWithDiagnostics",
@@ -183,6 +185,7 @@ test("the engine entry loads from the package exports surface", async () => {
   assert.equal(typeof ffi.liangHyphenate, "function");
   assert.equal(typeof ffi.unicodePunctuationLineBreakClassOf, "function");
   assert.equal(typeof ffi.classifyFontRole, "function");
+  assert.equal(typeof ffi.classifyFontRoles, "function");
   assert.equal(typeof ffi.unsupportedInlineShapingProperties, "function");
   assert.equal(typeof ffi.firstDivergentInlineShapingProperty, "function");
   assert.equal(typeof ffi.precomputeParagraphWithDiagnostics, "function");
@@ -196,6 +199,15 @@ test("classifyFontRole maps classifier roles to lowering role strings", async ()
   assert.equal(ffi.classifyFontRole("汉字", 0, 2, "zh-Hans"), "cjk-text");
   assert.equal(ffi.classifyFontRole("，", 0, 1, "zh-Hans"), "cjk-punctuation");
   assert.equal(ffi.classifyFontRole("Hello", 0, 5, "en"), "other");
+});
+
+test("classifyFontRoles resolves contextual marks from complete paragraph text", async () => {
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
+
+  assert.deepEqual(
+    ffi.classifyFontRoles("A——B中文……下句", [1, 2, 6, 7], [2, 3, 7, 8], "zh-Hans"),
+    ["other", "other", "cjk-punctuation", "cjk-punctuation"],
+  );
 });
 
 test("unsupportedInlineShapingProperties returns fresh ordered property array", async () => {

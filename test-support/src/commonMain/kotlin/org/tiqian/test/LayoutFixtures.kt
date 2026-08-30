@@ -472,6 +472,17 @@ object EarlyLayoutFixtures {
             ),
         ),
         LayoutFixture(
+            id = "contextual-dash-ellipsis",
+            text = "中文—下句；等…真。 English — next; ellipsis… / slash. A——B; Wait……what? " +
+                "中文—English\n——中文\n……",
+            constraints = LayoutConstraints(maxWidth = 1024f),
+            notes = "ContextualDashEllipsisRoleResolution uses surrounding strong script, not mark count: " +
+                "single CJK marks retain CJK geometry while repeated Western marks stay on the Latin face " +
+                "in their own clusters (ContextualDashEllipsisRunSegmentation). The tail exercises " +
+                "conflicting-surrounding-script (中文—English), mandatory-break truncation with " +
+                "only-right evidence (——中文), and the no-context paragraph-language fallback (……).",
+        ),
+        LayoutFixture(
             id = "quote-digit-boundaries",
             text = "中文 le“t”ters 中1“1”2文；中Ａ“Ｂ”Ｃ文。尾号是“1‘2’3”，用时1’30”。",
             constraints = LayoutConstraints(maxWidth = 1024f),

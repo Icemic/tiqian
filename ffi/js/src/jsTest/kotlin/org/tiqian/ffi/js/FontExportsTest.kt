@@ -2,10 +2,24 @@ package org.tiqian.ffi.js
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class FontExportsTest {
+
+    @Test
+    fun loweringRoleBatchUsesCompleteParagraphContext() {
+        val text = "A——B中文……下句"
+        val starts = arrayOf(1, 2, 6, 7)
+        val ends = arrayOf(2, 3, 7, 8)
+
+        assertContentEquals(
+            arrayOf("other", "other", "cjk-punctuation", "cjk-punctuation"),
+            classifyFontRoles(text, starts, ends, "zh-Hans"),
+        )
+        assertEquals("other", classifyFontRole("A——B", 1, 2, "zh-Hans"))
+    }
 
     @Test
     fun fontMetricsResolveReturnsRawMetricsJsonForCjkRole() {

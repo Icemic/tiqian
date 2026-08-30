@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { globalServices, initializeGlobalServices } from "../src/services/global-services.js";
 import { processParagraph } from "../src/engine/process-paragraph.js";
+import { lowerMarkdown } from "../src/engine/markdown-lowering.js";
 import { createEnhanceContext } from "../src/engine/context/enhance-context.js";
 import { optionsFromJs } from "../src/engine/lifecycle.js";
 import { effectiveLineMeasure } from "../src/engine/responsive-measure.js";
@@ -12,6 +13,7 @@ import { FakeElement, FakeFragment, FakeNode, FakeText, asElement, asFakeElement
 import type { EnhancedElementContext } from "../src/engine/context/enhance-context.js";
 import type { TiqianLayoutWorkerInstance } from "../src/engine/coordination/coordination-service.js";
 import type { ReplayProbe, ReplayRegistry } from "../src/measurement/browser-font-replay.js";
+import { classifyFontRole, classifyFontRoles } from "@tiqian/ffi";
 initializeGlobalServices();
 
 // The pipeline runs for real: eligibility, markdown lowering, the lifecycle
@@ -341,6 +343,32 @@ function strongChild(text: string): FakeElement {
   writeComputedValues(element, { display: "inline", "font-weight": "normal" });
   return element;
 }
+
+test("strong emphasis classifies contextual marks against the complete paragraph", () => {
+  withEnv(() => {
+    const children = [strongChild("A"), strongChild("——"), strongChild("B")];
+    for (const child of children) {
+      writeComputedValues(child, { display: "inline", "font-weight": "700" });
+    }
+    const paragraph = makeParagraphElement({
+      childNodes: children,
+    });
+    const result = lowerMarkdown(
+      asElement(paragraph),
+      { strongAsEmphasisMarks: true, locale: "zh-Hans" },
+      { classifyRole: classifyFontRole, classifyRoles: classifyFontRoles },
+    );
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.lowered.text, "A——B");
+    assert.deepEqual(result.lowered.decorations, []);
+    assert.deepEqual(
+      result.lowered.spans.map(function (span) { return [span.start, span.end, span.style.fontWeight]; }),
+      [[0, 1, 700], [1, 3, 700], [3, 4, 700]],
+    );
+  });
+});
 
 // A block-level child fails lowering with UnsupportedInlineFormattingContext.
 function blockChild(tagName: string, text: string): FakeElement {

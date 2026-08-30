@@ -69,8 +69,9 @@ class CjkFontRoleClassifier : FontRoleClassifier {
         val firstCodePoint = text.codePointAtCompat(range.start)
         return when {
             firstCodePoint.isCjkCodePoint() -> FontRole.CjkText
-            // The ONLY shared CJK/Western code points are the curly quotes — resolved by
-            // context. Everything else is native: typed ASCII → Latin, CJK code points → CJK.
+            // Shared curly quotes are provisionally resolved here and structurally overridden
+            // by QuotePairAnalyzer. U+2014/U+2026 default to CJK here, then the paragraph-level
+            // ContextualDashEllipsisRoleResolution applies full surrounding-script evidence.
             firstCodePoint.isLatinCurlyQuote(text, range) -> FontRole.LatinText
             firstCodePoint.isCjkPunctuationCodePoint() -> FontRole.CjkPunctuation
             firstCodePoint.isTypedAsciiLatin() -> FontRole.LatinText
@@ -137,9 +138,10 @@ class CjkFontRoleClassifier : FontRoleClassifier {
 
     /**
      * All printable ASCII (U+0020..U+007E) is typed-Latin intent → [FontRole.LatinText].
-     * The ONLY CJK/Western shared code points are the curly quotes (U+2018–201D), resolved
-     * by context in [isLatinCurlyQuote]; genuinely-CJK code points (—, …, 、, fullwidth FF**)
-     * are caught by [isCjkPunctuationCodePoint] before this. So an ASCII `%` / `.` / `-` / `/`
+     * Curly quotes (U+2018–201D) are provisionally resolved in [isLatinCurlyQuote], while
+     * paragraph analysis owns the final context decision for them and for U+2014/U+2026.
+     * CJK punctuation defaults (including the base role for contextual `—` / `…`) are caught
+     * by [isCjkPunctuationCodePoint] before this. So an ASCII `%` / `.` / `-` / `/`
      * renders Western and aggregates with adjacent Latin instead of landing on the CJK face
      * (ADR 0029: ASCII `-`/`/` is an English hyphen, not a CJK 连接号). U+0020 SPACE joins the
      * Latin run per ADR 0009 (advance later adjusted by `ClreqProfile.autoSpace` at boundaries).

@@ -1,0 +1,171 @@
+fixture: contextual-dash-ellipsis
+text: 中文—下句；等…真。 English — next; ellipsis… / slash. A——B; Wait……what?
+maxWidth: 1024.0
+== greedy ==
+size 944.0x24.0
+kinsoku measure=64.0字 level=Strict hang=Disabled reason=MeasureAdaptiveKinsoku:64字→Strict
+line[0] 0-63 natural=944.0 adjusted=944.0 visual=944.0 repair=- candidates=- justify=-
+cluster 0-1 '中' adv=16.0
+cluster 1-2 '文' adv=16.0
+cluster 2-3 '—' adv=16.0
+cluster 3-4 '下' adv=16.0
+cluster 4-5 '句' adv=16.0
+cluster 5-6 '；' adv=16.0
+cluster 6-7 '等' adv=16.0
+cluster 7-8 '⋯' adv=16.0
+cluster 8-9 '真' adv=16.0
+cluster 9-10 '。' adv=16.0
+cluster 10-11 ' ' adv=8.0
+cluster 11-18 'English' adv=112.0
+cluster 18-19 ' ' adv=8.0
+cluster 19-20 '—' adv=16.0
+cluster 20-21 ' ' adv=8.0
+cluster 21-26 'next;' adv=80.0
+cluster 26-27 ' ' adv=8.0
+cluster 27-36 'ellipsis…' adv=144.0
+cluster 36-37 ' ' adv=8.0
+cluster 37-38 '/' adv=16.0
+cluster 38-39 ' ' adv=8.0
+cluster 39-45 'slash.' adv=96.0
+cluster 45-46 ' ' adv=8.0
+cluster 46-51 'A——B;' adv=80.0
+cluster 51-52 ' ' adv=8.0
+cluster 52-63 'Wait……what?' adv=176.0
+font 0-1 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 1-2 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 2-3 role=CjkPunctuation key=cjk-primary display='—' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 3-4 role=CjkText key=cjk-primary display='下' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 4-5 role=CjkText key=cjk-primary display='句' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 5-6 role=CjkPunctuation key=cjk-primary display='；' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 6-7 role=CjkText key=cjk-primary display='等' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 7-8 role=CjkPunctuation key=cjk-primary display='⋯' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:U+2026->U+22EF
+font 8-9 role=CjkText key=cjk-primary display='真' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 10-63 role=LatinText key=latin-primary display=' English — next; ellipsis… / slash. A——B; Wait……what?' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 2-3 source='—' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 7-8 source='…' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 19-20 source='—' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 35-36 source='…' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 47-49 source='——' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 56-58 source='……' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+punct 2-3 '—' class=Dash adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '；' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 7-8 '⋯' class=Ellipsis adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 9-10 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+geom 2-3 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 5-6 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+geom 7-8 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 9-10 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+linespacing natural=16.0 requested=- resolved=24.0 floor=0.0 applied=false reason=CjkBodyLineHeightDefault
+== lookahead ==
+size 944.0x24.0
+kinsoku measure=64.0字 level=Strict hang=Disabled reason=MeasureAdaptiveKinsoku:64字→Strict
+line[0] 0-63 natural=944.0 adjusted=944.0 visual=944.0 repair=- candidates=- justify=-
+cluster 0-1 '中' adv=16.0
+cluster 1-2 '文' adv=16.0
+cluster 2-3 '—' adv=16.0
+cluster 3-4 '下' adv=16.0
+cluster 4-5 '句' adv=16.0
+cluster 5-6 '；' adv=16.0
+cluster 6-7 '等' adv=16.0
+cluster 7-8 '⋯' adv=16.0
+cluster 8-9 '真' adv=16.0
+cluster 9-10 '。' adv=16.0
+cluster 10-11 ' ' adv=8.0
+cluster 11-18 'English' adv=112.0
+cluster 18-19 ' ' adv=8.0
+cluster 19-20 '—' adv=16.0
+cluster 20-21 ' ' adv=8.0
+cluster 21-26 'next;' adv=80.0
+cluster 26-27 ' ' adv=8.0
+cluster 27-36 'ellipsis…' adv=144.0
+cluster 36-37 ' ' adv=8.0
+cluster 37-38 '/' adv=16.0
+cluster 38-39 ' ' adv=8.0
+cluster 39-45 'slash.' adv=96.0
+cluster 45-46 ' ' adv=8.0
+cluster 46-51 'A——B;' adv=80.0
+cluster 51-52 ' ' adv=8.0
+cluster 52-63 'Wait……what?' adv=176.0
+font 0-1 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 1-2 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 2-3 role=CjkPunctuation key=cjk-primary display='—' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 3-4 role=CjkText key=cjk-primary display='下' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 4-5 role=CjkText key=cjk-primary display='句' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 5-6 role=CjkPunctuation key=cjk-primary display='；' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 6-7 role=CjkText key=cjk-primary display='等' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 7-8 role=CjkPunctuation key=cjk-primary display='⋯' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:U+2026->U+22EF
+font 8-9 role=CjkText key=cjk-primary display='真' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 10-63 role=LatinText key=latin-primary display=' English — next; ellipsis… / slash. A——B; Wait……what?' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 2-3 source='—' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 7-8 source='…' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 19-20 source='—' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 35-36 source='…' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 47-49 source='——' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 56-58 source='……' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+punct 2-3 '—' class=Dash adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '；' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 7-8 '⋯' class=Ellipsis adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 9-10 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+geom 2-3 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 5-6 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+geom 7-8 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 9-10 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+linespacing natural=16.0 requested=- resolved=24.0 floor=0.0 applied=false reason=CjkBodyLineHeightDefault
+== paragraph-dp ==
+size 944.0x24.0
+kinsoku measure=64.0字 level=Strict hang=Disabled reason=MeasureAdaptiveKinsoku:64字→Strict
+line[0] 0-63 natural=944.0 adjusted=944.0 visual=944.0 repair=- candidates=- justify=-
+cluster 0-1 '中' adv=16.0
+cluster 1-2 '文' adv=16.0
+cluster 2-3 '—' adv=16.0
+cluster 3-4 '下' adv=16.0
+cluster 4-5 '句' adv=16.0
+cluster 5-6 '；' adv=16.0
+cluster 6-7 '等' adv=16.0
+cluster 7-8 '⋯' adv=16.0
+cluster 8-9 '真' adv=16.0
+cluster 9-10 '。' adv=16.0
+cluster 10-11 ' ' adv=8.0
+cluster 11-18 'English' adv=112.0
+cluster 18-19 ' ' adv=8.0
+cluster 19-20 '—' adv=16.0
+cluster 20-21 ' ' adv=8.0
+cluster 21-26 'next;' adv=80.0
+cluster 26-27 ' ' adv=8.0
+cluster 27-36 'ellipsis…' adv=144.0
+cluster 36-37 ' ' adv=8.0
+cluster 37-38 '/' adv=16.0
+cluster 38-39 ' ' adv=8.0
+cluster 39-45 'slash.' adv=96.0
+cluster 45-46 ' ' adv=8.0
+cluster 46-51 'A——B;' adv=80.0
+cluster 51-52 ' ' adv=8.0
+cluster 52-63 'Wait……what?' adv=176.0
+font 0-1 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 1-2 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 2-3 role=CjkPunctuation key=cjk-primary display='—' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 3-4 role=CjkText key=cjk-primary display='下' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 4-5 role=CjkText key=cjk-primary display='句' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 5-6 role=CjkPunctuation key=cjk-primary display='；' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 6-7 role=CjkText key=cjk-primary display='等' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 7-8 role=CjkPunctuation key=cjk-primary display='⋯' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:U+2026->U+22EF
+font 8-9 role=CjkText key=cjk-primary display='真' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+font 10-63 role=LatinText key=latin-primary display=' English — next; ellipsis… / slash. A——B; Wait……what?' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 2-3 source='—' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 7-8 source='…' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 19-20 source='—' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 35-36 source='…' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 47-49 source='——' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 56-58 source='……' CjkPunctuation->LatinText policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+punct 2-3 '—' class=Dash adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '；' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 7-8 '⋯' class=Ellipsis adv=16.0 body=16.0 lead=0.0 trail=0.0 anchor=Center source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 9-10 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+geom 2-3 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 5-6 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+geom 7-8 body=16.0 lead=0.0/0.0 trail=0.0/0.0 justify=0.0 resolved=16.0
+geom 9-10 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
+linespacing natural=16.0 requested=- resolved=24.0 floor=0.0 applied=false reason=CjkBodyLineHeightDefault

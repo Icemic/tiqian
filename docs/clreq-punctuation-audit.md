@@ -19,7 +19,9 @@ source "‧" -> display "·"
 source "•" -> display "·"
 ```
 
-这些是候选 display 替换，不是无条件保证。目标字体缺字、advance 或 ink 无法满足规范几何时，
+这些替换只是候选 display 方案，是否采用由上下文角色与字体几何共同决定。破折号或省略号的
+source run 必须先由上下文判为
+`CjkPunctuation`；判为西文时保留 source display。目标字体缺字、advance 或 ink 无法满足规范几何时，
 引擎会记录具名原因并回滚为 source text；Web 的两字破折号还需要 ADR 0039 规定的真实 face / glyph
 证据，不能只凭 Canvas 画出了正宽字符就宣称候选成立。
 
@@ -79,12 +81,19 @@ CLREQ 行首行尾禁则分四档（`KinsokuLevel`，命名对齐第六节原文
 
 ## 字体面归属（中西共用码点）
 
-字体**面**（Latin vs CJK）是码点问题，不是字形问题。中西真·共用码点只有
-弯引号 U+2018–201D。它们先建立嵌套配对，再按同一层级的双向外层脚本、外层引号、完整引文内容
-与段落 locale 依次解析；不能由紧邻字符或引文首字符单独决定。其余各归各：
+字体**面**（Latin vs CJK）先由源码与上下文决定，再进入字形选择。中西共用且需要上下文解析的
+码点包括弯引号 U+2018–201D、破折号 U+2014 与省略号 U+2026。弯引号先建立嵌套配对，再按
+同一层级的双向外层脚本、外层引号、完整引文内容与段落 locale 依次解析；不能由紧邻字符或
+引文首字符单独决定。破折号与省略号先形成连续 source run，再检查 run 两侧最近的强脚本文本：
+两侧一致或只有一侧有证据时继承该侧；两侧冲突或都没有证据时按段落 locale 解析。强制换行会
+截断搜索。run 长度不参与字体角色判定；后续 cluster 形成由最终 role 与 profile 决定。
+
+其余各归各：
 所有可打印 ASCII（U+0020–007E，含 `% . , : ; - / ~ | \` 等）是 typed Western intent →
-**Latin 面**；CJK 专有码点（`—` U+2014、`…` U+2026、`、`、全宽 `FF**`、`·`、`•`）→
-**CJK 面**。判定在 `CjkFontRoleClassifier`。
+**Latin 面**；CJK 专有码点（`、`、全宽 `FF**`、`·`、`•`，以及明确的推荐显示形式
+`⸺` / `⋯`）→ **CJK 面**。基础码点判定在 `CjkFontRoleClassifier`，弯引号与破折号/省略号
+分别由 `ContextualQuoteRoleResolver` 和 `ContextualDashEllipsisRoleResolution` 写回结构化
+role decision。
 
 历史 drift（已收回）：曾把 ASCII `- / ~` 误塞 `isCjkPunctuationCodePoint` 并给它们加
 `isLatinTechnicalPunctuation` 上下文补丁，其余 ASCII 标点漏到 `Unknown` → CJK 面，

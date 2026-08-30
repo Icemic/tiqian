@@ -287,10 +287,21 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         baseClassifier = fontRoleClassifier,
         context = context,
     )
-    val effectiveClassifier: FontRoleClassifier = if (quoteRoleOverrides.isNotEmpty()) {
+    val quoteAwareClassifier: FontRoleClassifier = if (quoteRoleOverrides.isNotEmpty()) {
         QuotePairAwareFontRoleClassifier(fontRoleClassifier, quoteRoleOverrides)
     } else {
         fontRoleClassifier
+    }
+    val dashEllipsisRoleDecisions = ContextualDashEllipsisRoleResolver().resolve(text, context)
+    val dashEllipsisRoleOverrideInfos = dashEllipsisRoleDecisions.toRoleOverrideInfos(
+        text = text,
+        baseClassifier = quoteAwareClassifier,
+        context = context,
+    )
+    val effectiveClassifier: FontRoleClassifier = if (dashEllipsisRoleDecisions.isNotEmpty()) {
+        ContextualDashEllipsisAwareFontRoleClassifier(quoteAwareClassifier, dashEllipsisRoleDecisions)
+    } else {
+        quoteAwareClassifier
     }
 
     val clusterRanges = clusterRoleRanges(
@@ -302,7 +313,11 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         emojiShapingBoundaries,
         input.inlineObjects.associateBy { it.range.start },
     )
-    val roleOverrideInfos = (quoteRoleOverrideInfos + clusterRanges.mapNotNull { it.roleOverride })
+    val roleOverrideInfos = (
+        quoteRoleOverrideInfos +
+            dashEllipsisRoleOverrideInfos +
+            clusterRanges.mapNotNull { it.roleOverride }
+    )
         .sortedBy { it.range.start }
     val shapeableRanges = clusterRanges.filterNot {
         it.mandatoryBreak || it.zeroWidthSoftBreak || inlineObjectByRange.containsKey(it.range)
