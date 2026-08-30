@@ -446,9 +446,13 @@ test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
     cjkDashCapability: { status: "conforming", detail: null },
     measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const cResult: CanvasShapingResult = conforming.shaper.shape(
-    input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
-  );
+  const cjkDashInput = (): ShapeInput => input({
+    text: "\u2014\u2014",
+    range: { start: 0, end: 2 },
+    displayText: "\u2014\u2014",
+    fontDecision: { role: "CjkPunctuation", candidate: { key: "k1" } },
+  });
+  const cResult: CanvasShapingResult = conforming.shaper.shape(cjkDashInput());
   assert.equal(cResult.decisions[0].capabilityIssue, "ConformingCjkDashRequiresSnapshotFontSession");
   assert.ok(cResult.decisions[0].reason.includes("; status=conforming"));
 
@@ -456,9 +460,7 @@ test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
     cjkDashCapability: { status: "partial", detail: "probe-detail" },
     measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const pResult: CanvasShapingResult = partial.shaper.shape(
-    input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
-  );
+  const pResult: CanvasShapingResult = partial.shaper.shape(cjkDashInput());
   assert.equal(pResult.decisions[0].capabilityIssue, "NoConformingCjkDashGlyph");
   assert.ok(pResult.decisions[0].reason.includes("; status=partial; probe-detail"));
 
@@ -466,11 +468,25 @@ test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
     cjkDashCapability: null,
     measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const nResult: CanvasShapingResult = none.shaper.shape(
-    input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
-  );
+  const nResult: CanvasShapingResult = none.shaper.shape(cjkDashInput());
   assert.equal(nResult.decisions[0].capabilityIssue, "NoConformingCjkDashGlyph");
   assert.ok(nResult.decisions[0].reason.includes("; CjkDashFontShapingNotPrepared"));
+});
+
+test("dash: a Western-resolved source \u2014\u2014 carries no CJK dash capability issue", () => {
+  const { shaper } = makeHarness({
+    cjkDashCapability: null,
+    measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
+  });
+  const result: CanvasShapingResult = shaper.shape(
+    input({
+      text: "\u2014\u2014",
+      range: { start: 0, end: 2 },
+      displayText: "\u2014\u2014",
+      fontDecision: { role: "LatinText", candidate: { key: "k1" } },
+    }),
+  );
+  assert.equal(result.decisions[0].capabilityIssue, null);
 });
 
 test("ellipsis: unverified display substitution carries the U+22EF issue", () => {
