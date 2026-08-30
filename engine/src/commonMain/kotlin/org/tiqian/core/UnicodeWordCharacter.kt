@@ -14,3 +14,12 @@ object UnicodeWordCharacter {
         return UnicodeWordCharacterData.contains(codePoint)
     }
 }
+
+/** Stable Unicode 17 Number membership for contextual punctuation policies. */
+internal object UnicodeNumber {
+    fun contains(codePoint: Int): Boolean {
+        require(codePoint in 0..0x10FFFF) { "Not a Unicode scalar value: $codePoint" }
+        require(codePoint !in 0xD800..0xDFFF) { "Surrogate is not a Unicode scalar value: $codePoint" }
+        return UnicodeNumberData.contains(codePoint)
+    }
+}

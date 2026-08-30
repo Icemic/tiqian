@@ -471,5 +471,16 @@ object EarlyLayoutFixtures {
                 DecorationSpan(range = TextRange(9, 12), kind = DecorationKind.Mourning),
             ),
         ),
+        LayoutFixture(
+            id = "quote-digit-boundaries",
+            text = "中文 le“t”ters 中1“1”2文；中Ａ“Ｂ”Ｃ文。尾号是“1‘2’3”，用时1’30”。",
+            constraints = LayoutConstraints(maxWidth = 1024f),
+            notes = "Non-CJK word-internal quote boundaries: le“t”ters keeps " +
+                "NonCjkWordInternalQuotePair on the Latin face; digit (中1“1”2文) and " +
+                "fullwidth (中Ａ“Ｂ”Ｃ文) boundaries stay excluded and resolve CJK; the " +
+                "digit-bounded single pair in “1‘2’3” inherits the enclosing CJK " +
+                "quotation; the unmatched marks in 1’30” resolve as " +
+                "NumericPrimeUnmatchedQuote on the Latin face.",
+        ),
     )
 }

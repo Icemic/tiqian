@@ -27895,6 +27895,582 @@
                     }
                 ]
             }
+        },
+        {
+            "key": {
+                "displayText": "le“t”ters",
+                "fontKey": "latin-primary",
+                "fontFamily": "latin-primary",
+                "role": "LatinText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 59.070312,
+                "runAdvance": 59.070312,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 736,
+                        "advance": 4.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -13.0,
+                            4.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 614,
+                        "advance": 8.0,
+                        "x": 4.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1486,
+                        "advance": 7.0,
+                        "x": 12.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -13.0,
+                            8.0,
+                            -6.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 889,
+                        "advance": 5.0,
+                        "x": 19.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -12.0,
+                            6.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1487,
+                        "advance": 7.2265625,
+                        "x": 24.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -13.0,
+                            8.0,
+                            -6.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 889,
+                        "advance": 4.84375,
+                        "x": 31.226562,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -12.0,
+                            6.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 614,
+                        "advance": 9.0,
+                        "x": 36.070312,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 852,
+                        "advance": 6.0,
+                        "x": 45.070312,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -10.0,
+                            7.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 871,
+                        "advance": 8.0,
+                        "x": 51.070312,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            9.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 9,
+                        "advance": 59.070312,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Inter Variable:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "1",
+                "fontKey": "latin-primary",
+                "fontFamily": "latin-primary",
+                "role": "LatinText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 7.0,
+                "runAdvance": 7.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 1342,
+                        "advance": 7.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            7.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 7.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Inter Variable:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "Ａ",
+                "fontKey": "symbol-fallback",
+                "fontFamily": "symbol-fallback",
+                "role": "Unknown",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 29820,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            1.0,
+                            -13.0,
+                            15.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "Ｂ",
+                "fontKey": "symbol-fallback",
+                "fontFamily": "symbol-fallback",
+                "role": "Unknown",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 29821,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            2.0,
+                            -13.0,
+                            15.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "Ｃ",
+                "fontKey": "symbol-fallback",
+                "fontFamily": "symbol-fallback",
+                "role": "Unknown",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 29822,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            2.0,
+                            -13.0,
+                            15.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "号",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 10297,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -14.0,
+                            16.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "3",
+                "fontKey": "latin-primary",
+                "fontFamily": "latin-primary",
+                "role": "LatinText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 10.0,
+                "runAdvance": 10.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 1345,
+                        "advance": 10.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 10.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Inter Variable:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "1’30”",
+                "fontKey": "latin-primary",
+                "fontFamily": "latin-primary",
+                "role": "LatinText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 38.0,
+                "runAdvance": 38.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 1342,
+                        "advance": 7.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            7.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1483,
+                        "advance": 4.0,
+                        "x": 7.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -13.0,
+                            5.0,
+                            -6.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1345,
+                        "advance": 10.0,
+                        "x": 11.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1341,
+                        "advance": 10.0,
+                        "x": 21.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            11.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 1487,
+                        "advance": 7.0,
+                        "x": 31.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -13.0,
+                            8.0,
+                            -6.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 5,
+                        "advance": 38.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Inter Variable:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
         }
     ],
     "metrics": [
@@ -34876,6 +35452,186 @@
                 "source": "RawTables",
                 "typoAscent": 14.080001,
                 "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": " le“t”ters "
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "1"
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "2"
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "symbol-fallback",
+                "fontSize": 16.0,
+                "role": "Unknown",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "Ａ"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "symbol-fallback",
+                "fontSize": 16.0,
+                "role": "Unknown",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "Ｂ"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "symbol-fallback",
+                "fontSize": 16.0,
+                "role": "Unknown",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "Ｃ"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "号"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "3"
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "1’30”"
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
             }
         }
     ]
