@@ -13,7 +13,8 @@
   2026-07-18（默认字体所有权改为 host-compatible：构建端直接读取宿主 `@font-face` 样式表，浏览器
   不再下载字体字节或生成 render-family alias；响应式 SSR 始终保留 semantic source；采用与计数验证
   改为可中断的渐进证明）；2026-08-11（相邻引文列举项的上下文不再泄漏前一项内容）；
-  2026-08-20 native precompute migration pointer, see ADR 0050
+  2026-08-20 native precompute migration pointer, see ADR 0050；2026-08-30（非 CJK 词内成对弯引号
+  规则，以及数字和全角外层边界的排除）
 - Amends: [ADR 0039 Web 渲染路径与真实站点接入](0039-web-rendering-path.md)
 
 ## Context
@@ -123,6 +124,38 @@ JVM 与 JavaScript 运行时各自的 Unicode 表令希腊文、西里尔文等�
 未配对的弯引号使用左右两侧完整的强脚本证据，冲突时同样回到段落 locale。U+2019 两侧属于
 非 CJK 词字符时由 `NonCjkInWordApostrophe` 保持在 Western run，并且不消耗外层单引号对。
 这些规则只增加结构化 role decision，不补写缺失引号，也不修改 source range。
+
+### Amendment (2026-08-30): 非 CJK 词内成对弯引号
+
+`NonCjkWordInternalQuotePair` 解析 `le“t”ters` 这类西文标识符内部的成对弯引号。它在结构配对完成后、
+外层脚本证据之前解析，使整段标识符维持同一个西文词的比例字体 shaping：
+
+- 开引号前与闭引号后各有一个由 `isNonCjkNonNumericWordCharacter` 定义的 Unicode 17 边界字符；
+- 引号内部可以为空，或全部是 `UnicodeWordCharacter` 集合中的 Unicode scalar。扫描按 code point 前进，
+  supplementary character 每次作为一个 scalar 处理；
+- 命中时整对引号直接使用 `LatinText`，并记录
+  `source=NonCjkWordInternalQuotePair`、`reason=non-cjk-word-internal-quotation`。因此
+  `中文 Latin: le“t”ters 中文`、`中a“b”c文`、`中a“1”c文`、`中文 a“𝐀”b 中文` 与
+  `中文a“”b中文` 保持一个西文 run。
+
+该规则在成对引号解析中优先于外层与内层的完整强脚本文本。完整解析顺序现为：
+
+1. 空白分隔且引文内容完全为西文时，沿用 `DelimitedWesternQuotationRun`；
+2. 满足上述词内条件时，使用 `NonCjkWordInternalQuotePair`；
+3. 其余成对引号依次使用同层外侧强脚本文本、已解析的外层引号、完整引文内容和段落 locale。
+
+`isNonCjkNonNumericWordCharacter` 由 Unicode 17 的 `UnicodeWordCharacter`、脚本证据、
+`UnicodeNumber` 与 `East_Asian_Width` 数据共同计算。词内成对弯引号规则将它用于两个外层边界：
+
+- **外层边界。** 开引号前与闭引号后各使用一个该集合的字符。
+- **引号内容。** 引号内部继续按前述 `UnicodeWordCharacter` 条件处理。
+
+因此 `中1“1”2文` 由 `PairedPunctuationOuterScriptContext` 解析为 CJK，`中a“1”c文` 保持词内西文
+引号语义。`中Ａ“Ｂ”Ｃ文` 在中文段落中由 `ParagraphLanguageQuoteContext` 解析为 CJK：全角 Latin
+继续作为非 East Asian 的脚本证据参与既有上下文解析。
+
+`NonCjkInWordApostrophe` 处理未配对的 U+2019；它保留在 Western run，并保留外层单引号的配对资格。
+强脚本证据继续使用 `Scripts`；数字和 East Asian Width 只参与词内成对弯引号规则的边界判定。
 
 构建端对每个已分段的 `ShapingInput` 使用同一条具名策略，browser replay 以完整输入 key 消费其结果：
 
