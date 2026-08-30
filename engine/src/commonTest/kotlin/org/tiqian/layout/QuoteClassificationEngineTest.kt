@@ -647,7 +647,7 @@ class QuoteClassificationEngineTest {
     }
 
     @Test
-    fun keepsDigitBoundedSingleQuotePairFullwidthViaEnclosingQuotation() {
+    fun keepsDigitBoundedSingleQuotePairCjkViaEnclosingQuotation() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
