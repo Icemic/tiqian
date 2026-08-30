@@ -83,7 +83,9 @@ Layout report 位于
 - **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI；`ffi/rust` 持有
   precompute 的 Rust 绑定。`frontend/web-precompute` 由 Losses 维护。
 - **Demo 与工具**：`demo` 共享 Desktop / Android 示例界面，
-  `demo/android` 是薄 Android 启动壳；layout report 与 `test-support` 提供诊断和共享语料。
+  `demo/android` 是薄 Android 启动壳；layout report 提供诊断和文档样张生成，
+  测试共享语料（fixtures、shaping evidence、trace 格式化）位于
+  `engine` 的 `commonTest`。
 
 平台层可以负责字体加载、shaping、glyph metrics、绘制和宿主样式读取，但不得自行决定
 字体 fallback、标点 glue、避头尾、行调整或两端对齐。需要平台证据的规则应把证据送回
