@@ -80,22 +80,6 @@ pub fn precompute_paragraph(
     crate::plan::Plan::from_packed_bytes(&bytes).map_err(|error| error.0)
 }
 
-/// Diagnostic dump: same request, JSON bytes for parity oracle and golden.
-pub fn precompute_paragraph_json(
-    session: &FontSession,
-    evidence: &mut CaptureEvidence,
-    request: &ParagraphRequest,
-) -> Result<String, String> {
-    install_session_backend()?;
-    let packed = request
-        .to_layout_request()
-        .map_err(|error| error.0)?
-        .pack()
-        .map_err(|error| error.0)?;
-    let _slot = LendSlot::set(session, evidence);
-    tiqian::engine::layout_paragraph_json(&packed).map_err(|error| error.0)
-}
-
 fn install_session_backend() -> Result<(), String> {
     static VTABLE: std::sync::OnceLock<FontBackendVtable> = std::sync::OnceLock::new();
     static INSTALL: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();

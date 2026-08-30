@@ -7,8 +7,10 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.UnicodeEastAsianSpacing
 import org.tiqian.font.FontRole
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Unit-level checks for the CLREQ stretch tiers, focused on the 中西间距
@@ -18,6 +20,8 @@ import kotlin.test.assertTrue
  * otherwise it falls through every tier and the line stretches unevenly.
  */
 class JustifierTest {
+    private val testTrace = TestTraceRecorder("JustifierTest")
+
 
     private val em = 16f
     private fun cjk(at: Int) = Cluster(TextRange(at, at + 1), "中", fontKey = "cjk", advance = em)
@@ -35,6 +39,7 @@ class JustifierTest {
 
     @Test
     fun westernDominantLineDoesNotStretchAroundCjkPunctuation() {
+        testTrace.section("westernDominantLineDoesNotStretchAroundCjkPunctuation")
         // Rust（Winio）、Rust — the visual line contains Chinese punctuation,
         // but no CJK body text. Tier ③ must not manufacture wide spaces around
         // the brackets merely to fill the measure.
@@ -74,6 +79,7 @@ class JustifierTest {
 
     @Test
     fun explicitInlineObjectBoundariesShareUniformStretchOnFormulaOnlyLine() {
+        testTrace.section("explicitInlineObjectBoundariesShareUniformStretchOnFormulaOnlyLine")
         val clusters = listOf(
             inlineObject(0, "a+"),
             inlineObject(2, "b="),
@@ -103,6 +109,7 @@ class JustifierTest {
 
     @Test
     fun formulaBoundariesStretchPunctuationThenRelationsThenBinaryOperators() {
+        testTrace.section("formulaBoundariesStretchPunctuationThenRelationsThenBinaryOperators")
         val clusters = listOf("a", ",", "b", "=", "c", "+", "d")
             .mapIndexed { index, text -> inlineObject(index, text) }
         val roles = List(clusters.size) { FontRole.Unknown }
@@ -180,6 +187,7 @@ class JustifierTest {
 
     @Test
     fun mixedCjkLineStillStretchesPunctuationWesternBoundary() {
+        testTrace.section("mixedCjkLineStillStretchesPunctuationWesternBoundary")
         // Once the visual line contains CJK body text it remains a mixed CJK
         // line: the established uniform tier-③ treatment still includes the
         // Western↔punctuation boundary.
@@ -210,6 +218,7 @@ class JustifierTest {
 
     @Test
     fun typedSinoWesternSpaceStretchesInTierTwo() {
+        testTrace.section("typedSinoWesternSpaceStretchesInTierTwo")
         // 中 ⎵ Hi  — one ideograph, a typed space (0.25em), a Latin word.
         val clusters = listOf(cjk(0), space(1), latin(2, 2f * em))
         val roles = listOf(FontRole.CjkText, FontRole.LatinText, FontRole.LatinText)
@@ -237,6 +246,7 @@ class JustifierTest {
 
     @Test
     fun typedSinoWesternSpaceIsCappedAtHalfEm() {
+        testTrace.section("typedSinoWesternSpaceIsCappedAtHalfEm")
         // A huge deficit: the typed space stretches only to 0.5em (+0.25em over
         // its 0.25em base); the rest falls to the CJK inter-char tier.
         val clusters = listOf(cjk(0), space(1), latin(2, 2f * em), cjk(3), cjk(4))
@@ -271,6 +281,7 @@ class JustifierTest {
 
     @Test
     fun finalUniformSpacingIncludesWordAndSinoWesternGapsOnceEach() {
+        testTrace.section("finalUniformSpacingIncludesWordAndSinoWesternGapsOnceEach")
         // 中Hi there中中: 先把词间空格和两处中西间距各拉到上限，随后把
         // 剩余宽度平均加到四个位置。原有空格只占一个位置，不按左右两边重复算。
         val clusters = listOf(
@@ -318,6 +329,7 @@ class JustifierTest {
 
     @Test
     fun westernBracketsTouchingCjkShareTierThreeStretch() {
+        testTrace.section("westernBracketsTouchingCjkShareTierThreeStretch")
         val clusters = listOf(
             cjk(0),
             westernBracket(1, "("),
@@ -357,6 +369,7 @@ class JustifierTest {
 
     @Test
     fun attachedReferenceUsesTheVirtualProseBoundaryForStretching() {
+        testTrace.section("attachedReferenceUsesTheVirtualProseBoundaryForStretching")
         val clusters = listOf(
             cjk(0),
             westernBracket(1, "["),
@@ -410,6 +423,7 @@ class JustifierTest {
 
     @Test
     fun inseparableNumberSymbolBoundaryNeverStretches() {
+        testTrace.section("inseparableNumberSymbolBoundaryNeverStretches")
         // CLREQ 明令禁止拉开符号分离禁则里的字间距。这里把 50|% 的边界
         // 关掉；行内其他合法间距仍可继续平均加宽。
         val clusters = listOf(
@@ -453,6 +467,7 @@ class JustifierTest {
 
     @Test
     fun fixedSinoWesternGapDoesNotJoinFinalUniformSpacing() {
+        testTrace.section("fixedSinoWesternGapDoesNotJoinFinalUniformSpacing")
         // 风格明确要求中西间距固定时，两个中西边界既不走优先拉伸，
         // 也不参加最后均分；余量只落在末尾汉字间距上。
         val clusters = listOf(cjk(0), latin(1, 2f * em), cjk(3), cjk(4))
@@ -485,6 +500,7 @@ class JustifierTest {
 
     @Test
     fun virtualSinoWesternStretchRequiresAlphaNumericBoundaryChar() {
+        testTrace.section("virtualSinoWesternStretchRequiresAlphaNumericBoundaryChar")
         // 中/Hi中 — `/Hi` is LatinText for shaping, but the leading boundary is
         // ideograph↔solidus, not ideograph↔alpha. Tier ② may stretch `Hi↔中`
         // (target index 1), but must not synthesize `中 /Hi` (target index 0).
@@ -509,6 +525,7 @@ class JustifierTest {
 
     @Test
     fun typedSpaceBeforeSlashLedLatinRunIsNotSinoWesternGap() {
+        testTrace.section("typedSpaceBeforeSlashLedLatinRunIsNotSinoWesternGap")
         // 中 /Hi — if the author typed a space before a slash-led technical run,
         // it is preserved as ordinary source spacing. It must not be promoted to
         // tier-② 中西间距 because the boundary-adjacent western char is `/`.
@@ -532,6 +549,7 @@ class JustifierTest {
 
     @Test
     fun sinoWesternStretchRespectsThirdEmCapWhenStyleSetsIt() {
+        testTrace.section("sinoWesternStretchRespectsThirdEmCapWhenStyleSetsIt")
         // CLREQ ② 注: a style may cap 中西间距 stretch at ⅓字 instead of ½.
         val clusters = listOf(cjk(0), space(1), latin(2, 2f * em))
         val roles = listOf(FontRole.CjkText, FontRole.LatinText, FontRole.LatinText)
@@ -552,5 +570,10 @@ class JustifierTest {
         // base 0.25em → capped at ⅓em, so the typed gap opens at most 1/12 em
         // (not the 0.25em it would reach under the ½em default).
         assertEquals((1f / 3f - 0.25f) * em, sino.delta, 0.001f)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

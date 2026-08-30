@@ -7,7 +7,9 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * The additive punctuation model's hard floor (ADR 0004): a punctuation
@@ -21,6 +23,8 @@ import kotlin.test.assertTrue
  * line. If any future consumer starts eating into the body, this fails.
  */
 class PunctuationBodyFloorInvariantTest {
+    private val testTrace = TestTraceRecorder("PunctuationBodyFloorInvariantTest")
+
 
     private val fixtures = listOf(
         "中文，中文。",
@@ -34,6 +38,7 @@ class PunctuationBodyFloorInvariantTest {
 
     @Test
     fun punctuationNeverResolvesBelowItsBodyWidth() {
+        testTrace.section("punctuationNeverResolvesBelowItsBodyWidth")
         val engine = ExplainableStubParagraphLayoutEngine()
         for (text in fixtures) {
             for (maxWidth in widths) {
@@ -55,5 +60,10 @@ class PunctuationBodyFloorInvariantTest {
                 }
             }
         }
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

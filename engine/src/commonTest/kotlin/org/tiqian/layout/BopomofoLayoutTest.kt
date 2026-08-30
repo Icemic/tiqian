@@ -12,11 +12,15 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /** 注音 (ADR 0033): right-side ㄅㄆㄇ symbols + parsed tone, with annotated-base reservation. */
 class BopomofoLayoutTest {
+    private val testTrace = TestTraceRecorder("BopomofoLayoutTest")
+
 
     private val engine = ExplainableStubParagraphLayoutEngine()
 
@@ -34,6 +38,7 @@ class BopomofoLayoutTest {
 
     @Test
     fun symbolsAndToneRightOfBase() {
+        testTrace.section("symbolsAndToneRightOfBase")
         val result = layout(
             listOf(
                 RubySpan(TextRange(0, 1), "ㄓㄨㄥ", kind = RubyKind.Bopomofo), // 阴平, 3 symbols
@@ -57,6 +62,7 @@ class BopomofoLayoutTest {
 
     @Test
     fun annotatedBaseReservesHalfEmOnly() {
+        testTrace.section("annotatedBaseReservesHalfEmOnly")
         val plain = engine.layout(
             LayoutInput(
                 content = TiqianTextContent("中文"),
@@ -79,6 +85,7 @@ class BopomofoLayoutTest {
 
     @Test
     fun fontWeightFollowsAnnotatedBasePlusThreeSteps() {
+        testTrace.section("fontWeightFollowsAnnotatedBasePlusThreeSteps")
         val result = layout(
             bopomofo = listOf(
                 RubySpan(TextRange(0, 1), "ㄓㄨㄥ", kind = RubyKind.Bopomofo),
@@ -98,6 +105,7 @@ class BopomofoLayoutTest {
 
     @Test
     fun decisionKeepsSourceReadingForCopy() {
+        testTrace.section("decisionKeepsSourceReadingForCopy")
         val result = layout(listOf(RubySpan(TextRange(0, 1), "˙ㄉㄜ", kind = RubyKind.Bopomofo)))
         val decision = result.debug.bopomofoDecisions.single()
 
@@ -108,6 +116,7 @@ class BopomofoLayoutTest {
 
     @Test
     fun annotationLocaleDoesNotReplaceSimplifiedBaseLocale() {
+        testTrace.section("annotationLocaleDoesNotReplaceSimplifiedBaseLocale")
         val result = layout(
             listOf(
                 RubySpan(
@@ -122,4 +131,9 @@ class BopomofoLayoutTest {
         assertEquals("zh-TW", result.debug.bopomofoDecisions.single().locale)
     }
 
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

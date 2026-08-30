@@ -5,7 +5,10 @@ import org.tiqian.test.RecordedEvidenceFontMetricsResolver
 import org.tiqian.test.RecordedEvidenceTextShaper
 import org.tiqian.test.ShapingEvidenceJson
 import kotlin.test.Test
-import kotlin.test.fail
+import org.tiqian.test.trace.fail
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
+import org.tiqian.test.trace.assertTrue
 
 /**
  * Replays the recorded third-party shaping corpus on every target: the engine
@@ -22,9 +25,12 @@ import kotlin.test.fail
  * ```
  */
 class RecordedEvidenceGoldenParityTest {
+    private val testTrace = TestTraceRecorder("RecordedEvidenceGoldenParityTest")
+
 
     @Test
     fun recordedEvidenceLayoutMatchesGolden() {
+        testTrace.section("recordedEvidenceLayoutMatchesGolden")
         if (RecordedShapingEvidenceData.EVIDENCE_JSON.isEmpty()) {
             fail(
                 "No recorded shaping evidence embedded — record on the JVM with " +
@@ -46,12 +52,16 @@ class RecordedEvidenceGoldenParityTest {
                 failures += layoutDumpDiffMessage(fixture.id, golden, dump)
             }
         }
-        if (failures.isNotEmpty()) {
-            fail(
-                failures.joinToString("\n\n") +
-                    "\n\nIf the change is intentional, re-record with " +
-                    "TIQIAN_RECORD_SHAPING=1 on the JVM and review the golden diff.",
-            )
-        }
+        assertTrue(
+            failures.isEmpty(),
+            failures.joinToString("\n\n") +
+                "\n\nIf the change is intentional, re-record with " +
+                "TIQIAN_RECORD_SHAPING=1 on the JVM and review the golden diff.",
+        )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

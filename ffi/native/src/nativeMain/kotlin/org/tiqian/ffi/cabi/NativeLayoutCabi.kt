@@ -18,12 +18,10 @@ import org.tiqian.shaping.tiqianInstallFontBackend as installFontBackend
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.layout.toPackedPlanBytes
-import org.tiqian.layout.toPreparedParagraphJson
 
 /**
- * Engine layout C ABI (ADR 0050 amendment + corrective-2).
- * Production entry returns a packed plan buffer (tiqian_plan_abi.h); the dump
- * entry keeps the JSON bytes for parity oracle and golden. The static library
+ * Engine layout C ABI (ADR 0050 amendment + corrective-2). The production
+ * entry returns a packed plan buffer (tiqian_plan_abi.h). The static library
  * only exports `@CName` symbols of this module.
  */
 @CName("tiqian_layout_paragraph")
@@ -55,44 +53,7 @@ fun tiqianLayoutParagraph(
     return 0
 }
 
-/** Dump entry: same request, JSON bytes for oracle/golden. */
-@CName("tiqian_layout_paragraph_json")
-fun tiqianLayoutParagraphJson(
-    request: CPointer<ByteVar>?,
-    requestLen: ULong,
-    planOut: CPointer<CPointerVar<ByteVar>>?,
-    errorOut: CPointer<CPointerVar<ByteVar>>?,
-): Int {
-    val plan: String = try {
-        if (request == null || requestLen == 0uL) {
-            throw LayoutRequestFormatException("InvalidLayoutRequest")
-        }
-        runLayoutRequest(request.readBytes(requestLen.toInt()))
-    } catch (error: Throwable) {
-        val name = (error as? LayoutRequestFormatException)?.issueName
-            ?: error.message?.takeIf(String::isNotBlank)
-            ?: error::class.simpleName
-            ?: "UnknownLayoutError"
-        planOut?.pointed?.value = null
-        errorOut?.pointed?.value = name.copyToNativeCString()
-        return 1
-    }
-    errorOut?.pointed?.value = null
-    planOut?.pointed?.value = plan.copyToNativeCString()
-    return 0
-}
-
-/** Runs the engine over one packed request and returns the Kotlin-produced plan JSON. */
-internal fun runLayoutRequest(bytes: ByteArray): String {
-    val parsed = readLayoutRequest(bytes)
-    val result = ExplainableStubParagraphLayoutEngine(
-        lineBreaker = LookaheadLineBreaker(),
-        fontMetricsResolver = NativeFontBackendFontMetricsResolver(parsed.fontSessionId),
-        textShaper = NativeFontBackendTextShaper(parsed.fontSessionId),
-    ).layout(parsed.input)
-    return result.toPreparedParagraphJson()
-}
-
+/** Runs the engine over one packed request and returns the packed plan buffer. */
 internal fun runLayoutRequestPacked(bytes: ByteArray): ByteArray {
     val parsed = readLayoutRequest(bytes)
     val result = ExplainableStubParagraphLayoutEngine(

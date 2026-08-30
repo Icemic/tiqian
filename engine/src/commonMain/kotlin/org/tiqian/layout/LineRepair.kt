@@ -504,9 +504,11 @@ internal fun applyFillPushIn(
                 currentBreak.spanRange == resultingBreak.spanRange &&
                 resultingBreak.tier.priority < currentBreak.tier.priority
         if (
-            promotesProgressiveTier && currentBreak != null &&
+            promotesProgressiveTier &&
             addedAdvance < deficit - PROGRESSIVE_TIER_PROMOTION_FILL_EPSILON
         ) {
+            // promotesProgressiveTier is only true with a non-null currentBreak.
+            val activeBreak = currentBreak!!
             // `ProgressiveTechnicalFillRefillSkipsIntermediateCleanerTier`: an upstream repair can
             // move this line's start forward while leaving its old technical end untouched. If the
             // first pulled grapheme happens to land on a cleaner boundary but still leaves the line
@@ -520,8 +522,8 @@ internal fun applyFillPushIn(
             } else {
                 (searchStart..searchEnd).firstOrNull { boundary ->
                     progressiveBreakOpportunities[boundary]?.let { opportunity ->
-                        opportunity.spanRange == currentBreak.spanRange &&
-                            opportunity.tier == currentBreak.tier
+                        opportunity.spanRange == activeBreak.spanRange &&
+                            opportunity.tier == activeBreak.tier
                     } == true
                 }
             }

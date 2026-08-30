@@ -12,10 +12,14 @@ import org.tiqian.linebreak.EnglishHyphenation
 import org.tiqian.linebreak.Hyphenator
 import org.tiqian.linebreak.NoHyphenator
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class HyphenationLayoutTest {
+    private val testTrace = TestTraceRecorder("HyphenationLayoutTest")
+
     private val text = "中文internationalization中文"
 
     private fun layoutWith(
@@ -34,6 +38,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun hyphenationIsOnByDefault() {
+        testTrace.section("hyphenationIsOnByDefault")
         // The default engine (no explicit hyphenator) uses the platform
         // hyphenator — en-US on JVM — so a fitting word hyphenates without
         // opting in: "coffee" → cof-fee with a hanging hyphen.
@@ -51,6 +56,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun reservedHyphenSqueezesPunctuationGlueToPullItIn() {
+        testTrace.section("reservedHyphenSqueezesPunctuationGlueToPullItIn")
         // A reserved hyphen that would overflow first squeezes the comma's
         // trailing glue (标点挤压) before hanging the residual.
         val result = ExplainableStubParagraphLayoutEngine(hyphenator = EnglishHyphenation.enUs).layout(
@@ -69,6 +75,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun hyphenationIsSkippedWhenStretchingCjkStaysTight() {
+        testTrace.section("hyphenationIsSkippedWhenStretchingCjkStaysTight")
         // Last resort (ADR 0029 amend): 8 hanzi (128) + " coffee" at maxWidth=180
         // (grid off). "cof" fits the line, but wrapping "coffee" whole leaves a
         // deficit of ~52 over 7 汉字间距 ≈ 7.4px/gap < 0.5em(8px) — tight enough,
@@ -96,6 +103,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun fittingWordHyphenatesOnlyWhenAHyphenatorIsInjected() {
+        testTrace.section("fittingWordHyphenatesOnlyWhenAHyphenatorIsInjected")
         // "coffee" (96) fits the measure (112), so without a hyphenator it stays
         // whole and wraps as a unit; with one it splits cof-fee and a hyphen
         // hangs at the line end. (Over-long words hard-break regardless — see
@@ -114,6 +122,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun syllableSplitMatchesTheHyphenatorExactly() {
+        testTrace.section("syllableSplitMatchesTheHyphenatorExactly")
         val hyphenated = layoutWith(EnglishHyphenation.enUs)
         val word = "internationalization"
 
@@ -136,6 +145,7 @@ class HyphenationLayoutTest {
 
     @Test
     fun hyphenIsReservedWithinTheMeasureNotHungPastIt() {
+        testTrace.section("hyphenIsReservedWithinTheMeasureNotHungPastIt")
         // The hyphen takes real width inside the measure (like a line-end mark):
         // content fills only `measure − hyphen`, so content + hyphen lands at the
         // measure edge — the hyphen does not hang past it (the word fits here).
@@ -145,5 +155,10 @@ class HyphenationLayoutTest {
             hyphenLine.indent + hyphenLine.visualWidth + hyphenLine.hyphenAdvance <= 160f + 0.01f,
             "hyphen hung past the measure: ${hyphenLine.indent + hyphenLine.visualWidth + hyphenLine.hyphenAdvance}",
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

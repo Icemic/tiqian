@@ -1,13 +1,18 @@
 package org.tiqian.core
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class EastAsianSpacingTest {
+    private val testTrace = TestTraceRecorder("EastAsianSpacingTest")
+
     @Test
     fun chineseLanguageContextUsesPinnedMacrolanguageRegistry() {
+        testTrace.section("chineseLanguageContextUsesPinnedMacrolanguageRegistry")
         assertTrue(UnicodeEastAsianSpacing.isChineseLanguageContext("zh-Hans"))
         assertTrue(UnicodeEastAsianSpacing.isChineseLanguageContext("yue-Hant-HK"))
         assertFalse(UnicodeEastAsianSpacing.isChineseLanguageContext("en"))
@@ -15,6 +20,7 @@ class EastAsianSpacingTest {
 
     @Test
     fun usesPinnedUnicodeDraftDataAcrossScripts() {
+        testTrace.section("usesPinnedUnicodeDraftDataAcrossScripts")
         assertEquals(EastAsianSpacingValue.Wide, UnicodeEastAsianSpacing.propertyOf('提'.code))
         assertEquals(EastAsianSpacingValue.Wide, UnicodeEastAsianSpacing.propertyOf(0x17000))
         assertEquals(EastAsianSpacingValue.Narrow, UnicodeEastAsianSpacing.propertyOf('A'.code))
@@ -28,6 +34,7 @@ class EastAsianSpacingTest {
 
     @Test
     fun resolvesConditionalValuesFromChineseLanguageContext() {
+        testTrace.section("resolvesConditionalValuesFromChineseLanguageContext")
         assertEquals(
             EastAsianSpacingValue.Narrow,
             UnicodeEastAsianSpacing.resolvedForGraphemeCluster("%", "zh-Hans"),
@@ -44,6 +51,7 @@ class EastAsianSpacingTest {
 
     @Test
     fun enclosingMarkMakesTheWholeGraphemeClusterOther() {
+        testTrace.section("enclosingMarkMakesTheWholeGraphemeClusterOther")
         assertEquals(
             EastAsianSpacingValue.Other,
             UnicodeEastAsianSpacing.resolvedForGraphemeCluster("A\u20DD", "zh-Hans"),
@@ -52,6 +60,7 @@ class EastAsianSpacingTest {
 
     @Test
     fun resolvesTheActualSourceUnitAtEachShapingClusterEdge() {
+        testTrace.section("resolvesTheActualSourceUnitAtEachShapingClusterEdge")
         assertEquals(
             EastAsianSpacingEdges(
                 leading = EastAsianSpacingValue.Other,
@@ -68,5 +77,10 @@ class EastAsianSpacingTest {
             ),
             UnicodeEastAsianSpacing.resolvedEdges("A\u20DD", "zh-Hans"),
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

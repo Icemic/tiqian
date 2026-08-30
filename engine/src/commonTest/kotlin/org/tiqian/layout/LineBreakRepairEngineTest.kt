@@ -31,9 +31,11 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Engine pinned to Fixed(Basic, no hang) for narrow-width repair tests —
@@ -58,8 +60,11 @@ internal fun fixedBasicEngine(
 )
 
 class LineBreakRepairEngineTest {
+    private val testTrace = TestTraceRecorder("LineBreakRepairEngineTest")
+
     @Test
     fun greedyBreakerProducesMultipleLinesWhenWidthOverflows() {
+        testTrace.section("greedyBreakerProducesMultipleLinesWhenWidthOverflows")
         // 8 CJK clusters * 16f = 128f natural; maxWidth=64f -> 4 clusters per line -> 2 lines.
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -94,6 +99,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun camelCaseTokenBreaksAtTheHumpWithoutAHyphen() {
+        testTrace.section("camelCaseTokenBreaksAtTheHumpWithoutAHyphen")
         // camelCase product names break at the hump — no hyphen added (the
         // capital signals the break). "Power" + "Point".
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -112,6 +118,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun allCapsAbbreviationIsNeverBroken() {
+        testTrace.section("allCapsAbbreviationIsNeverBroken")
         // CY/T §9.4: an all-caps abbreviation is not broken even when over-long.
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -126,6 +133,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun hyphenatedCompoundBreaksAtExistingHyphenWithoutAddingOne() {
+        testTrace.section("hyphenatedCompoundBreaksAtExistingHyphenWithoutAddingOne")
         // CY/T 154-2017 §9.3: "out-of-the-way" wraps AT an existing '-' — the
         // existing hyphen sits at the line end and NO new hyphen is added.
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -147,6 +155,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun latinSolidusBreaksAfterSlashWithoutAddingHyphen() {
+        testTrace.section("latinSolidusBreaksAfterSlashWithoutAddingHyphen")
         // LatinStructuralSolidusBreak: `TeX/LaTeX` exposes a clean separator
         // boundary even though the whole token can fit a fresh line. The slash
         // stays with the previous piece; it must not start the next line.
@@ -170,6 +179,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun overlongLatinWordHardBreaksWithAHangingHyphen() {
+        testTrace.section("overlongLatinWordHardBreaksWithAHangingHyphen")
         // LatinForcedHyphenBreak (ADR 0029): "English" (112) > measure 80 and has
         // no syllable points (NoHyphenator default), so it hard-breaks at a
         // character boundary with a hanging hyphen, keeping 前二后三 — "En" head,
@@ -191,6 +201,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun urlLikeLatinTokenBreaksAtSeparatorsWithoutSyntheticHyphen() {
+        testTrace.section("urlLikeLatinTokenBreaksAtSeparatorsWithoutSyntheticHyphen")
         // LatinOpaqueTokenBreak: URL-looking text is not an English word. It
         // exposes clean breakpoints at URL separators and never invents a
         // display hyphen inside the source link.
@@ -216,6 +227,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalBreakKeepsCjkBodyUnstretchedInEveryStrategy() {
+        testTrace.section("progressiveTechnicalBreakKeepsCjkBodyUnstretchedInEveryStrategy")
         val text = "中文abcdefghij"
         val technical = LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical)
         val syllables = object : Hyphenator {
@@ -267,6 +279,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalStructuralBreakFallsThroughToEmergencyBeforeTracking() {
+        testTrace.section("progressiveTechnicalStructuralBreakFallsThroughToEmergencyBeforeTracking")
         val text = "中文ab.cdEfghij"
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -308,6 +321,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalHardBreakOverridesNumberRunCohesion() {
+        testTrace.section("progressiveTechnicalHardBreakOverridesNumberRunCohesion")
         val text = "aaaaa1234567890bbbb"
         val technical = LineBreakSpan(TextRange(0, text.length), LineBreakPolicy.ProgressiveTechnical)
         val breakers: List<LineBreaker> = listOf(
@@ -341,6 +355,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalCleanBreakMayNotStretchEarlierOpaqueToken() {
+        testTrace.section("progressiveTechnicalCleanBreakMayNotStretchEarlierOpaqueToken")
         val text = "deadbeef1234deadbeef1234 ab.cdEfghijklmnop"
         val terminalTechnicalRange = TextRange(25, text.length)
         val result = ExplainableStubParagraphLayoutEngine(
@@ -387,6 +402,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalBreakFallsThroughStructuralTierBeforeOverstretchingOutsideText() {
+        testTrace.section("progressiveTechnicalBreakFallsThroughStructuralTierBeforeOverstretchingOutsideText")
         val text = "中 ab/cdefghijk"
         val technical = LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical)
         val syllables = object : Hyphenator {
@@ -433,6 +449,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun progressiveTechnicalEmergencyIsExposedByCurrentLineStretchNotFullMeasure() {
+        testTrace.section("progressiveTechnicalEmergencyIsExposedByCurrentLineStretchNotFullMeasure")
         val text = "Swift 这边是我最有体感的。JSONDecoder 慢是个老问题，" +
             "SR-6252[36] 那个 issue 里挖出的根因是底层走 NSJSONSerialization " +
             "再桥接回 Objective-C，swift_dynamicCast 吃掉大量时间。"
@@ -494,6 +511,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun unbrokenProgressiveSpanUsesSourceSpaceThenKeepsBodyOpportunitiesAvailable() {
+        testTrace.section("unbrokenProgressiveSpanUsesSourceSpaceThenKeepsBodyOpportunitiesAvailable")
         val text = "甲乙ab cd丙丁戊己"
         val technical = LineBreakSpan(TextRange(2, 7), LineBreakPolicy.ProgressiveTechnical)
         val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
@@ -543,6 +561,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun overlongOpaqueLatinTokenHardBreaksWithoutSyntheticHyphen() {
+        testTrace.section("overlongOpaqueLatinTokenHardBreaksWithoutSyntheticHyphen")
         // Mixed alpha/digit identifiers and hashes are not words either. If no
         // separator can rescue an over-wide piece, hard-break it cleanly without
         // a synthetic hyphen.
@@ -562,6 +581,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun longAllCapsOpaqueTokenHardBreaksWithoutSyntheticHyphen() {
+        testTrace.section("longAllCapsOpaqueTokenHardBreaksWithoutSyntheticHyphen")
         // Long all-caps blobs can be base64/hash-like data, not abbreviations.
         // A short NASA-style abbreviation stays protected elsewhere; this
         // over-threshold token falls back to opaque no-hyphen cuts.
@@ -581,6 +601,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun opaqueLatinTokenAfterCjkPullsPrefixOntoLooseLine() {
+        testTrace.section("opaqueLatinTokenAfterCjkPullsPrefixOntoLooseLine")
         val prefix = "为什么历史是 "
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -605,6 +626,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun nonLexicalLetterRunAfterCjkPullsPrefixOntoLooseLineWithoutSyntheticHyphen() {
+        testTrace.section("nonLexicalLetterRunAfterCjkPullsPrefixOntoLooseLineWithoutSyntheticHyphen")
         val prefix = "为什么历史是 "
         val token = "s".repeat(40) + "herstory"
         val result = ExplainableStubParagraphLayoutEngine(
@@ -630,6 +652,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun longLetterBlobStaysOpaqueEvenWhenTailLooksHyphenatable() {
+        testTrace.section("longLetterBlobStaysOpaqueEvenWhenTailLooksHyphenatable")
         val prefix = "为什么历史是 "
         val token = "s".repeat(40) + "herstory"
         val tailHyphenator = object : Hyphenator {
@@ -659,6 +682,7 @@ class LineBreakRepairEngineTest {
 
     @Test
     fun longOpaqueTokenCanBreakEvenWhenItFitsAloneButNotAfterCjkPrefix() {
+        testTrace.section("longOpaqueTokenCanBreakEvenWhenItFitsAloneButNotAfterCjkPrefix")
         val prefix = "为什么历史是 "
         val token = "s".repeat(40) + "herstory"
         val tailHyphenator = object : Hyphenator {
@@ -684,6 +708,11 @@ class LineBreakRepairEngineTest {
         )
         assertTrue(result.clusters.none { it.text == token })
         assertTrue(result.lines.all { it.hyphenAdvance == 0f })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
 

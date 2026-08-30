@@ -4,10 +4,14 @@ import org.tiqian.core.Cluster
 import org.tiqian.core.LineEndReason
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class ParagraphDpLineBreakerTest {
+    private val testTrace = TestTraceRecorder("ParagraphDpLineBreakerTest")
+
 
     private fun cluster(index: Int, text: String, advance: Float) = Cluster(
         range = TextRange(index, index + 1),
@@ -58,6 +62,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun compressedSameTierBoundaryIsNotReportedAsPromotion() {
+        testTrace.section("compressedSameTierBoundaryIsNotReportedAsPromotion")
         val clusters = listOf(
             cluster(0, "a", 30f),
             cluster(1, "/", 30f),
@@ -94,6 +99,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun tilesAllClustersInOrder() {
+        testTrace.section("tilesAllClustersInOrder")
         val clusters = hanClusters(23)
         val solution = breakLines(clusters, maxWidth = 100f)
         assertTiles(solution, clusters.size)
@@ -102,6 +108,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun singleLineWhenEverythingFits() {
+        testTrace.section("singleLineWhenEverythingFits")
         val clusters = hanClusters(4)
         val solution = breakLines(clusters, maxWidth = 400f)
         assertEquals(1, solution.lines.size)
@@ -110,6 +117,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun mandatoryBreakBindsControlToPreviousLine() {
+        testTrace.section("mandatoryBreakBindsControlToPreviousLine")
         // 中中\n中中 — the "\n" control must ride line 1 (no bogus blank row).
         val clusters = listOf(
             cluster(0, "中", 16f),
@@ -131,6 +139,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun trailingMandatoryBreakEmitsParagraphEndLine() {
+        testTrace.section("trailingMandatoryBreakEmitsParagraphEndLine")
         val clusters = listOf(
             cluster(0, "中", 16f),
             cluster(1, "\n", 0f),
@@ -143,6 +152,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun neverBreaksInsideUnbreakableRange() {
+        testTrace.section("neverBreaksInsideUnbreakableRange")
         val clusters = hanClusters(10)
         val solution = breakLines(
             clusters, maxWidth = 64f,
@@ -158,6 +168,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun kinsokuAvoidanceRoutesAroundForbiddenLineStart() {
+        testTrace.section("kinsokuAvoidanceRoutesAroundForbiddenLineStart")
         // 7 clusters, width fits 3; cluster 6 (。) may not start a line. The DP
         // should end up with 。 bound to a line without needing LeaveRagged.
         val clusters = hanClusters(7, punctuationAt = setOf(6))
@@ -177,6 +188,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun compressionEdgeRecordsPushInRepair() {
+        testTrace.section("compressionEdgeRecordsPushInRepair")
         // Width fits 3 naturally; cluster 3 is a comma whose glue can shrink
         // 8px. Pulling it up (4 clusters, overflow 8 == capacity) must record
         // a LineAdjustmentPushIn repair, and the line must sit at the limit.
@@ -211,6 +223,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun compressionDisabledWithoutPushInFlag() {
+        testTrace.section("compressionDisabledWithoutPushInFlag")
         val clusters = listOf(
             cluster(0, "中", 16f),
             cluster(1, "中", 16f),
@@ -234,6 +247,7 @@ class ParagraphDpLineBreakerTest {
 
     @Test
     fun overWideSingleClusterStillProgresses() {
+        testTrace.section("overWideSingleClusterStillProgresses")
         val clusters = listOf(
             cluster(0, "中", 16f),
             cluster(1, "Ｗ", 300f),
@@ -241,5 +255,10 @@ class ParagraphDpLineBreakerTest {
         )
         val solution = breakLines(clusters, maxWidth = 48f)
         assertTiles(solution, clusters.size)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

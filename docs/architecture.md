@@ -226,7 +226,7 @@ Web 列表保留原生 marker 与语义，只把列表正文交给 Tiqian 排版
 
 构建期 precompute 由 `platforms/web/server/precompute` 的 Rust 编排承担：从站点明确发布的字体文件建立
 HarfBuzz session，并调用同一个 `layout` 生成宽度无关的字体回放证据，以及可选的最大版心预排结果。
-引擎的 Kotlin/JS 出口在 `ffi/js` 编译，服务浏览器 exact-font 回退 worker 与 parity oracle；
+引擎的 Kotlin/JS 出口在 `ffi/js` 编译，服务浏览器 exact-font 回退 worker；
 Kotlin/Native 出口在 `ffi/native`，以引擎级 C ABI 供 Rust 编排调用（ADR 0050）。纯文本与受控语义 inline
 共用 source / semantic artifact / typography / font / width 证据；prepared DOM 留在正文之外的 inert
 template，SSR 正文始终是可响应的 native semantic backing。浏览器只有在 live width、字体与 artifact
@@ -295,7 +295,8 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 - `demo/android`：只负责 Android 应用打包和启动的薄外壳。
 - `demo/apple`：一个 Xcode project 内的 macOS / iOS targets，共享 Swift 样例内容并消费
   `platforms/apple/frontend`。
-- `test-support` 与 `engine` 的报告任务：共享语料、布局诊断和文档样张生成。
+- `engine` 的报告任务与 `commonTest` 共享语料：布局诊断、文档样张生成，
+  以及 fixtures / shaping evidence / trace 格式化等测试语料。
 
 首次公开发布的套件统一使用 Maven group `org.tiqian`。提椠 artifact 保留 `tiqian-*`
 产品族前缀，其中 Compose 基础前端与 Material 3 适配层分别是 `tiqian-compose` 和

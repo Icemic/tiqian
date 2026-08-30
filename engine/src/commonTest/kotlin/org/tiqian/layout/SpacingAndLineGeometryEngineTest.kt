@@ -31,13 +31,18 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class SpacingAndLineGeometryEngineTest {
+    private val testTrace = TestTraceRecorder("SpacingAndLineGeometryEngineTest")
+
     @Test
     fun autoSpaceReplacesTypedSpaceAtCjkLatinBoundary() {
+        testTrace.section("autoSpaceReplacesTypedSpaceAtCjkLatinBoundary")
         // " CJK " becomes one Latin cluster (5 chars * 16 = 80px nominal).
         // At maxWidth large enough, default AutoSpacePolicy.Replace shrinks
         // each boundary space from 二分空 0.5em (8) to gapEm 0.125em (2).
@@ -64,6 +69,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun autoSpaceDoesNotShrinkSpacesBetweenLatinWords() {
+        testTrace.section("autoSpaceDoesNotShrinkSpacesBetweenLatinWords")
         // "Hello world" — space between two Latin words, no CJK boundary.
         // AutoSpace.Replace only applies at CJK boundaries; word-internal
         // spaces stay at their nominal 二分空 0.5em.
@@ -86,6 +92,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun autoSpaceDisabledKeepsTypedSpacesAtHalfEm() {
+        testTrace.section("autoSpaceDisabledKeepsTypedSpacesAtHalfEm")
         val engine = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
@@ -111,6 +118,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun usesFontDeclaredTypoBoxForCjkLineBox() {
+        testTrace.section("usesFontDeclaredTypoBoxForCjkLineBox")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -136,6 +144,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun autoSpaceGapAtLineEndIsTrimmedLikeAnyLineEdgeBlank() {
+        testTrace.section("autoSpaceGapAtLineEndIsTrimmedLikeAnyLineEdgeBlank")
         // text = "中文 AB 中文中文中文" segments to 中 文 [ ] [AB] [ ] 中….
         // Both spaces are CJK-adjacent gaps (advance 2). maxWidth=80 →
         // greedy line 0 = [中 文 ' ' AB ' '] (16+16+2+32+2=68); the trailing
@@ -161,6 +170,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun emphasisSpanProducesDotAnchorsForHanAndSkipsPunctuation() {
+        testTrace.section("emphasisSpanProducesDotAnchorsForHanAndSkipsPunctuation")
         // "他强调：豆子新鲜最要紧，烘焙其次。" with emphasis over 4..16
         // (豆子新鲜最要紧，烘焙其次). Stub advances: every cluster 16f, no
         // justification → anchors at glyph centres; ， inside the span is
@@ -212,6 +222,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun emphasisDotGapIsExplicitAndIndependentOfLineHeight() {
+        testTrace.section("emphasisDotGapIsExplicitAndIndependentOfLineHeight")
         fun layout(lineHeight: Float) = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
@@ -242,6 +253,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun mourningSpanIsKeptUnbrokenAndFramedPerLine() {
+        testTrace.section("mourningSpanIsKeptUnbrokenAndFramedPerLine")
         // "悼念：王小明同志、张大同同志。" maxWidth=72: greedy would break at
         // cluster 4 (inside 王小明 3..5) — MourningSpanKeptUnbroken moves the
         // break to 3. Both names end up whole on single lines with one frame
@@ -295,6 +307,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun mourningSpanWiderThanMeasureSplitsWithOpenEdges() {
+        testTrace.section("mourningSpanWiderThanMeasureSplitsWithOpenEdges")
         // A 5-character name span at maxWidth=64 cannot fit one line: the
         // split fallback produces open-ended segments.
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -322,6 +335,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun halfEmWordSpacesDoNotStretchUnderJustification() {
+        testTrace.section("halfEmWordSpacesDoNotStretchUnderJustification")
         // A 二分空 (0.5em) word space is already at CLREQ's word-space max
         // (≤0.5em final), so it does NOT stretch — the deficit fills via the
         // sino-western gap (CjkLatinSpace) and even CjkInterChar instead.
@@ -359,6 +373,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun justifyStretchesPunctuationLatinBoundaryInTierThree() {
+        testTrace.section("justifyStretchesPunctuationLatinBoundaryInTierThree")
         // CLREQ tier ③「剩余所有字符间距」includes 标点↔西文 (only 不可断标点 +
         // 连接号/分隔号 excluded). Line 0 = 中文中文话：The — the ：|The boundary
         // takes a tier-③ share like every other 字符间距.
@@ -383,6 +398,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun blockIndentInsetsEveryLine() {
+        testTrace.section("blockIndentInsetsEveryLine")
         // 段落缩排 (CLREQ §6.2.1.2): blockIndent insets ALL lines (引用/诗词块).
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -401,6 +417,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun hangingIndentFlushesFirstLineAndInsetsRest() {
+        testTrace.section("hangingIndentFlushesFirstLineAndInsetsRest")
         // 凸排 (CLREQ §6.2.1.1): blockIndent=2, firstLineIndent=-2 → 首行齐头、
         // 次行起缩 2 字（对话/列表/法条）。
         val result = ExplainableStubParagraphLayoutEngine().layout(
@@ -421,6 +438,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun justifyFillsSaturatedLineWithUncappedEvenShare() {
+        testTrace.section("justifyFillsSaturatedLineWithUncappedEvenShare")
         // CLREQ 平均拉大字距 has no upper bound: when word spaces and
         // sino-western gaps are exhausted, the remaining deficit spreads
         // evenly over hanzi boundaries past the old 0.25em cap — a justified
@@ -448,6 +466,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun autoSpaceDigitModeIsWiredIndependentlyOfLetterMode() {
+        testTrace.section("autoSpaceDigitModeIsWiredIndependentlyOfLetterMode")
         // CLREQ distinguishes 字母 from 数字: cjkDigit gates CJK↔digit gaps
         // separately. cjkLatin=Insert, cjkDigit=Disabled → 中A gets a gap,
         // 中5 does not (mode keyed on the boundary-adjacent char).
@@ -480,6 +499,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun lineLengthGridFloorsMeasureToWholeCharsAndOffsetsBody() {
+        testTrace.section("lineLengthGridFloorsMeasureToWholeCharsAndOffsetsBody")
         // 8 hanzi (128px) at maxWidth=104 (6.5 字, fontSize 16). Grid floors
         // the measure to 6 字 = 96; greedy then breaks 6 + 2.
         fun layoutWith(grid: LineLengthGrid) =
@@ -513,6 +533,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun lineLengthGridCanBeBypassedForExactWidths() {
+        testTrace.section("lineLengthGridCanBeBypassedForExactWidths")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
@@ -532,6 +553,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun interlinearLinesGetPerItemSegmentsWithAdjacentShortening() {
+        testTrace.section("interlinearLinesGetPerItemSegmentsWithAdjacentShortening")
         // 行间线 (ADR 0024): one segment per annotated item, length =
         // the text's outer frame, hugging the face below the baseline
         // (+0.18em). 顾炎武|王夫之 are adjacent: each ADJACENT edge pulls
@@ -599,6 +621,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun interlinearMarksRaiseAutoLineHeightToSpacingFloor() {
+        testTrace.section("interlinearMarksRaiseAutoLineHeightToSpacingFloor")
         // InterlinearMarkLineSpacingFloor (CLREQ 5.6.1.1): with 着重号 present, the
         // line spacing can't drop below 1/2 字号. The 0.5em floor (→24) coincides
         // with the 1.5em body default (→24), so an auto/generous height already
@@ -650,6 +673,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun firstLineIndentShrinksFirstLineMeasureOnly() {
+        testTrace.section("firstLineIndentShrinksFirstLineMeasureOnly")
         // ParagraphFirstLineIndent: 12 hanzi at maxWidth 160, indent pinned to
         // 2em (32) — 10 字 is below the adaptive threshold, so pin explicitly to
         // exercise the inset mechanism at 2 字. Line 0 measure = 128 → 8 chars;
@@ -674,6 +698,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun firstLineIndentAdaptsToMeasureAndCanBeOverridden() {
+        testTrace.section("firstLineIndentAdaptsToMeasureAndCanBeOverridden")
         // MeasureAdaptiveFirstLineIndent (ADR 0021 amendment): default narrows
         // to 1 字 on short measures (< 14 字), 2 字 otherwise. CLREQ:「段首缩排
         // 以两个汉字的空间为标准」（宽行）；窄栏常缩一字.
@@ -709,5 +734,10 @@ class SpacingAndLineGeometryEngineTest {
         val pinned = indentOf(ExplainableStubParagraphLayoutEngine(), 160f, ParagraphStyle(firstLineIndent = Ic(2f)))
         assertEquals(32f, pinned.lines.single().indent) // 2 字 even on the short line
         assertEquals("Explicit", pinned.debug.firstLineIndentDecision!!.source)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

@@ -3,12 +3,17 @@ package org.tiqian.layout
 import org.tiqian.core.Cluster
 import org.tiqian.core.TextRange
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class LookaheadLineBreakerTest {
+    private val testTrace = TestTraceRecorder("LookaheadLineBreakerTest")
+
     @Test
     fun hangingTailIsExcludedFromFillDensityGeometry() {
+        testTrace.section("hangingTailIsExcludedFromFillDensityGeometry")
         val line = LineCandidate(
             clusterRange = 0..2,
             sourceRange = TextRange(0, 3),
@@ -28,6 +33,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun hangingClustersMustBeAContiguousTrailingSuffix() {
+        testTrace.section("hangingClustersMustBeAContiguousTrailingSuffix")
         assertFailsWith<IllegalArgumentException> {
             LineCandidate(
                 clusterRange = 0..2,
@@ -41,6 +47,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun compatibilityHangingIndexSkipsATrailingMandatoryBreakControl() {
+        testTrace.section("compatibilityHangingIndexSkipsATrailingMandatoryBreakControl")
         val line = LineCandidate(
             clusterRange = 0..2,
             sourceRange = TextRange(0, 3),
@@ -60,12 +67,14 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun emptyInputProducesNoLines() {
+        testTrace.section("emptyInputProducesNoLines")
         val solution = LookaheadLineBreaker().breakLines(emptyList(), emptyList(), maxWidth = 100f)
         assertEquals(0, solution.lines.size)
     }
 
     @Test
     fun lookaheadMatchesGreedyWhenShiftingEarlierGivesNoBenefit() {
+        testTrace.section("lookaheadMatchesGreedyWhenShiftingEarlierGivesNoBenefit")
         // 6 plain CJK clusters at maxWidth=64. No forbidden punctuation anywhere,
         // so greedy's 4+2 split has lowest badness — shifting earlier just adds
         // raggedness for nothing.
@@ -80,6 +89,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadShiftsBreakEarlierToAvoidKinsokuRepair() {
+        testTrace.section("lookaheadShiftsBreakEarlierToAvoidKinsokuRepair")
         // Greedy + kinsoku on `中文中文中文。` at maxWidth=48 produces a
         // CarryPrevious repair on the last line. Lookahead (window=1) detects
         // that shifting the first break one cluster earlier dissolves the
@@ -121,6 +131,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadKeepsGreedyBreakWhenPushInGlueCoversRepair() {
+        testTrace.section("lookaheadKeepsGreedyBreakWhenPushInGlueCoversRepair")
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
             cluster(1, 2, "文", 16f),
@@ -146,6 +157,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadScoresFuturePushInBeforeChoosingEarlierBreak() {
+        testTrace.section("lookaheadScoresFuturePushInBeforeChoosingEarlierBreak")
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
             cluster(1, 2, "文", 16f),
@@ -174,6 +186,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadFallsBackToGreedyWhenAlternativesAreWorse() {
+        testTrace.section("lookaheadFallsBackToGreedyWhenAlternativesAreWorse")
         // No forbidden punctuation and an em of raggedness saved by greedy.
         // Lookahead should not prefer earlier breaks here.
         val clusters = (0 until 9).map { i -> cluster(i, i + 1, "x", 16f) }
@@ -187,6 +200,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadAvoidsConsecutiveSyntheticHyphenBreaks() {
+        testTrace.section("lookaheadAvoidsConsecutiveSyntheticHyphenBreaks")
         val clusters = (0 until 8).map { i -> cluster(i, i + 1, "x", 10f) }
 
         val noPenalty = LookaheadLineBreaker(
@@ -220,6 +234,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun lookaheadScoresKinsokuRepairsWithUnbreakableRanges() {
+        testTrace.section("lookaheadScoresKinsokuRepairsWithUnbreakableRanges")
         val clusters = listOf(
             cluster(0, 1, "甲", 16f),
             cluster(1, 2, "乙", 16f),
@@ -255,6 +270,7 @@ class LookaheadLineBreakerTest {
 
     @Test
     fun windowZeroReducesLookaheadToGreedy() {
+        testTrace.section("windowZeroReducesLookaheadToGreedy")
         // window=0 means only the greedy break is considered.
         val clusters = listOf(
             cluster(0, 1, "中", 16f),
@@ -279,4 +295,9 @@ class LookaheadLineBreakerTest {
             fontKey = "test",
             advance = advance,
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

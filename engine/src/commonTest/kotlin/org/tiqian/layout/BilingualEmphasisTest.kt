@@ -7,8 +7,10 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * `BilingualEmphasisWesternItalic` (着重号惯例): inside an Emphasis span, Han
@@ -16,9 +18,12 @@ import kotlin.test.assertTrue
  * pins the dot side — the same Latin∩Emphasis predicate drives the italic.
  */
 class BilingualEmphasisTest {
+    private val testTrace = TestTraceRecorder("BilingualEmphasisTest")
+
 
     @Test
     fun emphasisDotsHanButNotWestern() {
+        testTrace.section("emphasisDotsHanButNotWestern")
         // 强调[中A中] — Emphasis over offsets 2..5 (中=2, A=3, 中=4).
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -36,5 +41,10 @@ class BilingualEmphasisTest {
         assertTrue(!western.applied, "Western A must not get a dot")
         assertEquals("no-dot-on-non-han", western.reason)
         assertEquals(0f, western.dotDiameter)
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

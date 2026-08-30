@@ -9,8 +9,10 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.test.EarlyLayoutFixtures
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * `LineAdjustmentPushIn` (ADR 0031 修订): the default PushInFirst pulls an
@@ -19,6 +21,8 @@ import kotlin.test.assertTrue
  * over-compression trap). `PushOutOnly` reproduces greedy-then-stretch.
  */
 class LineAdjustmentPushInTest {
+    private val testTrace = TestTraceRecorder("LineAdjustmentPushInTest")
+
 
     private val fixture = EarlyLayoutFixtures.all.first { it.id == "real-paragraph-1" }
 
@@ -40,6 +44,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun pushInFirstCompressesSomeBoundariesPushOutOnlyNone() {
+        testTrace.section("pushInFirstCompressesSomeBoundariesPushOutOnlyNone")
         val auto = layout(LineAdjustmentStrategy.PushInFirst)
         val pushOut = layout(LineAdjustmentStrategy.PushOutOnly)
 
@@ -56,6 +61,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun pushInFirstDoesNotCompressEveryLine() {
+        testTrace.section("pushInFirstDoesNotCompressEveryLine")
         val auto = layout(LineAdjustmentStrategy.PushInFirst)
         // ADR 0022 guard: 压缩不是常规填充——仍应有自然/拉伸态的行，不能整段塞满。
         assertTrue(
@@ -66,6 +72,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun noShrinkFillPushInCanContinueUntilTheLineIsNoLongerLoose() {
+        testTrace.section("noShrinkFillPushInCanContinueUntilTheLineIsNoLongerLoose")
         val clusters = listOf(
             cluster(0, "甲", 30f),
             cluster(1, "乙", 30f),
@@ -103,6 +110,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun fillPushInPullsMinimalGroupToAvoidForbiddenNextHead() {
+        testTrace.section("fillPushInPullsMinimalGroupToAvoidForbiddenNextHead")
         val clusters = listOf(
             cluster(0, "甲", 30f),
             cluster(1, "乙", 30f),
@@ -140,6 +148,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun fillPushInExtendsPastForbiddenLineEndHead() {
+        testTrace.section("fillPushInExtendsPastForbiddenLineEndHead")
         val clusters = listOf(
             cluster(0, "甲", 30f),
             cluster(1, "乙", 30f),
@@ -177,6 +186,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun fillPushInCompressesSourceSpaceToPromoteEmergencyBreakToSyllable() {
+        testTrace.section("fillPushInCompressesSourceSpaceToPromoteEmergencyBreakToSyllable")
         val clusters = listOf(
             cluster(0, "a", 20f),
             cluster(1, " ", 20f),
@@ -229,6 +239,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun fillPushInDoesNotPromoteEmergencyBreakWhenCleanerBoundaryStillLeavesDeficit() {
+        testTrace.section("fillPushInDoesNotPromoteEmergencyBreakWhenCleanerBoundaryStillLeavesDeficit")
         val clusters = listOf(
             cluster(0, "a", 20f),
             cluster(1, " ", 20f),
@@ -268,6 +279,7 @@ class LineAdjustmentPushInTest {
 
     @Test
     fun fillPushInCrossesIntermediateCleanerBoundaryToRefillAtSelectedTier() {
+        testTrace.section("fillPushInCrossesIntermediateCleanerBoundaryToRefillAtSelectedTier")
         val clusters = listOf(
             cluster(0, "a", 20f),
             cluster(1, " ", 20f),
@@ -315,4 +327,9 @@ class LineAdjustmentPushInTest {
             fontKey = "test",
             advance = advance,
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

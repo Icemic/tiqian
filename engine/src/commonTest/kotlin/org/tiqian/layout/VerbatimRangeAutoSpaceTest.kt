@@ -7,7 +7,9 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * `VerbatimRangeAutoSpace` (issue #5): CJK↔Western boundaries strictly inside a verbatim
@@ -15,6 +17,8 @@ import kotlin.test.assertEquals
  * outer edges keep the normal prose autospace contract.
  */
 class VerbatimRangeAutoSpaceTest {
+    private val testTrace = TestTraceRecorder("VerbatimRangeAutoSpaceTest")
+
 
     private fun layout(text: String, suppressed: List<TextRange>) =
         ExplainableStubParagraphLayoutEngine().layout(
@@ -30,6 +34,7 @@ class VerbatimRangeAutoSpaceTest {
 
     @Test
     fun internalBoundariesAreSuppressedAndOuterEdgesKeepTheGap() {
+        testTrace.section("internalBoundariesAreSuppressedAndOuterEdgesKeepTheGap")
         val text = "跑print你好print跑"
         val control = layout(text, suppressed = emptyList())
         assertEquals(
@@ -58,6 +63,7 @@ class VerbatimRangeAutoSpaceTest {
 
     @Test
     fun typedSpaceInsideAVerbatimRangeIsNotNormalised() {
+        testTrace.section("typedSpaceInsideAVerbatimRangeIsNotNormalised")
         val text = "跑a 你b跑"
         val control = layout(text, suppressed = emptyList())
         assertEquals(
@@ -76,5 +82,10 @@ class VerbatimRangeAutoSpaceTest {
             },
             "$result.debug.autoSpaceDecisions",
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

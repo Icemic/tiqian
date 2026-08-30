@@ -1,13 +1,18 @@
 package org.tiqian.core
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class LayoutQueriesTest {
+    private val testTrace = TestTraceRecorder("LayoutQueriesTest")
+
 
     @Test
     fun clipboardProjectionRestoresSourceAndAddsFullySelectedAnnotations() {
+        testTrace.section("clipboardProjectionRestoresSourceAndAddsFullySelectedAnnotations")
         val result = LayoutResult(
             input = LayoutInput(
                 content = TiqianTextContent("提椠与您"),
@@ -48,6 +53,7 @@ class LayoutQueriesTest {
 
     @Test
     fun positionedClustersFollowLineIndentAndAdvance() {
+        testTrace.section("positionedClustersFollowLineIndentAndAdvance")
         val result = sampleResult()
 
         val positioned = result.positionedClusters()
@@ -59,6 +65,7 @@ class LayoutQueriesTest {
 
     @Test
     fun positionedClustersSeparateOccupiedBoxFromAutoSpaceDrawOrigin() {
+        testTrace.section("positionedClustersSeparateOccupiedBoxFromAutoSpaceDrawOrigin")
         val result = LayoutResult(
             input = LayoutInput(
                 content = TiqianTextContent("中Hi"),
@@ -109,6 +116,7 @@ class LayoutQueriesTest {
 
     @Test
     fun positionedClustersSeparateOccupiedBoxFromConsumedLeadingGlueDrawOrigin() {
+        testTrace.section("positionedClustersSeparateOccupiedBoxFromConsumedLeadingGlueDrawOrigin")
         val result = LayoutResult(
             input = LayoutInput(
                 content = TiqianTextContent("（"),
@@ -163,6 +171,7 @@ class LayoutQueriesTest {
 
     @Test
     fun glyphInkBoundsKeepItalicOverhangSeparateFromOccupiedGeometry() {
+        testTrace.section("glyphInkBoundsKeepItalicOverhangSeparateFromOccupiedGeometry")
         val result = LayoutResult(
             input = LayoutInput(
                 content = TiqianTextContent("f"),
@@ -208,6 +217,7 @@ class LayoutQueriesTest {
 
     @Test
     fun lineAndBoxQueriesUseTiqianLineGeometry() {
+        testTrace.section("lineAndBoxQueriesUseTiqianLineGeometry")
         val result = sampleResult()
 
         assertEquals(0, result.getLineForOffset(1))
@@ -218,6 +228,7 @@ class LayoutQueriesTest {
 
     @Test
     fun rangeBoxesSplitMultiUnitClustersBySourceRange() {
+        testTrace.section("rangeBoxesSplitMultiUnitClustersBySourceRange")
         val result = sampleResult()
 
         val boxes = result.getBoundingBoxes(TextRange(2, 4))
@@ -233,6 +244,7 @@ class LayoutQueriesTest {
 
     @Test
     fun richTextSegmentsReusePositionedClusterGeometryAndSplitLines() {
+        testTrace.section("richTextSegmentsReusePositionedClusterGeometryAndSplitLines")
         val result = sampleResult()
         val span = RichTextSpan(
             TextRange(1, 4),
@@ -252,6 +264,7 @@ class LayoutQueriesTest {
 
     @Test
     fun richTextDecorationTrimsOnlyOuterPunctuationGlue() {
+        testTrace.section("richTextDecorationTrimsOnlyOuterPunctuationGlue")
         val result = punctuationGlueResult()
         val underline = RichTextSpan(
             TextRange(0, 4),
@@ -268,6 +281,7 @@ class LayoutQueriesTest {
 
     @Test
     fun richTextDecorationKeepsPunctuationGlueInsideItsRange() {
+        testTrace.section("richTextDecorationKeepsPunctuationGlueInsideItsRange")
         val result = punctuationGlueResult()
         val underline = RichTextSpan(
             TextRange(1, 4),
@@ -285,6 +299,7 @@ class LayoutQueriesTest {
 
     @Test
     fun richTextDecorationDoesNotTrimAlreadyConsumedOpeningGlueTwice() {
+        testTrace.section("richTextDecorationDoesNotTrimAlreadyConsumedOpeningGlueTwice")
         val original = punctuationGlueResult()
         val result = original.copy(
             debug = original.debug.copy(
@@ -308,6 +323,7 @@ class LayoutQueriesTest {
 
     @Test
     fun customLineStylesReuseTheRendererUnderlineHeight() {
+        testTrace.section("customLineStylesReuseTheRendererUnderlineHeight")
         val result = punctuationGlueResult()
         val underline = RichTextSpan(TextRange(0, 4), RichTextRole.Underline)
         val segment = result.trimmedRichTextDecorationSegments(
@@ -323,6 +339,7 @@ class LayoutQueriesTest {
 
     @Test
     fun lineThroughBisectsTheIdeographicMetricBox() {
+        testTrace.section("lineThroughBisectsTheIdeographicMetricBox")
         val original = backgroundGeometryResult()
         val result = original.copy(
             debug = original.debug.copy(
@@ -350,6 +367,7 @@ class LayoutQueriesTest {
 
     @Test
     fun richTextBackgroundKeepsInternalGapsButTrimsItsOuterLayoutSpace() {
+        testTrace.section("richTextBackgroundKeepsInternalGapsButTrimsItsOuterLayoutSpace")
         val result = backgroundGeometryResult()
         val full = RichTextSpan(TextRange(0, 3), RichTextRole.Background)
         val finalCharacter = RichTextSpan(TextRange(2, 3), RichTextRole.Background)
@@ -370,6 +388,7 @@ class LayoutQueriesTest {
 
     @Test
     fun uniformTextStyleBackgroundIgnoresFallbackFaceHeightAndAddsPadding() {
+        testTrace.section("uniformTextStyleBackgroundIgnoresFallbackFaceHeightAndAddsPadding")
         val original = backgroundGeometryResult()
         val result = original.copy(
             debug = original.debug.copy(
@@ -403,6 +422,7 @@ class LayoutQueriesTest {
 
     @Test
     fun backgroundContinuationCornersKeepOnlyTrueSourceEndsFullyRounded() {
+        testTrace.section("backgroundContinuationCornersKeepOnlyTrueSourceEndsFullyRounded")
         val span = RichTextSpan(
             range = TextRange(0, 12),
             role = RichTextRole.InlineCode,
@@ -432,6 +452,7 @@ class LayoutQueriesTest {
 
     @Test
     fun backgroundContinuationRadiusDefaultsToTheAuthoredCornerRadius() {
+        testTrace.section("backgroundContinuationRadiusDefaultsToTheAuthoredCornerRadius")
         val background = RichTextBackgroundPaint(cornerRadius = 5f)
 
         assertEquals(5f, background.continuationCornerRadius)
@@ -439,6 +460,7 @@ class LayoutQueriesTest {
 
     @Test
     fun adjacentBackgroundsWithTheSameStyleShareOneClearance() {
+        testTrace.section("adjacentBackgroundsWithTheSameStyleShareOneClearance")
         val result = sampleResult()
         val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
         val spans = listOf(
@@ -456,6 +478,7 @@ class LayoutQueriesTest {
 
     @Test
     fun adjacentLineDecorationsWithTheSameStyleShareOneClearance() {
+        testTrace.section("adjacentLineDecorationsWithTheSameStyleShareOneClearance")
         val result = sampleResult()
         val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
         val spans = listOf(
@@ -475,6 +498,7 @@ class LayoutQueriesTest {
 
     @Test
     fun adjacentBackgroundAndUnderlineDoNotAvoidAcrossStyles() {
+        testTrace.section("adjacentBackgroundAndUnderlineDoNotAvoidAcrossStyles")
         val result = sampleResult()
         val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
         val background = RichTextSpan(TextRange(0, 1), RichTextRole.Background, paint)
@@ -490,6 +514,7 @@ class LayoutQueriesTest {
 
     @Test
     fun hitTestingChoosesOffsetFromTiqianClusterAdvances() {
+        testTrace.section("hitTestingChoosesOffsetFromTiqianClusterAdvances")
         val result = sampleResult()
 
         assertEquals(0, result.getOffsetForPosition(3f, 5f))
@@ -501,6 +526,7 @@ class LayoutQueriesTest {
 
     @Test
     fun selectionHitTestingKeepsSupportedSourceSequencesAtomic() {
+        testTrace.section("selectionHitTestingKeepsSupportedSourceSequencesAtomic")
         val result = interactionBoundaryResult()
 
         assertEquals(0, result.getSelectionOffsetForPosition(5f, 10f))
@@ -513,6 +539,7 @@ class LayoutQueriesTest {
 
     @Test
     fun externalSelectionOffsetsRespectDirectionalBoundaryBias() {
+        testTrace.section("externalSelectionOffsetsRespectDirectionalBoundaryBias")
         val result = interactionBoundaryResult()
 
         assertEquals(2, result.coerceSelectionOffset(3, SourceBoundaryBias.Backward))
@@ -524,6 +551,7 @@ class LayoutQueriesTest {
 
     @Test
     fun supportedSourceSequenceRemainsAtomicAcrossEngineClusterBoundaries() {
+        testTrace.section("supportedSourceSequenceRemainsAtomicAcrossEngineClusterBoundaries")
         val result = crossClusterInteractionBoundaryResult()
 
         assertEquals(0, result.coerceSelectionOffset(1, SourceBoundaryBias.Backward))
@@ -534,6 +562,7 @@ class LayoutQueriesTest {
 
     @Test
     fun inlineObjectSourceRangeIsOneSelectionUnit() {
+        testTrace.section("inlineObjectSourceRangeIsOneSelectionUnit")
         val source = "a\\operatorname{lim}b"
         val objectRange = TextRange(1, source.lastIndex)
         val result = LayoutResult(
@@ -565,6 +594,7 @@ class LayoutQueriesTest {
 
     @Test
     fun selectionWordBoundaryExpandsLatinButKeepsHanAtomic() {
+        testTrace.section("selectionWordBoundaryExpandsLatinButKeepsHanAtomic")
         val result = wordBoundaryResult()
 
         assertEquals(TextRange(2, 10), result.getSelectionWordBoundary(6))
@@ -577,6 +607,7 @@ class LayoutQueriesTest {
 
     @Test
     fun rubySelectionGeometryRedistributesAvoidanceSpreadWithoutOverlap() {
+        testTrace.section("rubySelectionGeometryRedistributesAvoidanceSpreadWithoutOverlap")
         val result = rubySelectionResult()
 
         val positioned = result.positionedClusters()
@@ -951,4 +982,9 @@ class LayoutQueriesTest {
             source = "test",
             reason = "RubyAvoidanceSpread",
         )
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
+    }
 }

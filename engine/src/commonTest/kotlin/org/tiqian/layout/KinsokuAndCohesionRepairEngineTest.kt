@@ -31,17 +31,22 @@ import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertEquals
+import org.tiqian.test.trace.assertFailsWith
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * 禁则（kinsoku）、行尾悬挂与数字符号 cohesion 的断行修复行为，
  * 自 LineBreakRepairEngineTest 按主题拆出；引擎与断言方式不变。
  */
 class KinsokuAndCohesionRepairEngineTest {
+    private val testTrace = TestTraceRecorder("KinsokuAndCohesionRepairEngineTest")
+
     @Test
     fun kinsokuCarriesPreviousClusterWhenLineWouldStartWithForbiddenPunctuation() {
+        testTrace.section("kinsokuCarriesPreviousClusterWhenLineWouldStartWithForbiddenPunctuation")
         // Pure greedy at maxWidth=64 -> line 0: 中文中文 (clusters 0..3), line 1: 。
         // 。 is PauseOrStop, forbidden at line start, so CarryPrevious pulls
         // 文 (cluster 3) to line 1: line 0 = 中文中, line 1 = 文。.
@@ -88,6 +93,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuPushesLineStartPunctuationIntoPreviousLineWhenTrailingGlueCanShrink() {
+        testTrace.section("kinsokuPushesLineStartPunctuationIntoPreviousLineWhenTrailingGlueCanShrink")
         // Pure greedy at maxWidth=60 -> line 0: 中文中 (48f), line 1: 。
         // 。 can be pushed into previous line by shrinking its trailing glue.
         // PushIn shrinks 4f (overflow), then edge trim takes remaining 4f.
@@ -147,6 +153,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuLeavesGreedyBreakAloneWhenNoForbiddenPunctAtLineStart() {
+        testTrace.section("kinsokuLeavesGreedyBreakAloneWhenNoForbiddenPunctAtLineStart")
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -166,6 +173,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuFallsBackToLeaveRaggedWhenPreviousLineCannotSpareACluster() {
+        testTrace.section("kinsokuFallsBackToLeaveRaggedWhenPreviousLineCannotSpareACluster")
         // "Coffee" is one cluster (6 chars, 96f = measure, so NOT hard-broken).
         // At maxWidth=96 greedy fills line 0 with it alone and pushes 。 to line 1.
         // Previous line has only one cluster, so CarryPrevious cannot apply ->
@@ -191,6 +199,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun longLatinSentenceWrapsAtWordBoundaries() {
+        testTrace.section("longLatinSentenceWrapsAtWordBoundaries")
         // The headline LatinWordSegmentation capability: a Latin sentence
         // longer than the measure breaks BETWEEN words (previously a Latin
         // run was one unbreakable cluster and simply overflowed).
@@ -217,6 +226,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun numberWithSuffixSymbolNeverSplitsAcrossLines() {
+        testTrace.section("numberWithSuffixSymbolNeverSplitsAcrossLines")
         // CLREQ 符号分离禁则: 数字 + 后缀 % 不可拆行. At maxWidth 120 the natural
         // greedy break falls between 50 and %; NumberSymbolCohesion moves the
         // whole 50% group to the next line instead of orphaning % at line start.
@@ -238,6 +248,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun bibliographicNumericLocatorExposesStructuralBreaks() {
+        testTrace.section("bibliographicNumericLocatorExposesStructuralBreaks")
         val text = "中文中文中文44(10):21-38."
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
@@ -269,6 +280,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun ordinaryNumericFormsDoNotBecomeBibliographicLocators() {
+        testTrace.section("ordinaryNumericFormsDoNotBecomeBibliographicLocators")
         for (token in listOf("3.14", "1,000", "12:34", "2023-08-11")) {
             val result = ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
@@ -289,6 +301,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuLevelNoneLeavesForbiddenMarksAtLineStart() {
+        testTrace.section("kinsokuLevelNoneLeavesForbiddenMarksAtLineStart")
         // 不处理 (CLREQ): no line-start prohibition — 。 may begin a line, so
         // no repair fires even when greedy puts it there.
         fun engineAt(level: org.tiqian.clreq.KinsokuLevel) =
@@ -315,6 +328,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuLevelStrictForbidsDashAtLineStart() {
+        testTrace.section("kinsokuLevelStrictForbidsDashAtLineStart")
         // 严格处理 追加破折号不得居行首；基本处理允许.
         fun layoutAt(level: org.tiqian.clreq.KinsokuLevel) =
             ExplainableStubParagraphLayoutEngine(
@@ -340,6 +354,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun lineEndKinsokuMovesDanglingOpenerToNextLine() {
+        testTrace.section("lineEndKinsokuMovesDanglingOpenerToNextLine")
         // CLREQ 行尾禁则 (Basic): 开括号不得居行尾. 中中中（中中）中 @maxWidth
         // 64: greedy would end line 0 on （ — the engine derives the
         // forbidden-end set from the kinsoku level and retreats the break so
@@ -364,6 +379,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun hangingPunctuationFillsLineToMeasureAndOverflowsVisual() {
+        testTrace.section("hangingPunctuationFillsLineToMeasureAndOverflowsVisual")
         // LineEndHangingPunctuation (CLREQ 行尾点号悬挂, ADR 0006): with the
         // PauseStops style, a 句号 that would land at line start hangs past
         // the measure. 中文中文，中文。 @maxWidth 64: the first 逗号 hangs at
@@ -417,5 +433,10 @@ class KinsokuAndCohesionRepairEngineTest {
         )
         assertTrue(plain.lines.none { it.visualWidth > 64f })
         assertTrue(plain.debug.lineDecisions.none { it.repair == "Hang" })
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

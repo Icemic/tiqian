@@ -13,8 +13,10 @@ import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.tiqian.test.trace.assertFalse
+import org.tiqian.test.trace.assertTrue
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /**
  * Render-evidence extension of the prepared plan (ADR 0053 SinglePlanLowerer
@@ -23,12 +25,15 @@ import kotlin.test.assertTrue
  * hand-writing full JSON.
  */
 class PreparedParagraphRenderEvidenceTest {
+    private val testTrace = TestTraceRecorder("PreparedParagraphRenderEvidenceTest")
+
 
     private fun layout(input: LayoutInput) =
         ExplainableStubParagraphLayoutEngine(lineBreaker = LookaheadLineBreaker()).layout(input)
 
     @Test
     fun plainParagraphEvidenceIsAppendOnly() {
+        testTrace.section("plainParagraphEvidenceIsAppendOnly")
         val pureInput = LayoutInput(
             content = TiqianTextContent("中文段落纯文本测试"),
             constraints = LayoutConstraints(maxWidth = 200f),
@@ -55,6 +60,7 @@ class PreparedParagraphRenderEvidenceTest {
 
     @Test
     fun pinyinRubyEmitsRubyDecisions() {
+        testTrace.section("pinyinRubyEmitsRubyDecisions")
         val input = LayoutInput(
             content = TiqianTextContent("北京是首都。"),
             constraints = LayoutConstraints(maxWidth = 200f),
@@ -76,6 +82,7 @@ class PreparedParagraphRenderEvidenceTest {
 
     @Test
     fun bopomofoRubyEmitsBopomofoDecisions() {
+        testTrace.section("bopomofoRubyEmitsBopomofoDecisions")
         val input = LayoutInput(
             content = TiqianTextContent("好文。"),
             constraints = LayoutConstraints(maxWidth = 200f),
@@ -94,6 +101,7 @@ class PreparedParagraphRenderEvidenceTest {
 
     @Test
     fun decorationsEmitSegmentsDotsAndRanges() {
+        testTrace.section("decorationsEmitSegmentsDotsAndRanges")
         val input = LayoutInput(
             content = TiqianTextContent("鲁迅的小说在中国现代文学里很重要。"),
             constraints = LayoutConstraints(maxWidth = 200f),
@@ -122,6 +130,7 @@ class PreparedParagraphRenderEvidenceTest {
 
     @Test
     fun styleDeltaEmitsPerCellStyleBlock() {
+        testTrace.section("styleDeltaEmitsPerCellStyleBlock")
         val input = LayoutInput(
             content = TiqianTextContent(
                 text = "普通字与小字混排的段落。",
@@ -143,6 +152,7 @@ class PreparedParagraphRenderEvidenceTest {
 
     @Test
     fun inlineBoxesEmitInlineEdges() {
+        testTrace.section("inlineBoxesEmitInlineEdges")
         val input = LayoutInput(
             content = TiqianTextContent("文字与边距。"),
             constraints = LayoutConstraints(maxWidth = 200f),
@@ -162,5 +172,10 @@ class PreparedParagraphRenderEvidenceTest {
         assertContains(evidence, "\"offset\":1")
         assertContains(evidence, "\"inlineStart\":2")
         assertContains(evidence, "\"inlineEnd\":3")
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

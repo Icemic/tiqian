@@ -1,16 +1,22 @@
 package org.tiqian.linebreak
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class LiangHyphenatorTest {
+    private val testTrace = TestTraceRecorder("LiangHyphenatorTest")
+
     @Test
     fun noHyphenatorYieldsNoOpportunities() {
+        testTrace.section("noHyphenatorYieldsNoOpportunities")
         assertEquals(emptyList(), NoHyphenator.hyphenate("international"))
     }
 
     @Test
     fun oddLevelGapBecomesABreakOutsideTheMargins() {
+        testTrace.section("oddLevelGapBecomesABreakOutsideTheMargins")
         // Pattern "1c": level 1 (odd) in the gap before any 'c'. With
         // leftMin/rightMin = 1, "abc" breaks before the final c (ab-c); a 'c'
         // at the very start is excluded by the left margin.
@@ -21,6 +27,7 @@ class LiangHyphenatorTest {
 
     @Test
     fun maxLevelWinsAndEvenForbidsTheBreak() {
+        testTrace.section("maxLevelWinsAndEvenForbidsTheBreak")
         // "ab" puts an odd level (1) in the a|b gap ⇒ "ab" breaks there. A longer
         // "zab" pattern raises that same gap to an even level (2); the max wins
         // and even parity forbids the break ⇒ "zab" has no opportunity.
@@ -35,12 +42,14 @@ class LiangHyphenatorTest {
 
     @Test
     fun marginsAndShortWordsAreRespected() {
+        testTrace.section("marginsAndShortWordsAreRespected")
         val h = LiangHyphenator(mapOf("a" to intArrayOf(1, 0)), leftMin = 2, rightMin = 3)
         assertEquals(emptyList(), h.hyphenate("the")) // shorter than leftMin+rightMin
     }
 
     @Test
     fun exceptionsOverridePatternsAndAreCaseInsensitive() {
+        testTrace.section("exceptionsOverridePatternsAndAreCaseInsensitive")
         val h = LiangHyphenator(
             patterns = emptyMap(),
             exceptions = mapOf("table" to listOf(2)),
@@ -53,6 +62,7 @@ class LiangHyphenatorTest {
 
     @Test
     fun parsesPatternsAndExceptionBlocksStrippingComments() {
+        testTrace.section("parsesPatternsAndExceptionBlocksStrippingComments")
         val (patterns, exceptions) = parseTexHyphenationPatterns(
             """
             % a comment line
@@ -70,5 +80,10 @@ class LiangHyphenatorTest {
         assertEquals(listOf(0, 5, 0, 0, 0), patterns["abal"]!!.toList())
         assertEquals(listOf(2), exceptions["table"])
         assertEquals(emptyList(), exceptions["present"]) // listed = never hyphenate
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

@@ -1,11 +1,16 @@
 package org.tiqian.linebreak
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 class UnicodePunctuationLineBreakTest {
+    private val testTrace = TestTraceRecorder("UnicodePunctuationLineBreakTest")
+
     @Test
     fun exposesPinnedWesternAndCjkPunctuationClasses() {
+        testTrace.section("exposesPinnedWesternAndCjkPunctuationClasses")
         val expected = mapOf(
             '(' to UnicodePunctuationLineBreakClass.OpenPunctuation,
             ')' to UnicodePunctuationLineBreakClass.CloseParenthesis,
@@ -29,7 +34,13 @@ class UnicodePunctuationLineBreakTest {
 
     @Test
     fun ordinaryLettersAreOutsideThePunctuationSubset() {
+        testTrace.section("ordinaryLettersAreOutsideThePunctuationSubset")
         assertEquals(UnicodePunctuationLineBreakClass.Other, UnicodePunctuationLineBreak.classOf('A'.code))
         assertEquals(UnicodePunctuationLineBreakClass.Other, UnicodePunctuationLineBreak.classOf('中'.code))
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }

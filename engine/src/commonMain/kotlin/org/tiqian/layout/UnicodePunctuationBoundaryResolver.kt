@@ -357,8 +357,9 @@ private fun List<Cluster>.isDecimalMarkAfterSpace(index: Int, sourceText: String
     if (previousSource.isEmpty() || previousSource.any { !it.isWhitespace() }) return false
     val current = this[index]
     val currentSource = sourceText.substring(current.range.start, current.range.end)
-    val firstLength = currentSource.firstCodePointLength()
-    val followingInside = currentSource.codePointAtOrNull(firstLength)
+    // The cluster's first significant code point is the IS mark, or a space
+    // before it; both occupy one char, so the next code point starts at 1.
+    val followingInside = currentSource.codePointAtOrNull(1)
     val following = followingInside ?: getOrNull(index + 1)?.let { next ->
         sourceText.substring(next.range.start, next.range.end).codePointAtOrNull(0)
     }
@@ -385,7 +386,8 @@ private fun String.quoteDirectionAt(
     }
     if (codePoint == 0x2019) {
         val leftIsWord = codePointBefore(offset)?.isLatinWordCodePoint() == true
-        val rightOffset = offset + if (codePoint > 0xFFFF) 2 else 1
+        // U+2019 occupies one UTF-16 unit.
+        val rightOffset = offset + 1
         val rightIsWord = codePointAtOrNull(rightOffset)?.isLatinWordCodePoint() == true
         return when {
             leftIsWord && rightIsWord -> ResolvedQuoteDirection.WordApostrophe
@@ -413,7 +415,8 @@ private fun String.firstSignificantCodePoint(): SignificantCodePoint? {
     while (offset < length) {
         val codePoint = codePointAtOrNull(offset) ?: return null
         if (!codePoint.isWhitespaceCodePoint()) return SignificantCodePoint(offset, codePoint)
-        offset += if (codePoint > 0xFFFF) 2 else 1
+        // Whitespace code points are all in the BMP, so the step is one char.
+        offset += 1
     }
     return null
 }
@@ -421,15 +424,9 @@ private fun String.firstSignificantCodePoint(): SignificantCodePoint? {
 private fun String.lastSignificantCodePoint(): SignificantCodePoint? {
     var end = length
     while (end > 0) {
-        val offset = if (
-            this[end - 1].code in 0xDC00..0xDFFF &&
-            end >= 2 &&
-            this[end - 2].code in 0xD800..0xDBFF
-        ) {
-            end - 2
-        } else {
-            end - 1
-        }
+        // validateLayoutInput rejects unpaired surrogates, so a trailing low
+        // surrogate always has its high surrogate before it.
+        val offset = if (this[end - 1].code in 0xDC00..0xDFFF) end - 2 else end - 1
         val codePoint = codePointAtOrNull(offset) ?: return null
         if (!codePoint.isWhitespaceCodePoint()) return SignificantCodePoint(offset, codePoint)
         end = offset
@@ -445,7 +442,9 @@ private fun String.followsAuthoredBoundary(offset: Int): Boolean {
         val previous = codePointBefore(cursor) ?: return true
         if (isMandatoryBreakCodePoint(previous) || isZeroWidthSpaceCodePoint(previous)) return true
         if (!previous.isWhitespaceCodePoint()) return false
-        cursor -= if (previous > 0xFFFF) 2 else 1
+        // Reaching here means `previous` is whitespace, which is always in
+        // the BMP, so the step back is one char.
+        cursor -= 1
     }
     return true
 }
@@ -482,13 +481,12 @@ private fun String.hasAuthoredBreak(): Boolean {
     return false
 }
 
-private fun String.firstCodePointLength(): Int =
-    if (length >= 2 && this[0].code in 0xD800..0xDBFF && this[1].code in 0xDC00..0xDFFF) 2 else 1
-
 private fun String.codePointAtOrNull(index: Int): Int? {
     if (index !in indices) return null
     val high = this[index].code
-    if (high !in 0xD800..0xDBFF || index + 1 >= length) return high
+    // validateLayoutInput rejects a text that ends with an unpaired high
+    // surrogate, so a high surrogate always has its low surrogate after it.
+    if (high !in 0xD800..0xDBFF) return high
     val low = this[index + 1].code
     if (low !in 0xDC00..0xDFFF) return high
     return 0x10000 + ((high - 0xD800) shl 10) + (low - 0xDC00)

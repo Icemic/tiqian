@@ -62,5 +62,4 @@ include(
     ":demo",
     ":demo:android",
     ":demo:font-diagnostics",
-    ":test-support",
 )

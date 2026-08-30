@@ -6,7 +6,9 @@ import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleContext
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.tiqian.test.trace.assertEquals
+import kotlin.test.AfterTest
+import org.tiqian.test.trace.TestTraceRecorder
 
 /*
  * GENERATED from Unicode 17.0.0 emoji-test.txt by
@@ -17,8 +19,11 @@ import kotlin.test.assertEquals
  * Terms of Use: https://www.unicode.org/terms_of_use.html
  */
 class UnicodeEmoji17RgiRoleAuditTest {
+    private val testTrace = TestTraceRecorder("UnicodeEmoji17RgiRoleAuditTest")
+
     @Test
     fun fullyQualifiedEmojiSequencesResolveToOneEmojiRange() {
+        testTrace.section("fullyQualifiedEmojiSequencesResolveToOneEmojiRange")
         assertEquals(3944, FULLY_QUALIFIED_CODE_POINT_SEQUENCES.size)
         val classifier = CjkFontRoleClassifier()
         val failures = FULLY_QUALIFIED_CODE_POINT_SEQUENCES.mapNotNull { codePoints ->
@@ -4002,5 +4007,10 @@ class UnicodeEmoji17RgiRoleAuditTest {
         "1F3F4 E0067 E0062 E0073 E0063 E0074 E007F",
         "1F3F4 E0067 E0062 E0077 E006C E0073 E007F",
         )
+    }
+
+    @AfterTest
+    fun flushTestTrace() {
+        testTrace.flush()
     }
 }
