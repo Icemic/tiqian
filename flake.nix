@@ -62,6 +62,7 @@
                 nodejs_22
                 git
                 rustToolchain
+                haxe
               ]
               ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
                 chromium
