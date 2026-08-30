@@ -483,6 +483,16 @@ object EarlyLayoutFixtures {
                 "only-right evidence (——中文), and the no-context paragraph-language fallback (……).",
         ),
         LayoutFixture(
+            id = "parenthetical-dash-pairs",
+            text = "他彻夜想Jessica——Jessica是他的前女友——睡不着觉。地点——北京，时间——明天。",
+            constraints = LayoutConstraints(maxWidth = 1024f),
+            notes = "ParentheticalDashPairContext: the Jessica insertion pair resolves jointly " +
+                "from the outer context (conflict -> paragraph language -> CJK two-em dashes) " +
+                "even though the first run sits between Latin words; the second sentence's " +
+                "runs are separated by a comma, stay independent, and resolve from their own " +
+                "surroundings.",
+        ),
+        LayoutFixture(
             id = "quote-digit-boundaries",
             text = "中文 le“t”ters 中1“1”2文；中Ａ“Ｂ”Ｃ文。尾号是“1‘2’3”，用时1’30”。",
             constraints = LayoutConstraints(maxWidth = 1024f),

@@ -28925,6 +28925,804 @@
         },
         {
             "key": {
+                "displayText": "彻",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 13227,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            16.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "夜",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 11603,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "想",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 13602,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "Jessica",
+                "fontKey": "latin-primary",
+                "fontFamily": "latin-primary",
+                "role": "LatinText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 56.15625,
+                "runAdvance": 56.15625,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 266,
+                        "advance": 9.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -13.0,
+                            9.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 614,
+                        "advance": 9.0,
+                        "x": 9.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 871,
+                        "advance": 8.0,
+                        "x": 18.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            9.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 871,
+                        "advance": 8.0,
+                        "x": 26.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            9.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 689,
+                        "advance": 4.0,
+                        "x": 34.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -14.0,
+                            4.0,
+                            1.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 586,
+                        "advance": 9.15625,
+                        "x": 38.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            10.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    },
+                    {
+                        "id": 507,
+                        "advance": 9.0,
+                        "x": 47.15625,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -10.0,
+                            9.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 7,
+                        "advance": 56.15625,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Inter Variable:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "前",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 9877,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "女",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 11688,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "友",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 10254,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "睡",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 19320,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -15.0,
+                            17.0,
+                            2.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "着",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 19287,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            16.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "觉",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 24012,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            0.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "点",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 17621,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "北",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 10077,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "京",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 8952,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -15.0,
+                            16.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
+                "displayText": "天",
+                "fontKey": "cjk-primary",
+                "fontFamily": "cjk-primary",
+                "role": "CjkText",
+                "styleFontFamilies": [],
+                "fontSize": 16.0,
+                "fontWeight": 400,
+                "italic": false,
+                "locale": "zh-Hans",
+                "openTypeFeatures": []
+            },
+            "result": {
+                "clusterAdvance": 16.0,
+                "runAdvance": 16.0,
+                "runFeatures": [],
+                "glyphs": [
+                    {
+                        "id": 11616,
+                        "advance": 16.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "bounds": [
+                            -1.0,
+                            -14.0,
+                            17.0,
+                            3.0
+                        ],
+                        "haltAdvance": null,
+                        "haltPlacementX": null
+                    }
+                ],
+                "decisions": [
+                    {
+                        "glyphCount": 1,
+                        "advance": 16.0,
+                        "source": "Skia",
+                        "reason": "SkiaTextShaper:Source Han Sans CN:lang=zh-Hans",
+                        "glyphsWithoutInkBounds": 0,
+                        "missingGlyphs": 0,
+                        "resolvedFace": null,
+                        "script": null,
+                        "language": null,
+                        "strategy": null,
+                        "featureEvidence": null,
+                        "capabilityIssue": null
+                    }
+                ]
+            }
+        },
+        {
+            "key": {
                 "displayText": "le“t”ters",
                 "fontKey": "latin-primary",
                 "fontFamily": "latin-primary",
@@ -36699,6 +37497,286 @@
                 "source": "RawTables",
                 "typoAscent": 15.5,
                 "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "彻"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "夜"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "想"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "latin-primary",
+                "fontSize": 16.0,
+                "role": "LatinText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "Jessica"
+            },
+            "result": {
+                "ascent": 15.5,
+                "descent": 3.859375,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 15.5,
+                "typoDescent": 3.859375
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "前"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "女"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "友"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "睡"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "着"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "觉"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "点"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "北"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "京"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
+            }
+        },
+        {
+            "key": {
+                "fontKey": "cjk-primary",
+                "fontSize": 16.0,
+                "role": "CjkText",
+                "locale": "zh-Hans",
+                "fontFamilies": [],
+                "fontWeight": 400,
+                "italic": false,
+                "faceSelectionText": "天"
+            },
+            "result": {
+                "ascent": 18.560038,
+                "descent": 4.6080093,
+                "leading": 0.0,
+                "source": "RawTables",
+                "typoAscent": 14.080001,
+                "typoDescent": 1.9200001
             }
         },
         {
