@@ -560,11 +560,11 @@ class QuoteClassificationEngineTest {
     }
 
     @Test
-    fun keepsNumericWordInternalQuotesLatin() {
+    fun keepsLetterBoundedWordInternalQuotesLatin() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
-                content = TiqianTextContent("中文1“2”3中文"),
+                content = TiqianTextContent("中a“b”c文"),
                 constraints = LayoutConstraints(maxWidth = 320f),
             ),
         )
@@ -573,6 +573,41 @@ class QuoteClassificationEngineTest {
         assertEquals(2, overrides.size)
         assertTrue(overrides.all {
             it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsDigitContentInsideLetterBoundedQuotesLatin() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中a“1”c文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsDigitBoundedWordInternalQuotesCjk() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中1“1”2文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "PairedPunctuationOuterScriptContext"
         })
     }
 
