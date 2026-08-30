@@ -669,6 +669,50 @@ class QuoteClassificationEngineTest {
     }
 
     @Test
+    fun keepsAstralLetterBoundedWordInternalQuotesLatin() {
+        testTrace.section("keepsAstralLetterBoundedWordInternalQuotesLatin")
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中𝐀“b”𝐁文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        // Supplementary letters bound the pair from outside: both flanks
+        // combine across surrogate pairs, stay word characters, and sit above
+        // every fullwidth range, so the fast path still accepts them.
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.LatinText.name && it.source == "NonCjkWordInternalQuotePair"
+        })
+    }
+
+    @Test
+    fun keepsSpaceInsidePairOutOfWordInternalFastPathLatin() {
+        testTrace.section("keepsSpaceInsidePairOutOfWordInternalFastPathLatin")
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent("中a“b c”d文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        // A space inside the quotes breaks the Latin-word interior, so the
+        // pair leaves the word-internal fast path. The enclosing level is
+        // mixed (CJK around, Latin flanks), so the resolver falls back to
+        // the paragraph language.
+        val overrides = result.debug.roleOverrides.filter { it.sourceText == "“" || it.sourceText == "”" }
+        assertEquals(2, overrides.size)
+        assertTrue(overrides.all {
+            it.overriddenRole == FontRole.CjkPunctuation.name &&
+                it.source == "ParagraphLanguageQuoteContext"
+        })
+    }
+
+    @Test
     fun keepsDigitBoundedSingleQuotePairCjkViaEnclosingQuotation() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(

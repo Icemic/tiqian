@@ -61,9 +61,12 @@ class QuotePairAnalyzerSurrogateAdjacencyTest {
         assertFalse("\uE000’b".isNonCjkInWordApostrophe(1))
         // Two low surrogates in a row: the leading char of the pair lookback
         // is itself above the high-surrogate range, so the low half returns
-        // alone and the lookup throws.
+        // alone and the lookup throws. The apostrophe needs a right neighbour:
+        // the rewritten helper walks both flanks before the word-character
+        // lookup, so a string-end apostrophe returns false at the null flank
+        // without ever reaching the throwing lookup.
         assertFailsWith<IllegalArgumentException> {
-            surrogateText('x'.code, 0xDC00, 0xDC00, 0x2019).isNonCjkInWordApostrophe(3)
+            surrogateText('x'.code, 0xDC00, 0xDC00, 0x2019, 'x'.code).isNonCjkInWordApostrophe(3)
         }
     }
 
