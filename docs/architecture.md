@@ -137,7 +137,8 @@ box 放到语义正确的全宽字身一侧，再从该全宽字身计算压缩�
 Android、JVM 或 JS 自带的 Unicode 表。
 同为 Common 的 U+2014 破折号与 U+2026 省略号按连续 source run 解析两侧最近的强脚本文本；
 连续数量只界定待判定的 source run，不参与中西角色选择。两侧冲突或无证据时使用段落语言，强制换行截断
-搜索。只有最终判为 `CjkPunctuation` 的 run 才能进入 CLREQ display 码点替换。
+搜索；弯引号的配对模型允许引文跨行，其上下文不以换行为界。run 无论判为哪一侧都保持独立
+cluster，只有最终判为 `CjkPunctuation` 的 run 才能进入 CLREQ display 码点替换。
 
 ## 排版核心
 

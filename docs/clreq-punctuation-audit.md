@@ -86,7 +86,9 @@ CLREQ 行首行尾禁则分四档（`KinsokuLevel`，命名对齐第六节原文
 同一层级的双向外层脚本、外层引号、完整引文内容与段落 locale 依次解析；不能由紧邻字符或
 引文首字符单独决定。破折号与省略号先形成连续 source run，再检查 run 两侧最近的强脚本文本：
 两侧一致或只有一侧有证据时继承该侧；两侧冲突或都没有证据时按段落 locale 解析。强制换行会
-截断搜索。run 长度不参与字体角色判定；后续 cluster 形成由最终 role 与 profile 决定。
+截断搜索（弯引号的配对模型允许引文跨行，其上下文扫描不以换行为界，两者是既定差异）。
+run 长度不参与字体角色判定；run 无论判为哪一侧都保持独立 cluster
+（`ContextualDashEllipsisRunSegmentation`），断行机会不因 Latin 合并消失。
 
 其余各归各：
 所有可打印 ASCII（U+0020–007E，含 `% . , : ; - / ~ | \` 等）是 typed Western intent →
