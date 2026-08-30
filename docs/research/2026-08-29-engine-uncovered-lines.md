@@ -19,6 +19,11 @@ PreparedParagraph 数字序列化重写与各覆盖测试群）。这些改动�
 word-internal 解析路径，条目 60/61 的行号随之移位；新增主张、覆盖
 测试与复测数字见条目 68。
 
+2026-08-30 第三次补记：已合并 upstream/main 29c67d52（PR #19，语境
+破折号与省略号角色）为 aaaa6568。上游新增语境破折号与省略号解析器与
+两个管线外分类器扩展，条目 44/50/56/62 的行号随之移位；新增主张、
+覆盖测试与复测数字见条目 69。
+
 阅读约定：
 
 - 未覆盖行指 Kover XML 中 mi>0（存在未执行指令）或 mb>0（存在未走到的
@@ -1187,3 +1192,88 @@ org.tiqian.core.UnicodeNumberTest。
 按缺失类型拆分：56 行有未执行指令（mi>0 且 mb=0）、64 行只缺分支
 方向（mb>0 且 mi=0）、107 行两者都有；commonMain 225 行 = 56 + 64 +
 105，jvmMain 2 行属于两者都有。
+
+### 条目 69：2026-08-30 第二轮上游合并后的残余核对
+
+合并 upstream/main 29c67d52（PR #19，语境破折号与省略号角色）为
+aaaa6568。上游新增 ContextualDashEllipsisRoleResolver（U+2014 与
+U+2026 按两侧强文本解析，ParentheticalDashPairContext 括号对）、
+ClusterRoleResolution 的 ContextualDashEllipsisRunSegmentation 块、
+QuotePairAnalyzer 与新文件上的 withContextualQuoteRoles 与
+withContextualDashEllipsisRoles 扩展（供 ffi classifyFontRoles 等管线
+外调用方组合）、FontPolicy 注释行移位。合并后首次复测残余 256 行，
+其中 29 行未认领；处置：
+
+移位追认（主张与论证不变，验收脚本的行号集合按当前源文件更新）：
+
+- 条目 44/56 的 WidthIndependentAnnotationCache.kt 主张 467/674/826/
+  876 移位为 482/689/841/891（上游在 L290 附近插入 dash-ellipsis
+  解析链，净增 15 行）；L221 在插入点之前不动。
+- 条目 50 的 FontPolicy.kt 主张 133/134/135/170 移位为 134/135/136/
+  172（上游只改注释，isLatinCodePoint 三臂净增 1 行，L170 净增 2 行）。
+- 条目 62 的 ClusterRoleResolution.kt 主张 282/311/314/317/354 移位
+  为 295/324/327/330/370（上游插入 L222-233 的合并块与 L251 的析取
+  项）；L139/141/205/206 在插入点之前不动。
+
+新文件 ContextualDashEllipsisRoleResolver.kt 主张五行：
+
+- L101（mi=0 mb=1，第一类）：resolveSingleRun else 臂内
+  `leftRole != null && rightRole != null` 第二合取的假方向。进入
+  else 臂的输入已排除 (X, X)、(X, null)、(null, X) 三种组合，
+  leftRole 非 null 时 rightRole 必非 null，第二合取取不到假值。
+- L145（mi=0 mb=1，第一类）：resolveParentheticalPairs else 臂的同构
+  合取，同一排除论证。第一合取的两个方向由覆盖测试给出（括号对
+  冲突与两侧都没有强文本），见下。
+- L265（mi=0 mb=1，第一类）：前向扫描 `for (boundary in
+  scalarStart + 1..scalarEnd)` 入口比较的跳过方向。charCount 只能是
+  1 或 2，scalarStart + 1 总是小于等于 scalarEnd，区间总是非空；javap
+  （StrongScriptContextIndex.<init>）偏移 84 `if_icmpgt` 的真方向
+  永不取到。
+- L303（mi=0 mb=1）与 L304（mi=3 mb=3，第三类）：scalarStartBefore
+  的 `lastIndex > 0` 假方向（低代理位于 0）与高代理区间检查的假
+  方向（低代理的前邻不是高代理）。构造这两个方向都要求文本含孤立
+  代理；索引构造的前向扫描对每个标量先调
+  UnicodeScriptEvidenceClassifier.classify，孤立代理在该处抛出
+  IllegalArgumentException，后向扫描（scalarStartBefore 的唯一调用
+  方）只能看到 BMP 标量或完好代理对。
+- 上游自带的 ContextualDashEllipsisRoleResolverTest 覆盖单 run 四臂
+  与括号对的 matching、冲突两方向；其余方向由本仓补充的覆盖测试执行
+  到，不主张。
+
+其余新增残余由本仓新增测试覆盖，不主张：
+
+- ContextualDashEllipsisRoleResolverCoverageTest
+  （ContextualDashEllipsisRoleResolverCoverageTest.kt）三个括号对用例：
+  中文、word 两侧各接两个 U+2014 且右端没有后继文本（左臂，L133-136）、
+  两个 U+2014 加 word 加两个 U+2014 加中文（右臂，L138-141）、两个
+  U+2014 加 word 加两个 U+2014（else 臂，两侧都没有强文本，L148 的
+  reason 串；L145 第一合取的假方向随之覆盖，L128 两个分支点未走到的
+  方向补上）。
+- 同测试类的 forwardPassWalkerArmsRunBeforeTheClassifierRejectsLone
+  Surrogates：0x2014 加 0xD83D（串尾高代理走 L314 第二析取真侧）、
+  0xD83D 加 0x2014（后继在低代理区间之下走 L316）、0xD83D 加 0xFFFD
+  加 0x2014（后继在低代理区间之上走 L316 的另一比较方向），三个输入
+  都在前向游走后抛出 IllegalArgumentException。
+- ContextualRoleExtensionCoverageTest：直接调用两个扩展。无语境标记
+  时传与不传 context 各断言一次返回对象与接收者是同一个（默认参数
+  表达式 CDER L201 与 QPA L183 随之执行）；有标记时断言包装器对 run
+  角色直接解析、对其余区间委托基分类器。两个扩展的函数体此前在
+  engine 模块没有调用点，仅 ffi 消费；CDER L203-207 与 QPA L185-190
+  由该测试覆盖。
+- ContextualDashEllipsisClusterCoverageTest：latinDashRunAtParagraph
+  EndStaysOneCluster（输入 End 加两个 U+2014，合并循环经
+  `index < text.length` 的假方向退出）与
+  styleSpanInsideLatinDashRunSplitsTheCluster（输入 A 加两个 U+2014
+  加 B，并给第二个 U+2014 加 TextSpan(2,3)，spanBoundaries 落在两个
+  破折号之间，合并循环经 `index !in spanBoundaries` 的假方向退出）
+  覆盖 ClusterRoleResolution L228 的两个退出方向（javap
+  ClusterRoleResolutionKt 偏移 777 `if_icmpge` 与 792 `ifne`）。
+
+复测：全量 `:engine:jvmTest` 与 `:engine:koverXmlReportJvm` 通过
+（1354 个用例），acceptance-check 差集为空（残余 232 行，commonMain
+230 行）。同轮 Kover 聚合覆盖率（reportJvm.xml 根计数）：指令
+91772/92202（99.53%，未执行 430）、分支 6080/6296（96.57%，未走到
+216 个方向）、行 12881/12940（99.54%，未执行 59）、方法 770/775
+（99.35%）、类 307/308（99.68%）。残余按缺失类型拆分：commonMain
+230 行 = 56 行有未执行指令、68 行只缺分支方向、106 行两者都有；
+jvmMain 2 行（BundledHyphenationResource）属于两者都有。
