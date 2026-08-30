@@ -440,4 +440,3 @@ class JustifierJfTest {
         testTrace.flush()
     }
 }
-
