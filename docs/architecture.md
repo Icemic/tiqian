@@ -135,6 +135,10 @@ box 放到语义正确的全宽字身一侧，再从该全宽字身计算压缩�
 泄漏为下一对的外层上下文，renderer 也不重新猜测 role。强文本证据固定使用 Unicode 17.0.0
 `Scripts.txt` 的 Script 数据；Common、Inherited 与未分配码点不提供语言证据，也不依赖
 Android、JVM 或 JS 自带的 Unicode 表。
+同为 Common 的 U+2014 破折号与 U+2026 省略号按连续 source run 解析两侧最近的强脚本文本；
+连续数量只界定待判定的 source run，不参与中西角色选择。两侧冲突或无证据时使用段落语言，强制换行截断
+搜索；弯引号的配对模型允许引文跨行，其上下文不以换行为界。run 无论判为哪一侧都保持独立
+cluster，只有最终判为 `CjkPunctuation` 的 run 才能进入 CLREQ display 码点替换。
 
 ## 排版核心
 
@@ -206,6 +210,9 @@ TalkBack character-location 能力不属于当前静态正文路径。
 `platforms/web/client` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
 HTML 先保持可读，TS runtime（`@tiqian/core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
 inline 与 CSS 仍由宿主持有；引擎只写入断行和 spacing geometry。
+`strong-as-emphasis` lowering 先保留 source range，等整段文本完成空白投影后再通过 FFI 批量取得
+字体角色；不能在单个 DOM text node 上提前决定着重号或字重，否则跨节点的破折号、省略号会失去
+段落脚本上下文。
 
 同仓库的 `platforms/web/client/sveltekit` 与 `platforms/web/client/astro` 分别发布
 `@tiqian/sveltekit` 和 `@tiqian/astro`。它们只把框架的 SSR、静态构建、head 资产与客户端导航生命周期

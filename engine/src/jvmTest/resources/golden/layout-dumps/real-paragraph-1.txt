@@ -353,6 +353,9 @@ font 181-182 role=CjkText key=cjk-primary display='太' sub=CjkPunctuationGlyphP
 font 182-183 role=CjkText key=cjk-primary display='离' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 183-184 role=CjkText key=cjk-primary display='谱' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 184-185 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 62-64 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 75-77 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 130-132 source='……' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
 punct 2-3 '（' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 9-10 '）' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 23-24 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -755,6 +758,9 @@ font 181-182 role=CjkText key=cjk-primary display='太' sub=CjkPunctuationGlyphP
 font 182-183 role=CjkText key=cjk-primary display='离' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 183-184 role=CjkText key=cjk-primary display='谱' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 184-185 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 62-64 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 75-77 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 130-132 source='……' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
 punct 2-3 '（' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 9-10 '）' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 23-24 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -1157,6 +1163,9 @@ font 181-182 role=CjkText key=cjk-primary display='太' sub=CjkPunctuationGlyphP
 font 182-183 role=CjkText key=cjk-primary display='离' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 183-184 role=CjkText key=cjk-primary display='谱' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 184-185 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
+role-override 62-64 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 75-77 source='——' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
+role-override 130-132 source='……' CjkPunctuation->CjkPunctuation policy=DashEllipsisSurroundingScriptContext reason=matching-surrounding-script
 punct 2-3 '（' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 9-10 '）' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 23-24 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds

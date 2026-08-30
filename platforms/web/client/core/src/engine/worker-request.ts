@@ -19,6 +19,7 @@ import type { EnhanceOptions } from "./lifecycle.js";
 import { allowsSnapshotLayout, conformingSnapshotFontSessionId, withRootDefaults } from "./lifecycle.js";
 import {
   classifyFontRole,
+  classifyFontRoles,
   firstDivergentInlineShapingProperty,
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
@@ -273,8 +274,9 @@ export function workerLayoutRequestForRoot(root: Element, paragraph: Element, op
       strongAsEmphasisMarks: resolved.strongAsEmphasisMarks as boolean | undefined,
       locale: 'zh-Hans',
     }, {
-      // classifyRole is the ffi export verbatim.
+      // Singular and batch role classifiers are the ffi exports verbatim.
       classifyRole: classifyFontRole,
+      classifyRoles: classifyFontRoles,
       // The inlineShapingDecision wrapper reproduces the Kotlin closure in
       // MarkdownParagraphLowering.kt: a null divergence property returns null,
       // otherwise the inlineShapingDecisionResultJs shape is built.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-06
+- Amended: 2026-08-30 (`ContextualDashEllipsisRoleResolution`)
 
 ## Context
 
@@ -31,7 +32,11 @@ source "・" "‧" "•" 等  vs  间隔号 "·"
 "・" "‧" "•" -> "·"
 ```
 
-「只分类不替换」的字符（连接号 ~ – —、分隔号 / ／、句号变体 ．、双叹号 ‼、双问号 ⁇）只在 fallback 上倾向 CJK 字体，不改 code point。
+替换入口还必须检查最终字体角色；只有上下文已经解析为 `CjkPunctuation` 的 source run
+可以应用上述候选。西文角色即使因样式边界成为独立 shaping segment，也保留 source display。
+
+「只分类不替换」的字符（连接号 ~ – —、分隔号 / ／、句号变体 ．、双叹号 ‼、双问号 ⁇）
+不改 code point；其中 U+2014 按下文的上下文规则选择字体角色，其余继续使用既有分类与 fallback。
 
 ## Consequences
 
@@ -108,3 +113,27 @@ range、复制、搜索和无障碍语义始终按原始 U+2026 处理。
 标记为 `UnverifiedDisplaySubstitutionCoverage`，公共 pipeline 以
 `SubstitutionRollbackOnUnverifiedGlyphCoverage` 回到 U+2026。这里宁可保留 source 字形，
 也不把浏览器能从某个系统 fallback 画出 U+22EF 误报成当前字体覆盖。
+
+### Amendment (2026-08-30): ContextualDashEllipsisRoleResolution
+
+U+2014 与 U+2026 同时用于中文和西文，不能再按码点一律归到 CJK，也不能用一个或两个连续码点
+猜测语言。连续字符只形成待判定的 source run；字体角色由 run 两侧最近的 Unicode 强脚本文本
+决定。两侧一致或仅一侧有证据时继承该侧，两侧冲突或都没有证据时使用段落 locale；强制换行
+截断上下文搜索。这一点与弯引号不同：弯引号按配对模型解析，引文本身可以跨强制换行，
+所以引号的上下文扫描不以换行为界；破折号与省略号是行内标点，不允许借用另一行的脚本证据。
+决定以 `DashEllipsisSurroundingScriptContext` 或
+`ParagraphLanguageDashEllipsisContext` 进入 `LayoutResult.debug.roleOverrides`。
+
+判为西文的 run 仍保持独立 cluster（`ContextualDashEllipsisRunSegmentation`），不并入相邻的
+Latin 词 cluster；断行类在 run 边界提供的机会因此与角色解析前一致。
+
+`ParentheticalDashPairContext`：相邻两个等长的纯 U+2014 run，且中间内容全部为词字符或
+ASCII 空格时，构成一个插入语对并联合决议。证据只取对外侧（首 run 左邻与尾 run 右邻的
+最近强脚本），一致或仅一侧有证据时继承该侧，冲突或缺失时回段落 locale；插入内容不投票，
+所以 `想Jessica——Jessica是他的前女友——睡不着` 两个破折号同为 CJK 面。中间出现任何
+其他字符（句读、符号、强制换行）时两个 run 保持独立，省略号 run 不参与配对。
+
+`CjkRoleGatedDisplaySubstitution` 随后把 display 替换限制为最终角色为 `CjkPunctuation` 的 run。
+这使中文 `中—文`、`等…真` 即使只有一个标点仍使用 CJK 几何，而西文 `A——B`、
+`Wait……what` 即使重复两个标点也保持 Latin face 与 source display。source range、复制、搜索、
+选择和无障碍语义继续保持不变。

@@ -162,7 +162,7 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
         val cached = segmentShapingCache[segmentRange]
         if (cached != null) return cached
         val sourceText = text.substring(segmentRange.start, segmentRange.end)
-        val substitution = punctuationGlyphSubstitutor.substitute(sourceText)
+        val substitution = punctuationGlyphSubstitutor.substituteForRole(sourceText, decision.role)
         val baseSegmentStyle = styleAt(segmentRange.start)
         val segmentStyle = if (decision.role == FontRole.LatinText && emphasisItalicAt(segmentRange.start)) {
             baseSegmentStyle.copy(italic = true)

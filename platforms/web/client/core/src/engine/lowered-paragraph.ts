@@ -219,3 +219,23 @@ export function preparedCjkStrongSemanticsJson(lowered: LoweredParagraph): strin
   result += "]";
   return result;
 }
+
+/** Field-wise equality over the [TextStyle] wire shape, null-tolerant. */
+export function textStylesEqual(left: TextStyle | null | undefined, right: TextStyle | null | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (
+    left.fontSize !== right.fontSize ||
+    left.fontWeight !== right.fontWeight ||
+    left.italic !== right.italic ||
+    left.baselineShift !== right.baselineShift ||
+    left.locale !== right.locale ||
+    left.fontFamilies.length !== right.fontFamilies.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < left.fontFamilies.length; i++) {
+    if (left.fontFamilies[i] !== right.fontFamilies[i]) return false;
+  }
+  return true;
+}

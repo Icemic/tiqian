@@ -95,6 +95,7 @@ export async function verifyPackage(packageRoot: URL = new URL("./", import.meta
     "liangHyphenate",
     "unicodePunctuationLineBreakClassOf",
     "classifyFontRole",
+    "classifyFontRoles",
     "unsupportedInlineShapingProperties",
     "firstDivergentInlineShapingProperty",
     "precomputePlainParagraph",

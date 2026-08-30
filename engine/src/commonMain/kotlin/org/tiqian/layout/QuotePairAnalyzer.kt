@@ -171,3 +171,22 @@ class QuotePairAwareFontRoleClassifier(
     override fun classify(text: String, range: TextRange, context: FontRoleContext): FontRole =
         quoteRoles[range.start] ?: delegate.classify(text, range, context)
 }
+
+/**
+ * Resolves contextual curly-quote roles for callers that classify several ranges from the
+ * same complete paragraph outside the layout pipeline, mirroring the pipeline assembly in
+ * `prepareWidthIndependentAnnotation`. Chain with [withContextualDashEllipsisRoles] in the
+ * same base-to-outermost order the pipeline uses.
+ */
+fun FontRoleClassifier.withContextualQuoteRoles(
+    text: String,
+    context: FontRoleContext = FontRoleContext(),
+): FontRoleClassifier {
+    val analyzer = QuotePairAnalyzer()
+    val decisions = analyzer.classifyQuoteRoles(text, analyzer.analyze(text), context)
+    return if (decisions.isEmpty()) {
+        this
+    } else {
+        QuotePairAwareFontRoleClassifier(this, decisions.associate { it.index to it.role })
+    }
+}

@@ -122,6 +122,16 @@ class DisplayGlyphSubstitutionEngineTest {
         assertEquals(2, result.clusters.size)
         assertEquals("—", result.clusters[0].text)
         assertEquals("—", result.clusters[1].text)
+
+        // The same profile gate applies to a Latin-face contextual run.
+        val latin = engine.layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent("A——B"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+        assertEquals(listOf("A", "—", "—", "B"), latin.clusters.map { it.text })
     }
 
     @Test

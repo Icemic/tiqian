@@ -16,7 +16,8 @@ the worker engine and the browser runtime always come from one engine build.
 - `fontFallbackResolve(text: string, start: number, end: number, requestJson: string): string` — resolve font fallback decision from JSON request.
 - `liangHyphenate(word: string, patternsJson: string, exceptionsJson: string, leftMin?: number, rightMin?: number): string` — hyphenate a word using Liang patterns and exceptions.
 - `unicodePunctuationLineBreakClassOf(codePoint: number): string` — return Unicode line break class name for a code point.
-- `classifyFontRole(text: string, start: number, end: number, locale: string): string` — classify font role for a text range.
+- `classifyFontRole(text: string, start: number, end: number, locale: string): string` — classify font role for a text range within the complete paragraph text.
+- `classifyFontRoles(text: string, starts: Array<number>, ends: Array<number>, locale: string): Array<string>` — classify several ranges against one complete paragraph, resolving contextual quote/dash/ellipsis roles once.
 - `unsupportedInlineShapingProperties(): Array<string>` — return ordered list of unsupported inline shaping CSS properties.
 - `firstDivergentInlineShapingProperty(elementValues: Array<string>, paragraphValues: Array<string>): string | null` — find first divergent property between element and paragraph value arrays.
 - `precomputePlainParagraph(...)` — plain paragraph plan; the full signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
