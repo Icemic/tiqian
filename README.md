@@ -30,7 +30,7 @@
 
 ## Compose
 
-Compose 前端支持 Compose Desktop 和 Android 23 及以上版本：
+Compose 前端支持 Compose Desktop 和 Android 6.0 (API 23) 及以上版本：
 
 ```kotlin
 implementation("org.tiqian:tiqian-compose:<version>")
