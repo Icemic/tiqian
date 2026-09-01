@@ -12,5 +12,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".TiqianViewDemoActivity"
+            android:exported="true" />
+        <activity
+            android:name=".TiqianViewShowcaseActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

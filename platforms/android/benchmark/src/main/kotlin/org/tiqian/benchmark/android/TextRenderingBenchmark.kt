@@ -25,11 +25,13 @@ class TextRenderingBenchmark {
     @Test fun startupTiqianPlain() = startup(Case.TiqianPlain)
     @Test fun startupComposeArticle() = startup(Case.ComposeArticle)
     @Test fun startupTiqianArticle() = startup(Case.TiqianArticle)
+    @Test fun startupTiqianViewArticle() = startup(Case.TiqianViewArticle)
 
     @Test fun scrollComposePlain() = scroll(Case.ComposePlain)
     @Test fun scrollTiqianPlain() = scroll(Case.TiqianPlain)
     @Test fun scrollComposeArticle() = scroll(Case.ComposeArticle)
     @Test fun scrollTiqianArticle() = scroll(Case.TiqianArticle)
+    @Test fun scrollTiqianViewArticle() = scroll(Case.TiqianViewArticle)
 
     @Test fun recomposeComposeArticle() = recompose(Case.ComposeArticle)
     @Test fun recomposeTiqianArticle() = recompose(Case.TiqianArticle)
@@ -86,8 +88,10 @@ class TextRenderingBenchmark {
 
     private fun androidx.benchmark.macro.MacrobenchmarkScope.startCaseAndWait(case: Case) {
         val intent = Intent().apply {
-            component = ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.TextPerformanceBenchmarkActivity")
-            putExtra("benchmark_case", case.wireName)
+            component = ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.${case.activityName}")
+            if (case.activityName == "TextPerformanceBenchmarkActivity") {
+                putExtra("benchmark_case", case.wireName)
+            }
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         startActivityAndWait(intent)
@@ -99,11 +103,15 @@ class TextRenderingBenchmark {
         ) { "benchmark surface did not become ready: ${case.wireName}" }
     }
 
-    private enum class Case(val wireName: String) {
+    private enum class Case(
+        val wireName: String,
+        val activityName: String = "TextPerformanceBenchmarkActivity",
+    ) {
         ComposePlain("compose-plain"),
         TiqianPlain("tiqian-plain"),
         ComposeArticle("compose-article"),
         TiqianArticle("tiqian-article"),
+        TiqianViewArticle("tiqian-view-article", "TiqianViewDemoActivity"),
     }
 
     private companion object {

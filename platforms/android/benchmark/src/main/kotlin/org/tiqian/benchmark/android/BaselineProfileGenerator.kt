@@ -8,6 +8,8 @@ import androidx.test.filters.LargeTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 
 /**
  * Generates the Tiqian engine's consumer baseline profile by exercising the real
@@ -48,6 +50,16 @@ class BaselineProfileGenerator {
 
             val width = device.displayWidth
             val height = device.displayHeight
+            repeat(6) { device.swipe(width / 2, height * 3 / 4, width / 2, height / 4, 12) }
+            repeat(6) { device.swipe(width / 2, height / 4, width / 2, height * 3 / 4, 12) }
+            device.waitForIdle()
+
+            val viewIntent = Intent().apply {
+                component = ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.TiqianViewDemoActivity")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            startActivityAndWait(viewIntent)
+            device.wait(Until.hasObject(By.desc("benchmark-ready-tiqian-view-article")), 10_000)
             repeat(6) { device.swipe(width / 2, height * 3 / 4, width / 2, height / 4, 12) }
             repeat(6) { device.swipe(width / 2, height / 4, width / 2, height * 3 / 4, 12) }
             device.waitForIdle()
