@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="CjkTextView">
+        <attr name="android:text" />
+        <attr name="android:textColor" />
+        <attr name="android:textSize" />
+        <attr name="android:lineHeight" />
+        <attr name="android:maxLines" />
+        <attr name="android:minLines" />
+        <attr name="android:textIsSelectable" />
+        <attr name="cjkProfile">
+            <enum name="mainland" value="0" />
+            <enum name="taiwan" value="1" />
+            <enum name="hongKong" value="2" />
+        </attr>
+        <attr name="cjkOverflow">
+            <enum name="clip" value="0" />
+            <enum name="visible" value="1" />
+        </attr>
+    </declare-styleable>
+</resources>
