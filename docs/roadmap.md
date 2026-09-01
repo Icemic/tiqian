@@ -125,6 +125,16 @@ metrics / ink / outline replay，但不再传递进 Compose artifact。两条路
 `LayoutResult` 提供证据，能力报告不参与正文 renderer 路由。决策修订见
 [ADR 0016](adr/0016-android-textpaint-adapter.md)。
 
+当前并行推进 **Slice 41：Android View 一级前端**（2026-08-31，
+[ADR 0058](adr/0058-android-view-frontend.md)）。Android 原生 renderer 与 measurer 已从 Compose
+抽到 `platforms/android/rendering`，Compose/View 重放同一份 `LayoutResult`；
+`CjkTextView` 已接入精确失效、共享 measurement session、profile-safe precompute、原生 inline
+child、source selection、浮动系统菜单/`PROCESS_TEXT`、Magnifier、链接与 character-location a11y。
+`demo/android` 的 RecyclerView 长文 surface 已按精确 viewport 在 lifecycle worker 预排整篇，holder
+只接受 exact-match result；macrobenchmark/baseline generator 已纳入这条 View 路径。
+分页、跨 item 文档选区、Compose blocks 对应的块级组合（列表 marker、节间距）、编辑与 IME
+仍按明确的上层 contract 留在后续，不在 View renderer 内实现。
+
 当前并行推进 **Slice 39：precompute 原生迁移**（2026-08-20，
 [ADR 0050](adr/0050-native-precompute-rust-bindings.md)）。Node precompute 从 Kotlin/JS 与
 WASM 运行时迁往 Kotlin/Native 静态库与 Rust 编排：`ffi/native` 以 linuxX64、linuxArm64、
