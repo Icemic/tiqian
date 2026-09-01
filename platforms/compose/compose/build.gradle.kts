@@ -35,6 +35,7 @@ kotlin {
 
         androidMain.dependencies {
             implementation(project(":platforms:android:shaping"))
+            implementation(project(":platforms:android:rendering"))
         }
 
         getByName("androidDeviceTest").dependencies {

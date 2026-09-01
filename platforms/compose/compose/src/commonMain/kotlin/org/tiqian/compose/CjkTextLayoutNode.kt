@@ -30,8 +30,8 @@ import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LayoutResultReplayIndex
 import org.tiqian.core.InlineObjectSpan
-import org.tiqian.core.LineBox
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextSpan
 import org.tiqian.core.RubySpan
@@ -41,6 +41,17 @@ import org.tiqian.core.SourceBoundaryBias
 import org.tiqian.core.coerceSelectionOffset
 import org.tiqian.core.getLineForOffset
 import org.tiqian.core.getTextForCopy
+import org.tiqian.core.layoutAutoSpaceSuppressedRanges
+import org.tiqian.core.layoutInlineBoxes
+import org.tiqian.core.layoutLineBreakSpans
+import org.tiqian.core.legalHangingPunctuationClipEdge
+import org.tiqian.core.sourceBoundariesForPresentation
+import org.tiqian.core.cursorRect
+import org.tiqian.core.selectionBoxes
+import org.tiqian.core.selectionOffsetForPosition
+import org.tiqian.core.selectionWordRangeForPosition
+import org.tiqian.core.toReplayIndex
+import org.tiqian.core.visiblePaintOverhang
 import kotlin.math.ceil
 
 /** Backs [CjkTextLayout] — a measure+draw [Modifier.Node] that repaints on update. */
@@ -239,28 +250,28 @@ internal class CjkTextLayoutNode(
         // Render-only paint changes only request redraw; render-only range
         // boundary changes also request measurement so the engine can expose
         // exact occupied geometry for source ranges.
-        val oldSourceBoundaries = sourceBoundariesFor(
+        val oldSourceBoundaries = sourceBoundariesForPresentation(
             textLength = this.text.length,
             decorations = this.decorations,
             colorSpans = this.colorSpans,
             richTextSpans = this.richTextSpans,
-            spans = this.spans,
+            textSpans = this.spans,
             rubySpans = this.rubySpans,
         )
-        val newSourceBoundaries = sourceBoundariesFor(
+        val newSourceBoundaries = sourceBoundariesForPresentation(
             textLength = text.length,
             decorations = decorations,
             colorSpans = colorSpans,
             richTextSpans = richTextSpans,
-            spans = spans,
+            textSpans = spans,
             rubySpans = rubySpans,
         )
-        val inlineBoxesChanged = richTextSpans.backgroundInlineBoxes() !=
-            this.richTextSpans.backgroundInlineBoxes()
-        val lineBreakSpansChanged = richTextSpans.cjkLineBreakSpans(text) !=
-            this.richTextSpans.cjkLineBreakSpans(this.text)
-        val autoSpaceSuppressionChanged = richTextSpans.cjkAutoSpaceSuppressedRanges() !=
-            this.richTextSpans.cjkAutoSpaceSuppressedRanges()
+        val inlineBoxesChanged = richTextSpans.layoutInlineBoxes() !=
+            this.richTextSpans.layoutInlineBoxes()
+        val lineBreakSpansChanged = richTextSpans.layoutLineBreakSpans(text) !=
+            this.richTextSpans.layoutLineBreakSpans(this.text)
+        val autoSpaceSuppressionChanged = richTextSpans.layoutAutoSpaceSuppressedRanges() !=
+            this.richTextSpans.layoutAutoSpaceSuppressedRanges()
         val layoutChanged = text != this.text || textStyle != this.textStyle ||
             paragraphStyle != this.paragraphStyle || decorations != this.decorations ||
             spans != this.spans || rubySpans != this.rubySpans ||
@@ -438,12 +449,12 @@ internal class CjkTextLayoutNode(
         // (`MaxLinesLineTruncation`, recorded in debug) so [onTextLayout] receives the
         // engine's own explainable result, not a frontend-doctored copy.
         val laidOut = precomputedLayout ?: run {
-            val sourceBoundaries = sourceBoundariesFor(
+            val sourceBoundaries = sourceBoundariesForPresentation(
                 textLength = text.length,
                 decorations = decorations,
                 colorSpans = colorSpans,
                 richTextSpans = richTextSpans,
-                spans = spans,
+                textSpans = spans,
                 rubySpans = rubySpans,
             )
             val layoutInput = LayoutInput(
@@ -451,15 +462,15 @@ internal class CjkTextLayoutNode(
                     text = text,
                     spans = spans,
                     sourceBoundaries = sourceBoundaries,
-                    lineBreakSpans = richTextSpans.cjkLineBreakSpans(text),
-                    autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
+                    lineBreakSpans = richTextSpans.layoutLineBreakSpans(text),
+                    autoSpaceSuppressedRanges = richTextSpans.layoutAutoSpaceSuppressedRanges(),
                 ),
                 textStyle = textStyle,
                 paragraphStyle = paragraphStyle,
                 constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
                 decorations = decorations,
                 rubySpans = rubySpans,
-                inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+                inlineBoxes = richTextSpans.layoutInlineBoxes(),
                 inlineObjects = inlineObjects,
             )
             val cached = cachedLayout
@@ -507,7 +518,7 @@ internal class CjkTextLayoutNode(
         // preceding cluster itself exceeds the node. Ordinary over-long unwrapped
         // runs still stay clipped.
         val legalClipRight = laidOut.lines.maxOfOrNull { line ->
-            val punctuationEdge = legalHangingPunctuationClipEdge(line, drawClipWidth)
+            val punctuationEdge = line.legalHangingPunctuationClipEdge(drawClipWidth)
             val hyphenEdge = minOf(drawClipWidth, line.indent + line.visualWidth) +
                 line.hyphenAdvance
             maxOf(drawClipWidth, punctuationEdge, hyphenEdge)
@@ -587,128 +598,4 @@ private fun updateInlineObjectPlacements(
  * the impossible-measure fallback. Without an explicit hang, ordinary visual
  * overflow remains clipped to [drawClipWidth].
  */
-internal fun legalHangingPunctuationClipEdge(line: LineBox, drawClipWidth: Float): Float =
-    if (line.hangingPunctuationAdvance > 0f) {
-        line.indent + line.visualWidth
-    } else {
-        drawClipWidth
-    }
-
-private data class PaintOverhang(
-    val left: Float = 0f,
-    val top: Float = 0f,
-    val right: Float = 0f,
-    val bottom: Float = 0f,
-)
-
-/**
- * Paint may exceed a visible cluster's occupied box (for example an italic glyph or 着重号), but
- * normal text whose occupied box lies beyond the node is still overflow and must remain clipped.
- */
-private fun LayoutResult.visiblePaintOverhang(
-    width: Float,
-    height: Float,
-    positions: List<org.tiqian.core.PositionedCluster>,
-): PaintOverhang {
-    val positionsByRange = positions.associateBy { it.range }
-    var left = 0f
-    var top = 0f
-    var right = 0f
-    var bottom = 0f
-
-    fun includePaint(
-        cluster: org.tiqian.core.PositionedCluster,
-        paintLeft: Float,
-        paintTop: Float,
-        paintRight: Float,
-        paintBottom: Float,
-    ) {
-        if (
-            cluster.right <= 0f || cluster.left >= width ||
-            cluster.bottom <= 0f || cluster.top >= height
-        ) {
-            return
-        }
-        left = maxOf(left, cluster.left - paintLeft)
-        top = maxOf(top, cluster.top - paintTop)
-        right = maxOf(right, paintRight - cluster.right)
-        bottom = maxOf(bottom, paintBottom - cluster.bottom)
-    }
-
-    for (run in glyphRuns) {
-        for (glyph in run.glyphs) {
-            val bounds = glyph.bounds ?: continue
-            val cluster = positionsByRange[glyph.clusterRange] ?: continue
-            includePaint(
-                cluster = cluster,
-                paintLeft = cluster.drawX + glyph.x + bounds.left,
-                paintTop = cluster.baseline + glyph.y + bounds.top,
-                paintRight = cluster.drawX + glyph.x + bounds.right,
-                paintBottom = cluster.baseline + glyph.y + bounds.bottom,
-            )
-        }
-    }
-    for (dot in debug.decorationDecisions) {
-        if (!dot.applied || dot.dotDiameter <= 0f) continue
-        val cluster = positionsByRange[dot.clusterRange] ?: continue
-        val radius = dot.dotDiameter / 2f
-        includePaint(
-            cluster = cluster,
-            paintLeft = dot.anchorX - radius,
-            paintTop = dot.anchorY - radius,
-            paintRight = dot.anchorX + radius,
-            paintBottom = dot.anchorY + radius,
-        )
-    }
-    for (ruby in debug.rubyDecisions) {
-        val base = positions.filter { positioned ->
-            positioned.lineIndex == ruby.lineIndex &&
-                positioned.range.start >= ruby.baseRange.start &&
-                positioned.range.end <= ruby.baseRange.end
-        }
-        if (base.isEmpty()) continue
-        val occupiedLeft = base.minOf { it.left }
-        val occupiedTop = base.minOf { it.top }
-        val occupiedRight = base.maxOf { it.right }
-        val occupiedBottom = base.maxOf { it.bottom }
-        if (
-            occupiedRight <= 0f || occupiedLeft >= width ||
-            occupiedBottom <= 0f || occupiedTop >= height
-        ) {
-            continue
-        }
-        val paintLeft = ruby.centerX - ruby.width / 2f
-        val paintTop = ruby.baselineY - ruby.ascent
-        val paintRight = ruby.centerX + ruby.width / 2f
-        val paintBottom = ruby.baselineY + ruby.descent
-        left = maxOf(left, occupiedLeft - paintLeft)
-        top = maxOf(top, occupiedTop - paintTop)
-        right = maxOf(right, paintRight - occupiedRight)
-        bottom = maxOf(bottom, paintBottom - occupiedBottom)
-    }
-    return PaintOverhang(left, top, right, bottom)
-}
-
-private fun sourceBoundariesFor(
-    textLength: Int,
-    decorations: List<DecorationSpan>,
-    colorSpans: List<ColorSpan>,
-    richTextSpans: List<RichTextSpan>,
-    spans: List<TextSpan>,
-    rubySpans: List<RubySpan>,
-): Set<Int> = buildSet {
-    fun addBoundary(offset: Int) {
-        if (offset > 0 && offset < textLength) add(offset)
-    }
-    fun addRange(start: Int, end: Int) {
-        addBoundary(start)
-        addBoundary(end)
-    }
-    decorations.forEach { addRange(it.range.start, it.range.end) }
-    colorSpans.forEach { addRange(it.start, it.end) }
-    richTextSpans.forEach { addRange(it.range.start, it.range.end) }
-    spans.forEach { addRange(it.range.start, it.range.end) }
-    rubySpans.forEach { addRange(it.baseRange.start, it.baseRange.end) }
-}
-
 private const val DEFAULT_UNBOUNDED_WIDTH = 65_536f

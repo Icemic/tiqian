@@ -10,7 +10,6 @@ import androidx.compose.ui.unit.dp
 import org.tiqian.core.RichTextBackgroundMetricPolicy
 import org.tiqian.core.RichTextBackgroundDrawStyle
 import org.tiqian.core.RichTextBackgroundPaint
-import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.RichTextPaint
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.RichTextSpan
@@ -85,22 +84,6 @@ internal fun CjkInlineBackground.toCore(density: Density): RichTextSpan = RichTe
         adjacentSameStyleClearance = with(density) { adjacentSameStyleClearance.toPx() },
     ),
 )
-
-internal fun List<RichTextSpan>.backgroundInlineBoxes(): List<InlineBoxSpan> = mapNotNull { span ->
-    val horizontalPadding = span.paint.background.horizontalPadding
-    if (
-        horizontalPadding == 0f ||
-        (span.role != RichTextRole.Background && span.role != RichTextRole.InlineCode)
-    ) {
-        null
-    } else {
-        InlineBoxSpan(
-            range = span.range,
-            inlineStart = horizontalPadding,
-            inlineEnd = horizontalPadding,
-        )
-    }
-}
 
 internal fun defaultInlineCodePaint(density: Density): RichTextPaint = RichTextPaint(
     background = RichTextBackgroundPaint(

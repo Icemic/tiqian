@@ -31,6 +31,7 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.Size
 import org.tiqian.core.TextRange
 import org.tiqian.core.ic
+import org.tiqian.core.legalHangingPunctuationClipEdge
 import org.tiqian.layout.ParagraphLayoutEngine
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
@@ -271,13 +272,11 @@ class CjkTextRenderTest {
             hangingPunctuationAdvance = 16f,
         )
 
-        assertEquals(116f, legalHangingPunctuationClipEdge(hanging, drawClipWidth = 100f))
+        assertEquals(116f, hanging.legalHangingPunctuationClipEdge(viewportWidth = 100f))
         assertEquals(
             100f,
-            legalHangingPunctuationClipEdge(
-                hanging.copy(hangingPunctuationAdvance = 0f),
-                drawClipWidth = 100f,
-            ),
+            hanging.copy(hangingPunctuationAdvance = 0f)
+                .legalHangingPunctuationClipEdge(viewportWidth = 100f),
             "ordinary over-wide text must remain clipped",
         )
     }

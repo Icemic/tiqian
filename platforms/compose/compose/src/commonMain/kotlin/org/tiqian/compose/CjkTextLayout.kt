@@ -19,6 +19,7 @@ import org.tiqian.clreq.ClreqProfile
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LayoutResultReplayIndex
 import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextSpan
