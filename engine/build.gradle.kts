@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     kotlin("multiplatform")
@@ -138,6 +139,9 @@ kotlin {
         namespace = "org.tiqian.engine"
         compileSdk = 36
         minSdk = 23
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
         withHostTest {}
     }
     js {
