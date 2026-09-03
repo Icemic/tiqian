@@ -3,9 +3,11 @@ package org.tiqian.benchmark.android
 import android.content.ComponentName
 import android.content.Intent
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
+import androidx.benchmark.macro.TraceSectionMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
@@ -32,6 +34,8 @@ class TextRenderingBenchmark {
     @Test fun scrollComposeArticle() = scroll(Case.ComposeArticle)
     @Test fun scrollTiqianArticle() = scroll(Case.TiqianArticle)
     @Test fun scrollTiqianViewArticle() = scroll(Case.TiqianViewArticle)
+    @Test fun scrollSelectedTiqianViewArticle() = scroll(Case.TiqianViewSelectedArticle)
+    @Test fun scrollTiqianViewOverhangArticle() = scroll(Case.TiqianViewOverhangArticle)
 
     @Test fun recomposeComposeArticle() = recompose(Case.ComposeArticle)
     @Test fun recomposeTiqianArticle() = recompose(Case.TiqianArticle)
@@ -48,10 +52,27 @@ class TextRenderingBenchmark {
         )
     }
 
+    @OptIn(ExperimentalMetricApi::class)
     private fun scroll(case: Case) {
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
-            metrics = listOf(FrameTimingMetric()),
+            metrics = if (case.isViewArticle) {
+                listOf(
+                    FrameTimingMetric(),
+                    TraceSectionMetric(
+                        sectionName = PAINT_OVERHANG_RECORD_SECTION,
+                        mode = TraceSectionMetric.Mode.Count,
+                        label = "paintOverhangRecordCount",
+                    ),
+                    TraceSectionMetric(
+                        sectionName = PAINT_OVERHANG_RECORD_SECTION,
+                        mode = TraceSectionMetric.Mode.Sum,
+                        label = "paintOverhangRecordDuration",
+                    ),
+                )
+            } else {
+                listOf(FrameTimingMetric())
+            },
             compilationMode = INTERACTION_COMPILATION,
             startupMode = StartupMode.WARM,
             iterations = 5,
@@ -89,9 +110,7 @@ class TextRenderingBenchmark {
     private fun androidx.benchmark.macro.MacrobenchmarkScope.startCaseAndWait(case: Case) {
         val intent = Intent().apply {
             component = ComponentName(TARGET_PACKAGE, "$TARGET_PACKAGE.${case.activityName}")
-            if (case.activityName == "TextPerformanceBenchmarkActivity") {
-                putExtra("benchmark_case", case.wireName)
-            }
+            putExtra("benchmark_case", case.wireName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
         startActivityAndWait(intent)
@@ -112,10 +131,17 @@ class TextRenderingBenchmark {
         ComposeArticle("compose-article"),
         TiqianArticle("tiqian-article"),
         TiqianViewArticle("tiqian-view-article", "TiqianViewDemoActivity"),
+        TiqianViewSelectedArticle("tiqian-view-selected-article", "TiqianViewDemoActivity"),
+        TiqianViewOverhangArticle("tiqian-view-overhang-article", "TiqianViewDemoActivity");
+
+        val isViewArticle: Boolean
+            get() = activityName == "TiqianViewDemoActivity"
     }
 
     private companion object {
         const val TARGET_PACKAGE = "org.tiqian.demo.android"
+        const val PAINT_OVERHANG_RECORD_SECTION =
+            "AndroidParagraphRenderer.recordPaintOverhang"
 
         // `JitVisibleCompilation`: the previous `Full()` AOT-compiled everything, so a
         // regression that only hurts JIT/interpreter paths — the S8+ (API 28) reality — was
