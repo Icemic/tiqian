@@ -5,7 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.DashPathEffect
 import android.graphics.Path
+import android.graphics.Picture
 import android.graphics.RectF
+import android.graphics.Region
 import android.os.Build
 import android.text.TextPaint
 import org.tiqian.core.Glyph
@@ -92,6 +94,13 @@ class AndroidParagraphRenderer(
 ) : AutoCloseable {
     private val drawCache = AndroidParagraphDrawCache()
     private var geometry: LayoutResultReplayIndex? = null
+    private var paintOverhangPicture: Picture? = null
+    private var paintOverhangColor: Int = 0
+    private var paintOverhangColorSpans: List<ColorSpan>? = null
+    private val paintOverhangBounds = RectF()
+    private val paintOverhangExcludedBounds = RectF()
+    private var paintOverhangPictureLeft = 0f
+    private var paintOverhangPictureTop = 0f
 
     fun draw(
         canvas: Canvas,
@@ -102,10 +111,7 @@ class AndroidParagraphRenderer(
         selectionBoxes: List<org.tiqian.core.Rect> = emptyList(),
         selectionColor: Int? = null,
     ) {
-        if (geometry !== replayIndex) {
-            geometry = replayIndex
-            drawCache.invalidateGeometry()
-        }
+        ensureGeometry(replayIndex)
         val spans = result.input.content.spans
         drawAndroidRichTextBackgrounds(
             canvas, replayIndex.richTextBackgroundSegments, drawCache,
@@ -135,14 +141,137 @@ class AndroidParagraphRenderer(
         drawAndroidBopomofo(canvas, result, color, typefaces)
     }
 
+    /**
+     * Replays only paint authorized outside [excludedBounds], using a retained native recording.
+     *
+     * The first call for a geometry/paint/bounds tuple records the shared paragraph renderer into
+     * an Android [Picture]. Subsequent View hierarchy recordings submit that native picture rather
+     * than traversing every glyph, decoration, ruby and bopomofo command through Kotlin again.
+     * Both rectangles are renderer coordinates derived from the engine's legal paint bounds; this
+     * cache never expands them or makes a layout decision.
+     */
+    fun drawPaintOverhang(
+        canvas: Canvas,
+        result: LayoutResult,
+        replayIndex: LayoutResultReplayIndex,
+        color: Int,
+        colorSpans: List<ColorSpan> = emptyList(),
+        paintBounds: RectF,
+        excludedBounds: RectF,
+    ) {
+        ensureGeometry(replayIndex)
+        if (!paintBounds.hasAreaOutside(excludedBounds)) return
+
+        // Picture playback of drawGlyphs can require a hardware destination on API 31+. Preserve
+        // the established software-Canvas behavior rather than making the cache a capability gate.
+        if (Build.VERSION.SDK_INT >= 31 && !canvas.isHardwareAccelerated) {
+            val save = canvas.save()
+            if (canvas.clipPaintOverhang(paintBounds, excludedBounds)) {
+                draw(canvas, result, replayIndex, color, colorSpans)
+            }
+            canvas.restoreToCount(save)
+            return
+        }
+
+        val picture = paintOverhangPicture?.takeIf {
+            paintOverhangColor == color &&
+                paintOverhangColorSpans == colorSpans &&
+                paintOverhangBounds == paintBounds &&
+                paintOverhangExcludedBounds == excludedBounds
+        } ?: recordPaintOverhang(
+            result = result,
+            replayIndex = replayIndex,
+            color = color,
+            colorSpans = colorSpans,
+            paintBounds = paintBounds,
+            excludedBounds = excludedBounds,
+        )
+
+        val save = canvas.save()
+        canvas.translate(paintOverhangPictureLeft, paintOverhangPictureTop)
+        canvas.drawPicture(picture)
+        canvas.restoreToCount(save)
+    }
+
+    private fun recordPaintOverhang(
+        result: LayoutResult,
+        replayIndex: LayoutResultReplayIndex,
+        color: Int,
+        colorSpans: List<ColorSpan>,
+        paintBounds: RectF,
+        excludedBounds: RectF,
+    ): Picture = tiqianTraceSection("AndroidParagraphRenderer.recordPaintOverhang") {
+        val left = kotlin.math.floor(paintBounds.left).toInt()
+        val top = kotlin.math.floor(paintBounds.top).toInt()
+        val right = kotlin.math.ceil(paintBounds.right).toInt()
+        val bottom = kotlin.math.ceil(paintBounds.bottom).toInt()
+        val picture = Picture()
+        val recordingCanvas = picture.beginRecording(
+            (right - left).coerceAtLeast(1),
+            (bottom - top).coerceAtLeast(1),
+        )
+        recordingCanvas.translate(-left.toFloat(), -top.toFloat())
+        if (recordingCanvas.clipPaintOverhang(paintBounds, excludedBounds)) {
+            draw(
+                canvas = recordingCanvas,
+                result = result,
+                replayIndex = replayIndex,
+                color = color,
+                colorSpans = colorSpans,
+            )
+        }
+        picture.endRecording()
+
+        paintOverhangPicture = picture
+        paintOverhangColor = color
+        paintOverhangColorSpans = colorSpans
+        paintOverhangBounds.set(paintBounds)
+        paintOverhangExcludedBounds.set(excludedBounds)
+        paintOverhangPictureLeft = left.toFloat()
+        paintOverhangPictureTop = top.toFloat()
+        picture
+    }
+
+    private fun ensureGeometry(replayIndex: LayoutResultReplayIndex) {
+        if (geometry === replayIndex) return
+        geometry = replayIndex
+        drawCache.invalidateGeometry()
+        invalidatePaintOverhangRecording()
+    }
+
+    private fun invalidatePaintOverhangRecording() {
+        paintOverhangPicture = null
+        paintOverhangColorSpans = null
+        paintOverhangBounds.setEmpty()
+        paintOverhangExcludedBounds.setEmpty()
+    }
+
     fun invalidateGeometry() {
         geometry = null
         drawCache.invalidateGeometry()
+        invalidatePaintOverhangRecording()
     }
 
     override fun close() {
         geometry = null
         drawCache.dispose()
+        invalidatePaintOverhangRecording()
+    }
+}
+
+private fun RectF.hasAreaOutside(excluded: RectF): Boolean =
+    !isEmpty && (
+        left < excluded.left || top < excluded.top ||
+            right > excluded.right || bottom > excluded.bottom
+        )
+
+private fun Canvas.clipPaintOverhang(paintBounds: RectF, excludedBounds: RectF): Boolean {
+    if (!clipRect(paintBounds)) return false
+    return if (Build.VERSION.SDK_INT >= 26) {
+        clipOutRect(excludedBounds)
+    } else {
+        @Suppress("DEPRECATION")
+        clipRect(excludedBounds, Region.Op.DIFFERENCE)
     }
 }
 
@@ -779,97 +908,6 @@ private fun drawAndroidBopomofo(
                 paint,
             )
         }
-    }
-}
-
-internal data class AndroidClusterRun(
-    val role: FontRole,
-    val style: TextStyle,
-    val openTypeFeatures: List<String>,
-)
-
-internal inline fun LayoutResult.forEachAndroidPositionedCluster(
-    replayIndex: LayoutResultReplayIndex,
-    spans: List<TextSpan>,
-    action: (line: LineBox, cluster: Cluster, drawX: Float, baselineY: Float, run: AndroidClusterRun) -> Unit,
-) {
-    val baseStyle = input.textStyle
-    val emphasisRanges = input.decorations
-        .filter { it.kind == DecorationKind.Emphasis }
-        .map { it.range }
-
-    for (positioned in replayIndex.positionedClusters) {
-        val line = lines[positioned.lineIndex]
-        val cluster = clusters[positioned.clusterIndex]
-        val role = replayIndex.fontRoleByClusterRange[cluster.range].toFontRole()
-        val isLatin = role == FontRole.LatinText
-        val spanStyle = spans.lastOrNull { cluster.range.start >= it.range.start && cluster.range.start < it.range.end }?.style
-        val italic = (spanStyle?.italic ?: false) ||
-            (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
-        val style = (spanStyle ?: baseStyle).copy(italic = italic)
-        if (cluster.displayText.isNotEmpty()) {
-            action(
-                line,
-                cluster,
-                positioned.drawX,
-                line.baseline + cluster.baselineShift,
-                AndroidClusterRun(
-                    role,
-                    style,
-                    replayIndex.openTypeFeaturesByClusterRange[cluster.range].orEmpty(),
-                ),
-            )
-        }
-    }
-}
-
-private fun String?.toFontRole(): FontRole =
-    runCatching { if (this == null) null else FontRole.valueOf(this) }.getOrNull() ?: FontRole.CjkText
-
-internal fun drawContextShapedText(
-    canvas: android.graphics.Canvas,
-    text: String,
-    x: Float,
-    y: Float,
-    role: FontRole,
-    paint: TextPaint,
-    clipToContext: Boolean = false,
-) {
-    if (text.isEmpty()) return
-    val useHanContext = requiresHanShapingContext(text, role)
-    if (useHanContext && clipToContext) {
-        // FullBufferClippedPunctuationDraw: drawTextRun keeps context-driven GSUB
-        // (locl 2em dash, zh quote forms…) only for glyphs INSIDE the drawn range —
-        // a sub-range draw of `中<cluster>中` renders the context-free narrow form
-        // (measured on Pixel: 1.55em vs 1.84em for `⸺`). Draw the WHOLE buffer with
-        // the pen shifted so the cluster lands at [x], and clip to the cluster's
-        // NATURAL pen span inside the buffer — the context 中s sit exactly outside
-        // that span. The RESOLVED cluster advance must NOT be the clip: justify can
-        // stretch it past the trailing 中 (its left stroke bled in as a phantom
-        // vertical bar), and glue compression can shrink it into the glyph's own
-        // ink (opening quotes got their face cut off).
-        val buffer = "中${text}中"
-        val penOrigin = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1)
-        val penEnd = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1 + text.length)
-        canvas.save()
-        canvas.clipRect(x, y - paint.textSize * 2f, x + (penEnd - penOrigin), y + paint.textSize)
-        canvas.drawTextRun(buffer, 0, buffer.length, 0, buffer.length, x - penOrigin, y, false, paint)
-        canvas.restore()
-    } else if (useHanContext) {
-        val buffer = "中${text}中"
-        canvas.drawTextRun(buffer, 1, 1 + text.length, 0, buffer.length, x, y, false, paint)
-    } else {
-        canvas.drawTextRun(text, 0, text.length, 0, text.length, x, y, false, paint)
-    }
-}
-
-internal fun List<String>.toAndroidFontFeatureSettings(): String? {
-    if (isEmpty()) return null
-    return joinToString(",") { feature ->
-        val pieces = feature.split('=', limit = 2)
-        val tag = pieces[0].trim().take(4)
-        val value = pieces.getOrNull(1)?.trim()?.toIntOrNull() ?: 1
-        "'$tag' $value"
     }
 }
 
