@@ -24,7 +24,9 @@ source set。应用若想在传统 View 阅读器中使用提椠，只能依赖 
 3. Compose Android 改为薄适配器，把 `ContentDrawScope` 的 native Canvas 交给同一个
    `AndroidParagraphRenderer`；`platforms/android/view` 也直接消费该 renderer。两个前端不得复制
    glyph、ruby、注音、装饰或 rich-text 画法。
-4. `CjkTextView` 是单段、只读、API 23+ 的原生 `ViewGroup`。`onMeasure` 构造完整
+4. Android 公共入口沿用 Compose `CjkText` 与 Apple `CJKTextView` 的跨平台概念，命名为
+   `CjkTextView`；`org.tiqian.android.view` 已经表达产品与平台归属，公共类型不再重复 `Tiqian`
+   品牌前缀。它是单段、只读、API 23+ 的原生 `ViewGroup`。`onMeasure` 构造完整
    `LayoutInput` 并调用 engine，`onDraw` 只重放结果；禁止引入 `TextView` / `StaticLayout` 作为隐藏
    layout truth。source、layout style、render spans 通过不可变 `CjkTextContent` 原子提交。
    平台 `Spanned` 的常用 span 词汇由前端自带的 lowering 进入该契约，与 Compose 前端 lower
@@ -33,9 +35,14 @@ source set。应用若想在传统 View 阅读器中使用提椠，只能依赖 
    `requestLayout()`；纯颜色与 render-only paint 变化保留 `LayoutResult` identity，只重建必要 replay
    geometry 并 `invalidate()`。clip bounds、replay lookup、draw plan 与 selection box 都在其输入变化时
    缓存，`onDraw` 不扫描全文或临时创建布局对象。
-6. 选择与交互只把 Android 手势翻译为 engine source geometry：长按/双击、拖柄、交叉端点、copy、
-   share、`PROCESS_TEXT`、硬键盘 Ctrl+C / Ctrl+A、浮动 `ActionMode.Callback2` 与 API 28+
-   `Magnifier` 使用 engine 的 UTF-16 boundary、word range、caret 和 occupied box。链接命中同样使用 replay segment；宿主可先消费，
+6. 选择与交互只把 Android 手势翻译为 engine source geometry：长按/双击、拖柄、交叉端点、
+   硬键盘 Ctrl+C / Ctrl+A、浮动 `ActionMode.Callback2` 的选区锚点与 API 28+ `Magnifier` 使用
+   engine 的 UTF-16 boundary、word range、caret 和 occupied box。Android 没有公开任意
+   `View` 可复用的 `TextView.Editor` 菜单 provider，因此前端以独立的
+   `CjkTextSelectionActionMode` 按 AOSP 顺序和生命周期提供只读 `TextView` 的 Copy、Share、
+   Select all 与可用的 `PROCESS_TEXT`；`customSelectionActionModeCallback` 只作为与
+   `TextView` 同名、同顺序的增删/拦截扩展点，空值仍保留默认菜单。系统未公开的
+   `SelectionActionModeHelper` / Text Assist 会话不以近似实现冒充支持。链接命中同样使用 replay segment；宿主可先消费，
    否则走 `ACTION_VIEW`。
 7. 无障碍 host node 暴露 source text、selection 与 copy action。链接使用 ClickableSpan 并由
    AndroidX delegate 路由；API 26+ 回答逐字符屏幕矩形，API 36+ 同时回答 window 坐标矩形。
@@ -50,6 +57,27 @@ source set。应用若想在传统 View 阅读器中使用提椠，只能依赖 
     viewport 后于 lifecycle worker 预排整篇、由 holder 提交 exact-match result；steady-state scroll 的
     ready signal 只在文档缓存完成后发布。macrobenchmark 与 baseline-profile generator 同时覆盖 Compose
     与原生 View 路径。
+11. 多段选择由通用 `CjkTextSurface` 持有一份文档逻辑坐标，不把选择状态放进 attached
+    paragraph View。虚拟化宿主用 `CjkSelectionDocumentFragment` 提交稳定 key、source text、ruby /
+    注音 span、inline-object boundary 与片段分隔符；复制始终调用 engine 与 `LayoutResult.getTextForCopy`
+    共用的 range projector，不能由 View 前端手抄注文投影；holder 必须通过 `bindSelectionFragment` 原子绑定 key 和
+    `CjkTextContent`；前端在提交前校验 prospective key、source text 与 attached-key 唯一性，失败的
+    rebind 或 document replacement 保留旧状态。未绑定 key 的子 View 不进入该文档，回收、解绑与
+    重新 attach 只改变几何投影，不改变逻辑端点。`CjkSelectionScrollHost` 必须回报实际消费距离；
+    `CjkSelectionRetentionHost` 返回的每个 handle 是独立 generation，并保证活跃端点在释放前不被
+    回收或重绑。宿主不提供 retention 时，逻辑端点仍按 key 存活，离屏几何与 handle 隐藏。这些契约
+    不包含 RecyclerView、分页器或应用类型。
+12. Ruby、注音、着重号与悬挂标点越出段落 viewport 时，仍以 engine 的 legal paint bounds 为唯一
+    权限和范围。`CjkTextSurface` 负责登记后代并定义重放边界；每个段落把重放 drawable 挂到 surface
+    内（含 surface 自身）最近一个实际启用 `clipChildren` 的祖先 `ViewGroupOverlay`，由该祖先在普通 children 之后、同一 DisplayList 与
+    滚动事务中提交共享 renderer，并扣除从段落到该祖先的普通 child pass 实际可见区域，防止非裁切
+    中间容器已保留的越界墨迹被重复着色。不得在最外层容器另做一次
+    `dispatchDraw` 补画；RecyclerView 等滚动容器可独立提交 child RenderNode，根层补画会产生一帧位置
+    分离。首次需要时，`AndroidParagraphRenderer` 把越界 clip 内的命令录入 API 23+ 可硬件回放的
+    `Picture`；同一 layout/paint/bounds 组合后续只提交原生 recording，不再次遍历完整 glyph、ruby 与
+    decoration 计划。没有实际越界的段落不录制 Picture；嵌套 scroll、translation、scale、rotation、
+    alpha 沿缓存的 View 层级映射。段落 item 边界可越过，surface 外层 viewport 仍是公开裁切边界。
+    不得为规避裁切增加 padding/margin、扩大测量结果或改变 engine 行高与断行几何。
 
 ## Consequences
 
@@ -60,8 +88,12 @@ source set。应用若想在传统 View 阅读器中使用提椠，只能依赖 
   颜色、下划线/删除线、字号、链接）lower 进该契约，回调式 `ClickableSpan`、paragraph span 与
   `ReplacementSpan` 等由 `cjkSpannedCompatibility` 报告。`CjkTextView` 不复刻 `TextView`
   的 API 面。
-- 单段 View 不拥有文档分页、跨 RecyclerView item 选择、编辑或 IME。将来需要这些能力时，应新增
-  文档逻辑坐标或编辑契约，而不是把业务分页器、DAO 或应用状态飞线进 renderer。
+- `CjkTextSurface` 已提供跨 attached item 的文档选择与虚拟化契约，但不拥有分页策略、数据
+  加载、编辑或 IME。应用通过窄的滚动/保活能力接入自己的 viewport，不把分页器、DAO 或业务状态
+  飞线进 renderer。
+- 合法越界墨迹不再要求滚动宿主关闭 `clipChildren`；使用该能力的阅读表面必须以
+  `CjkTextSurface` 登记段落，实际滚动 viewport 继续裁切离屏内容，overlay 只对 engine 已批准的
+  paint bounds 生效。
 
 ## Alternatives
 

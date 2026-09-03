@@ -255,9 +255,10 @@ lower 进同一契约，`cjkSpannedCompatibility` 报告未保真的 span，与 
 纯颜色/paint 变化保留结果 identity 并只 `invalidate()`。renderer 与 draw-plan cache 跟随 attach/detach，
 clip bounds 与 selection box 在 measure/interaction 变化时缓存，不在 `onDraw` 临时重算。
 
-行外墨迹沿用印刷的页边距模型：行尾悬挂标点与首行行间注画进段落 view 自身的 padding，
-宿主把页边距交给段落 view 的 padding 即可在默认裁剪下完整呈现；零间距贴排的文档容器
-（块级组合的后续载体）自行接管子 view 裁剪。选择使用 engine 的 UTF-16 boundary、word
+行外墨迹仍以 engine 的 legal paint bounds 为唯一范围；遇到 ViewGroup 裁切时，
+`CjkTextSurface` 把缓存的越界 recording 登记到自身边界内最近裁切祖先的 `ViewGroupOverlay`，使正文与
+越界墨迹在同一个滚动 DisplayList 中提交。段落 item 边界可以越过，实际滚动 viewport 仍裁切离屏
+内容；前端不扩大测量结果、添加 padding/margin 或改变行高与断行几何。选择使用 engine 的 UTF-16 boundary、word
 range、caret 与 occupied box；Android 侧只接手长按/拖柄、
 系统浮动 `ActionMode`、复制/分享/`PROCESS_TEXT`、硬键盘 Ctrl+C / Ctrl+A 和 API 28+ `Magnifier`。无障碍 host node 暴露
 source text、set-selection/copy action、ClickableSpan 链接以及 API 26+ character-location extra data。
@@ -268,8 +269,9 @@ advance/ascent/descent 与最终 draw origin 定位；View 测量结果不能反
 `AndroidParagraphMeasurementSession` 可在 RecyclerView / 文档 surface 间共享已完成的 shaping 与
 font metrics；单个 measurer 仍按线程约束持有 backend。后台结果用
 `AndroidPrecomputedParagraph` 同时保留具体 `ClreqProfile` provenance，View 只接受 profile、完整
-`LayoutInput` 与当前宽度/maxLines 全部一致的结果。多段跨 item 选区、分页、编辑与 IME 不属于单段
-View 前端；宿主应以文档逻辑坐标另建上层能力，不能把应用模型塞回 renderer。
+`LayoutInput` 与当前宽度/maxLines 全部一致的结果。多段跨 item 选区由
+`CjkSelectionDocument` 的稳定逻辑锚点与宿主滚动/保活 capability 处理；分页策略、数据加载、编辑与
+IME 仍属于宿主，renderer 不得依赖应用模型。
 
 ### Apple
 
