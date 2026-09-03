@@ -88,7 +88,9 @@ val paragraph = CjkTextView(context).apply {
 ```
 
 已有的 `Spanned` 富文本可以直接提交，还不能保真的 span 可以用 `cjkSpannedCompatibility()`
-检查。长文列表可以共享字体测量并在后台预排段落，行内插图可以作为原生子 View 参与排版。
+检查。多段正文放进 `CjkTextSurface`，选择与复制跨段工作；把 `overflow` 设为可见后，注音和
+悬挂标点可以避免被滚动容器裁切。长文列表可以共享字体测量并在后台预排段落，行内插图可以作为原生子 View
+参与排版。 具体接入方式参见 [Android View 接入指南](platforms/android/view/README.md)。
 
 ## Web
 
