@@ -6,14 +6,18 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.ActionMode
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewParent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
@@ -60,6 +64,13 @@ class CjkTextView @JvmOverloads constructor(
         val range: TextRange,
     )
 
+    internal data class SelectionFragmentBindingChange(
+        val contentChanged: Boolean,
+        val textChanged: Boolean,
+        val geometryChanged: Boolean,
+        val identityChanged: Boolean,
+    )
+
     private data class InlineChild(
         val id: Any,
         val spanIndex: Int,
@@ -78,8 +89,14 @@ class CjkTextView @JvmOverloads constructor(
     private var clipTop = 0f
     private var clipRight = 0f
     private var clipBottom = 0f
+    private val overhangPaintBounds = RectF()
+    private val overhangExcludedBounds = RectF()
     private val selectionController = CjkTextSelectionController(this)
     private val accessibilityDelegate = CjkTextAccessibilityDelegate(this)
+    private var documentSelectionOwner: CjkTextSurface? = null
+    private var localCustomSelectionActionModeCallback: ActionMode.Callback? = null
+    private var overhangHost: CjkTextSurface? = null
+    private var applyingSelectionFragmentBinding = false
 
     internal var layoutSnapshot: LayoutSnapshot? = null
         private set
@@ -100,28 +117,39 @@ class CjkTextView @JvmOverloads constructor(
     )
         set(value) {
             if (field == value) return
+            if (!applyingSelectionFragmentBinding) {
+                documentSelectionOwner?.validateSelectableContent(this, value)
+            }
             val layoutChanged = !field.hasSameLayoutContract(value, maxLines)
             val oldText = field.content.text
-            field = value
-            submittedPrecomputedLayout = null
-            syncInlineChildren()
-            if (layoutChanged) {
-                clearLayout()
-                requestLayout()
-            } else {
-                layoutSnapshot = layoutSnapshot?.let { snapshot ->
-                    LayoutSnapshot(snapshot.result, snapshot.result.toReplayIndex(value.richTextSpans))
+            val textChanged = oldText != value.content.text
+            val publishAccessibilityRevision = !applyingSelectionFragmentBinding
+            if (publishAccessibilityRevision) {
+                accessibilityDelegate.onContentRevisionStarted(textChanged)
+            }
+            try {
+                field = value
+                submittedPrecomputedLayout = null
+                syncInlineChildren()
+                if (layoutChanged) {
+                    clearLayout()
+                    requestLayout()
+                } else {
+                    layoutSnapshot = layoutSnapshot?.let { snapshot ->
+                        LayoutSnapshot(snapshot.result, snapshot.result.toReplayIndex(value.richTextSpans))
+                    }
+                    renderer?.invalidateGeometry()
+                    invalidate()
                 }
-                renderer?.invalidateGeometry()
-                invalidate()
+                if (!applyingSelectionFragmentBinding && (textChanged || layoutChanged)) {
+                    selectionController.onTextOrGeometryChanged(textChanged = textChanged)
+                }
+                notifyOverhangHost()
+            } finally {
+                if (publishAccessibilityRevision) {
+                    accessibilityDelegate.onContentRevisionFinished(textChanged)
+                }
             }
-            if (oldText != value.content.text) {
-                selectionController.clearSelection()
-            } else {
-                selectionController.onContentOrLayoutChanged()
-            }
-            accessibilityDelegate.invalidateRoot()
-            notifyTextChanged(oldText, value.content.text)
         }
 
     /** Maximum emitted line count. */
@@ -133,6 +161,7 @@ class CjkTextView @JvmOverloads constructor(
             submittedPrecomputedLayout = null
             clearLayout()
             requestLayout()
+            notifyOverhangHost()
         }
 
     /** Minimum line-height reservation. It never invents hidden layout lines. */
@@ -142,6 +171,7 @@ class CjkTextView @JvmOverloads constructor(
             if (field == value) return
             field = value
             requestLayout()
+            notifyOverhangHost()
         }
 
     var overflow: CjkTextOverflow = CjkTextOverflow.Clip
@@ -150,6 +180,7 @@ class CjkTextView @JvmOverloads constructor(
             field = value
             clipChildren = value == CjkTextOverflow.Clip
             invalidate()
+            notifyOverhangHost()
         }
 
     var textIsSelectable: Boolean = true
@@ -158,9 +189,131 @@ class CjkTextView @JvmOverloads constructor(
             field = value
             isLongClickable = value
             isFocusableInTouchMode = value
+            documentSelectionOwner?.onSelectableEligibilityChanged(this)
+            // Unregister first. A registered paragraph delegates clearSelection() to the logical
+            // document, while disabling one paragraph must only remove that paragraph's geometry.
+            // Unregistered descendants (for example an independent preview inside a surface) still
+            // clear their standalone selection below.
             if (!value) selectionController.clearSelection()
             accessibilityDelegate.invalidateRoot()
         }
+
+    /**
+     * Stable logical fragment key used by an ancestor [CjkTextSurface].
+     *
+     * RecyclerView holders bind this key and the matching [content] atomically with
+     * [bindSelectionFragment]. A container with a logical [CjkSelectionDocument] ignores
+     * selectable children without a key instead of silently deriving identity from a recycled
+     * View instance.
+     */
+    var selectionDocumentKey: Any? = null
+        private set
+
+    internal var selectionRetentionKey: Any? = null
+        private set
+
+    /**
+     * Atomically binds the stable document identity and matching paragraph content.
+     *
+     * RecyclerView holders should use this instead of assigning [selectionDocumentKey] and
+     * [content] separately. An attached [CjkTextSurface] validates the prospective key,
+     * source text and duplicate-key constraint before it commits either value, then publishes one
+     * new visible projection of the existing logical selection.
+     */
+    @JvmOverloads
+    fun bindSelectionFragment(
+        key: Any,
+        content: CjkTextContent,
+        retentionKey: Any = key,
+    ) {
+        val owner = documentSelectionOwner
+        if (owner == null) {
+            val change = try {
+                applySelectionFragmentBinding(key, retentionKey, content)
+            } catch (failure: Throwable) {
+                cancelSelectionFragmentBinding()
+                throw failure
+            }
+            completeStandaloneSelectionFragmentBinding(change)
+        } else {
+            owner.rebindSelectable(this, key, retentionKey, content)
+        }
+    }
+
+    /** Removes this View from a logical document without changing its displayed paragraph. */
+    fun unbindSelectionFragment() {
+        val owner = documentSelectionOwner
+        if (owner == null) {
+            val identityChanged = clearSelectionFragmentBinding()
+            completeStandaloneSelectionFragmentBinding(
+                SelectionFragmentBindingChange(
+                    contentChanged = false,
+                    textChanged = false,
+                    geometryChanged = false,
+                    identityChanged = identityChanged,
+                ),
+            )
+        } else {
+            owner.unbindSelectable(this)
+        }
+    }
+
+    internal fun applySelectionFragmentBinding(
+        key: Any,
+        retentionKey: Any,
+        content: CjkTextContent,
+    ): SelectionFragmentBindingChange {
+        accessibilityDelegate.onDocumentBindingStarted()
+        val identityChanged = selectionDocumentKey != key
+        val contentChanged = this.content != content
+        val textChanged = this.content.content.text != content.content.text
+        val geometryChanged = !this.content.hasSameLayoutContract(content, maxLines)
+        applyingSelectionFragmentBinding = true
+        try {
+            selectionDocumentKey = key
+            selectionRetentionKey = retentionKey
+            this.content = content
+        } finally {
+            applyingSelectionFragmentBinding = false
+        }
+        return SelectionFragmentBindingChange(
+            contentChanged = contentChanged,
+            textChanged = textChanged,
+            geometryChanged = geometryChanged,
+            identityChanged = identityChanged,
+        )
+    }
+
+    internal fun clearSelectionFragmentBinding(): Boolean {
+        accessibilityDelegate.onDocumentBindingStarted()
+        val identityChanged = selectionDocumentKey != null
+        selectionDocumentKey = null
+        selectionRetentionKey = null
+        return identityChanged
+    }
+
+    internal fun completeSelectionFragmentBinding(change: SelectionFragmentBindingChange) {
+        accessibilityDelegate.onDocumentBindingFinished(
+            contentChanged = change.contentChanged,
+            textChanged = change.textChanged,
+            identityChanged = change.identityChanged,
+        )
+    }
+
+    private fun completeStandaloneSelectionFragmentBinding(
+        change: SelectionFragmentBindingChange,
+    ) {
+        if (change.identityChanged) {
+            selectionController.clearSelection()
+        } else if (change.textChanged || change.geometryChanged) {
+            selectionController.onTextOrGeometryChanged(textChanged = change.textChanged)
+        }
+        completeSelectionFragmentBinding(change)
+    }
+
+    internal fun cancelSelectionFragmentBinding() {
+        accessibilityDelegate.onDocumentBindingCancelled()
+    }
 
     /** Optional state-list override; null uses [CjkTextContent.textColor]. */
     var textColors: ColorStateList? = null
@@ -168,13 +321,18 @@ class CjkTextView @JvmOverloads constructor(
             if (field == value) return
             field = value
             invalidate()
+            notifyOverhangHost()
         }
 
-    var selectionColor: Int = resolveThemeColor(android.R.attr.textColorHighlight, 0x6633B5E5)
+    var selectionColor: Int = context.resolveCjkThemeColor(
+        android.R.attr.textColorHighlight,
+        0x6633B5E5,
+    )
         set(value) {
             if (field == value) return
             field = value
             invalidate()
+            notifyOverhangHost()
         }
 
     var clreqProfile: ClreqProfile = ClreqProfile.MainlandHorizontal
@@ -182,6 +340,7 @@ class CjkTextView @JvmOverloads constructor(
             if (field == value) return
             field = value
             rebuildMeasurer()
+            notifyOverhangHost()
         }
 
     var inlineViewAdapter: CjkInlineViewAdapter? = null
@@ -191,6 +350,41 @@ class CjkTextView @JvmOverloads constructor(
             field = value
             syncInlineChildren()
             requestLayout()
+            notifyOverhangHost()
+        }
+
+    /**
+     * Optional callback for extending the native-compatible floating selection ActionMode.
+     *
+     * Tiqian always supplies the read-only Copy, Share and Select All actions and forwards this
+     * callback with the same lifecycle and menu ordering as [android.widget.TextView]. A callback
+     * may add or remove menu items, handle clicks, or return false from creation to reject the
+     * mode. Null keeps the default menu enabled. When this View is registered with a
+     * [CjkTextSurface], that surface owns the document selection and this property delegates to
+     * the surface's callback.
+     */
+    var customSelectionActionModeCallback: ActionMode.Callback?
+        get() = if (selectionController.hasDocumentOwner) {
+            selectionController.documentCustomSelectionActionModeCallback
+        } else {
+            localCustomSelectionActionModeCallback
+        }
+        set(value) {
+            if (selectionController.hasDocumentOwner) {
+                if (localCustomSelectionActionModeCallback === value &&
+                    selectionController.documentCustomSelectionActionModeCallback === value
+                ) {
+                    return
+                }
+                // Preserve the value if this View later leaves the surface, while the attached
+                // surface remains the sole source of truth for its document ActionMode.
+                localCustomSelectionActionModeCallback = value
+                selectionController.setDocumentCustomSelectionActionModeCallback(value)
+            } else {
+                if (localCustomSelectionActionModeCallback === value) return
+                localCustomSelectionActionModeCallback = value
+                selectionController.onCustomSelectionActionModeCallbackChanged()
+            }
         }
 
     var onLinkClickListener: CjkLinkClickListener? = null
@@ -198,6 +392,8 @@ class CjkTextView @JvmOverloads constructor(
 
     val layoutResult: LayoutResult? get() = layoutSnapshot?.result
     val selection: TextRange? get() = selectionController.range
+    val selectedText: String? get() = selectionController.selectedText()
+    internal val selectionOwnerHasFocus: Boolean get() = selectionController.selectionOwnerHasFocus
 
     init {
         setWillNotDraw(false)
@@ -275,9 +471,11 @@ class CjkTextView @JvmOverloads constructor(
         setMeasuredDimension(measuredWidth, measuredHeight)
         updateLegalPaintBounds(snapshot)
         measureInlineChildren()
+        notifyOverhangHost()
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        bindOverhangHost()
         val positions = layoutSnapshot?.replayIndex?.positionedClusters
             ?.associateBy { it.range }
             .orEmpty()
@@ -298,6 +496,13 @@ class CjkTextView @JvmOverloads constructor(
                 childTop + child.view.measuredHeight,
             )
         }
+        if (changed) selectionController.onHostLayoutChanged()
+        notifyOverhangHost()
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        selectionController.onViewportSizeChanged()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -315,8 +520,15 @@ class CjkTextView @JvmOverloads constructor(
             replayIndex = snapshot.replayIndex,
             color = currentTextColor(),
             colorSpans = content.colorSpans,
-            selectionBoxes = selectionController.boxes,
-            selectionColor = selectionController.range?.let { selectionColor },
+            // TextView draws its selection path only while it owns View focus (or is pressed).
+            // The logical range may legitimately survive a programmatic, ActionMode-free focus
+            // transfer, but it must not become a second visible selection in the same window.
+            selectionBoxes = selectionController.boxes
+                .takeIf { selectionController.shouldDrawSelection }
+                .orEmpty(),
+            selectionColor = selectionColor.takeIf {
+                selectionController.shouldDrawSelection && selectionController.boxes.isNotEmpty()
+            },
         )
         canvas.restoreToCount(save)
     }
@@ -344,7 +556,10 @@ class CjkTextView @JvmOverloads constructor(
 
     override fun drawableStateChanged() {
         super.drawableStateChanged()
-        if (textColors?.isStateful == true) invalidate()
+        if (textColors?.isStateful == true) {
+            invalidate()
+            notifyOverhangHost()
+        }
     }
 
     override fun getBaseline(): Int =
@@ -355,6 +570,11 @@ class CjkTextView @JvmOverloads constructor(
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
         accessibilityDelegate.populateHostNode(info)
+    }
+
+    override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
+        super.onInitializeAccessibilityEvent(event)
+        accessibilityDelegate.populateHostEvent(event)
     }
 
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean =
@@ -371,6 +591,16 @@ class CjkTextView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        unbindOverhangHost()
+        documentSelectionOwner?.let { owner ->
+            // A callback configured through a document child belongs to the surface while
+            // attached; retain the effective value for standalone use after detachment.
+            if (selectionController.hasDocumentOwner) {
+                localCustomSelectionActionModeCallback = owner.customSelectionActionModeCallback
+            }
+            owner.unregisterSelectable(this)
+        }
+        documentSelectionOwner = null
         selectionController.dispose()
         renderer?.close()
         renderer = null
@@ -380,6 +610,50 @@ class CjkTextView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (renderer == null) renderer = AndroidParagraphRenderer(typefaceResolver)
+        bindOverhangHost()
+        findSelectionContainer()?.let { owner ->
+            documentSelectionOwner = owner
+            owner.registerSelectable(this)
+            if (
+                localCustomSelectionActionModeCallback != null &&
+                owner.customSelectionActionModeCallback == null
+            ) {
+                // Recycler-style holders often configure the callback before attachment. Adopt
+                // that existing value once, unless the surface already configured its owner.
+                owner.customSelectionActionModeCallback = localCustomSelectionActionModeCallback
+            }
+        }
+        selectionController.onHostVisibilityOrFocusChanged()
+    }
+
+    override fun onFocusChanged(
+        gainFocus: Boolean,
+        direction: Int,
+        previouslyFocusedRect: Rect?,
+    ) {
+        selectionController.onHostFocusChanged(gainFocus)
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        selectionController.onHostVisibilityOrFocusChanged()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        selectionController.onHostVisibilityOrFocusChanged()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        selectionController.onHostVisibilityOrFocusChanged()
+        notifyOverhangHost()
+    }
+
+    override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+        super.onScrollChanged(l, t, oldl, oldt)
+        notifyOverhangHost()
     }
 
     override fun onRtlPropertiesChanged(layoutDirection: Int) {
@@ -397,6 +671,96 @@ class CjkTextView @JvmOverloads constructor(
     /** Content → scroll-adjusted visible position, for touch comparison and reported geometry. */
     internal fun toVisibleX(contentX: Float): Float = contentX + paddingLeft - scrollX
     internal fun toVisibleY(contentY: Float): Float = contentY + paddingTop - scrollY
+
+    /** True when this View has an engine result that can be replayed by a host overlay pass. */
+    internal fun canDrawLegalPaintOverhang(): Boolean =
+        overflow == CjkTextOverflow.Visible &&
+            layoutSnapshot != null &&
+            renderer != null &&
+            isAttachedToWindow &&
+            hasLegalPaintOutsideViewport()
+
+    private fun hasLegalPaintOutsideViewport(): Boolean {
+        val viewportLeft = scrollX.toFloat()
+        val viewportTop = scrollY.toFloat()
+        val viewportRight = viewportLeft + width
+        val viewportBottom = viewportTop + height
+        return paddingLeft + clipLeft < viewportLeft ||
+            paddingTop + clipTop < viewportTop ||
+            paddingLeft + clipRight > viewportRight ||
+            paddingTop + clipBottom > viewportBottom
+    }
+
+    /** Legal paint bounds in the same unscrolled local coordinates used by [onDraw]. */
+    internal fun legalPaintBounds(outBounds: RectF) {
+        outBounds.set(
+            paddingLeft + clipLeft,
+            paddingTop + clipTop,
+            paddingLeft + clipRight,
+            paddingTop + clipBottom,
+        )
+    }
+
+    /** Replays the renderer's retained overhang recording; the registry owns ancestor transforms. */
+    internal fun drawLegalPaintOverhang(canvas: Canvas) {
+        val snapshot = layoutSnapshot ?: return
+        val renderer = renderer ?: return
+        val save = canvas.save()
+        canvas.translate(paddingLeft.toFloat(), paddingTop.toFloat())
+        overhangPaintBounds.set(clipLeft, clipTop, clipRight, clipBottom)
+        overhangExcludedBounds.set(
+            scrollX - paddingLeft.toFloat(),
+            scrollY - paddingTop.toFloat(),
+            scrollX + width - paddingLeft.toFloat(),
+            scrollY + height - paddingTop.toFloat(),
+        )
+        renderer.drawPaintOverhang(
+            canvas = canvas,
+            result = snapshot.result,
+            replayIndex = snapshot.replayIndex,
+            color = currentTextColor(),
+            colorSpans = content.colorSpans,
+            paintBounds = overhangPaintBounds,
+            excludedBounds = overhangExcludedBounds,
+        )
+        canvas.restoreToCount(save)
+    }
+
+    internal fun isSelectionHotspotVisible(viewX: Float, viewY: Float): Boolean {
+        val visible = Rect()
+        return getLocalVisibleRect(visible) &&
+            viewX >= visible.left && viewX <= visible.right &&
+            viewY >= visible.top && viewY <= visible.bottom
+    }
+
+    internal fun attachDocumentSelection(owner: CjkDocumentSelectionController) {
+        selectionController.attachDocumentOwner(owner)
+    }
+
+    internal fun detachDocumentSelection(owner: CjkDocumentSelectionController) {
+        selectionController.detachDocumentOwner(owner)
+    }
+
+    internal val currentSelectionBoxes: List<org.tiqian.core.Rect>
+        get() = selectionController.boxes
+
+    internal fun applyDocumentSelection(projection: CjkDocumentSelectionProjection?) {
+        selectionController.applyDocumentSelection(projection)
+    }
+
+    private fun findSelectionContainer(): CjkTextSurface? {
+        var current = parent
+        while (current is View) {
+            if (current is CjkTextSurface) return current
+            current = current.parent
+        }
+        return null
+    }
+
+    internal fun selectionHandleBoundsOnScreen(
+        handle: CjkSelectionHandle,
+        outBounds: Rect,
+    ): Boolean = selectionController.handleBoundsOnScreen(handle, outBounds)
 
     internal fun linkAt(viewX: Float, viewY: Float): LinkHit? {
         val snapshot = layoutSnapshot ?: return null
@@ -427,22 +791,25 @@ class CjkTextView @JvmOverloads constructor(
     }
 
     internal fun onSelectionGeometryChanged() {
+        accessibilityDelegate.onHostSelectionChanged()
         invalidate()
+        notifyOverhangHost()
         selectionController.updateHandles()
-        accessibilityDelegate.invalidateRoot()
-        if (!canSendAccessibilityEvents) return
-        @Suppress("DEPRECATION")
-        val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED)
-        event.className = android.widget.TextView::class.java.name
-        event.packageName = context.packageName
-        event.itemCount = content.content.text.length
-        event.fromIndex = selection?.start ?: -1
-        event.toIndex = selection?.end ?: -1
-        sendAccessibilityEventUnchecked(event)
+        if (accessibilityDelegate.ownsSelectionTransition) return
+        sendAccessibilityEventIfEnabled(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED)
     }
 
     internal fun sendAccessibilityEventIfEnabled(eventType: Int) {
         if (canSendAccessibilityEvents) sendAccessibilityEvent(eventType)
+    }
+
+    internal fun sendAccessibilityContentChangedIfEnabled(changeTypes: Int) {
+        if (!canSendAccessibilityEvents) return
+        @Suppress("DEPRECATION")
+        val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+        onInitializeAccessibilityEvent(event)
+        event.contentChangeTypes = changeTypes
+        sendAccessibilityEventUnchecked(event)
     }
 
     internal fun links(): List<LinkHit> = content.richTextSpans.mapNotNull { span ->
@@ -459,7 +826,7 @@ class CjkTextView @JvmOverloads constructor(
         return LayoutSnapshot(result, result.toReplayIndex(content.richTextSpans)).also { snapshot ->
             layoutSnapshot = snapshot
             renderer?.invalidateGeometry()
-            selectionController.onContentOrLayoutChanged()
+            selectionController.onTextOrGeometryChanged()
             accessibilityDelegate.invalidateRoot()
             onTextLayout?.invoke(result)
         }
@@ -468,7 +835,7 @@ class CjkTextView @JvmOverloads constructor(
     private fun clearLayout() {
         layoutSnapshot = null
         renderer?.invalidateGeometry()
-        accessibilityDelegate.invalidateRoot()
+        if (!applyingSelectionFragmentBinding) accessibilityDelegate.invalidateRoot()
         // requestLayout alone does not guarantee a View's display list is re-recorded when the
         // replacement paragraph resolves to the same dimensions.
         invalidate()
@@ -576,76 +943,38 @@ class CjkTextView @JvmOverloads constructor(
         textColors?.getColorForState(drawableState, textColors?.defaultColor ?: content.textColor)
             ?: content.textColor
 
-    private fun notifyTextChanged(oldText: String, newText: String) {
-        if (oldText == newText || !canSendAccessibilityEvents) return
-        @Suppress("DEPRECATION")
-        val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED)
-        event.className = android.widget.TextView::class.java.name
-        event.packageName = context.packageName
-        event.beforeText = oldText
-        event.text.add(newText)
-        event.fromIndex = 0
-        event.removedCount = oldText.length
-        event.addedCount = newText.length
-        sendAccessibilityEventUnchecked(event)
-    }
-
     internal val canSendAccessibilityEvents: Boolean
         get() = context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             .let { it as? AccessibilityManager }
             ?.isEnabled == true && isAttachedToWindow
 
-    private fun readAttributes(attrs: AttributeSet?, defStyleAttr: Int, defStyleRes: Int) {
-        if (attrs == null) return
-        val values = context.obtainStyledAttributes(attrs, R.styleable.CjkTextView, defStyleAttr, defStyleRes)
-        try {
-            maxLines = values.getInt(R.styleable.CjkTextView_android_maxLines, maxLines)
-                .coerceAtLeast(1)
-            minLines = values.getInt(R.styleable.CjkTextView_android_minLines, minLines)
-                .coerceAtLeast(1)
-            textIsSelectable = values.getBoolean(
-                R.styleable.CjkTextView_android_textIsSelectable,
-                textIsSelectable,
-            )
-            overflow = when (values.getInt(R.styleable.CjkTextView_cjkOverflow, 0)) {
-                1 -> CjkTextOverflow.Visible
-                else -> CjkTextOverflow.Clip
-            }
-            clreqProfile = when (values.getInt(R.styleable.CjkTextView_cjkProfile, 0)) {
-                1 -> ClreqProfile.TaiwanHorizontal
-                2 -> ClreqProfile.HongKongHorizontal
-                else -> ClreqProfile.MainlandHorizontal
-            }
-            val current = content
-            val text = values.getText(R.styleable.CjkTextView_android_text)?.toString()
-                ?: current.content.text
-            val fontSize = values.getDimension(
-                R.styleable.CjkTextView_android_textSize,
-                current.textStyle.fontSize,
-            )
-            val lineHeight = if (values.hasValue(R.styleable.CjkTextView_android_lineHeight)) {
-                values.getDimension(R.styleable.CjkTextView_android_lineHeight, 0f)
-            } else {
-                current.paragraphStyle.lineHeight
-            }
-            textColors = values.getColorStateList(R.styleable.CjkTextView_android_textColor)
-            content = current.copy(
-                content = current.content.copy(text = text),
-                textStyle = current.textStyle.copy(fontSize = fontSize),
-                paragraphStyle = current.paragraphStyle.copy(lineHeight = lineHeight),
-            )
-        } finally {
-            values.recycle()
+    private fun bindOverhangHost() {
+        val next = findOverhangHost()
+        if (next === overhangHost) {
+            next?.onPaintOverhangChanged(this)
+            return
         }
+        overhangHost?.unregisterPaintOverhang(this)
+        overhangHost = next
+        next?.registerPaintOverhang(this)
     }
 
-    private fun resolveThemeColor(attribute: Int, fallback: Int): Int {
-        val value = TypedValue()
-        return if (context.theme.resolveAttribute(attribute, value, true)) {
-            if (value.resourceId != 0) {
-                runCatching { context.getColor(value.resourceId) }.getOrDefault(fallback)
-            } else value.data
-        } else fallback
+    private fun unbindOverhangHost() {
+        overhangHost?.unregisterPaintOverhang(this)
+        overhangHost = null
+    }
+
+    private fun notifyOverhangHost() {
+        overhangHost?.onPaintOverhangChanged(this)
+    }
+
+    private fun findOverhangHost(): CjkTextSurface? {
+        var current: ViewParent? = parent
+        while (current != null) {
+            if (current is CjkTextSurface) return current
+            current = current.parent
+        }
+        return null
     }
 
     private fun CjkTextContent.hasSameLayoutContract(

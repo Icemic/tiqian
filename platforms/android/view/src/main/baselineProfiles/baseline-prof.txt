@@ -66,8 +66,7 @@ SPLorg/tiqian/android/view/CjkTextSelectionController;-><clinit>()V
 SPLorg/tiqian/android/view/CjkTextSelectionController;-><init>(Lorg/tiqian/android/view/CjkTextView;)V
 SPLorg/tiqian/android/view/CjkTextSelectionController;->clearSelection()V
 SPLorg/tiqian/android/view/CjkTextSelectionController;->getHasSelection()Z
-SPLorg/tiqian/android/view/CjkTextSelectionController;->onContentOrLayoutChanged()V
-SPLorg/tiqian/android/view/CjkTextSelectionController;->themedDrawable(I)Landroid/graphics/drawable/Drawable;
+SPLorg/tiqian/android/view/CjkTextSelectionController;->onTextOrGeometryChanged(Z)V
 SPLorg/tiqian/android/view/CjkTextView$Companion;-><init>()V
 SPLorg/tiqian/android/view/CjkTextView$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 SPLorg/tiqian/android/view/CjkTextView$LayoutSnapshot;-><init>(Lorg/tiqian/core/LayoutResult;Lorg/tiqian/core/LayoutResultReplayIndex;)V

@@ -4,60 +4,106 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Rect
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
-import android.view.ActionMode
 import android.view.GestureDetector
-import android.view.Gravity
 import android.view.HapticFeedbackConstants
-import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewConfiguration
-import android.view.ViewTreeObserver
-import android.widget.ImageView
 import android.widget.Magnifier
-import android.widget.PopupWindow
+import androidx.annotation.RequiresApi
 import org.tiqian.core.SourceBoundaryBias
 import org.tiqian.core.TextRange
 import org.tiqian.core.coerceSelectionOffset
 import org.tiqian.core.cursorRect
+import org.tiqian.core.getLineForOffset
 import org.tiqian.core.getTextForCopy
 import org.tiqian.core.selectionBoxes
 import org.tiqian.core.selectionOffsetForPosition
 import org.tiqian.core.selectionWordRangeForPosition
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * Android View selection state and interaction policy for one Tiqian paragraph.
+ *
+ * The controller deliberately owns no layout policy. Every position, line and source boundary is
+ * read from the immutable [CjkTextView.LayoutSnapshot]; the native View layer only projects that
+ * geometry into Android's touch, handle and magnifier surfaces. The floating ActionMode is
+ * delegated to [CjkTextSelectionActionMode].
+ */
+@SuppressLint("InlinedApi")
 internal class CjkTextSelectionController(
     private val host: CjkTextView,
-) {
-    private enum class DraggedHandle { Anchor, Extent }
+) : CjkSelectionHandleListener {
+    private enum class DraggedHandle {
+        Start,
+        End,
+    }
+
+    private data class WordDragState(
+        val initialRange: TextRange,
+    )
 
     private val density = host.resources.displayMetrics.density
-    private val handleHitRadius = max(24f * density, ViewConfiguration.get(host.context).scaledTouchSlop * 2f)
-    private val startHandle: Drawable? = themedDrawable(android.R.attr.textSelectHandleLeft)
-    private val endHandle: Drawable? = themedDrawable(android.R.attr.textSelectHandleRight)
-    private var anchor = -1
-    private var extent = -1
+
+    /** Selection endpoints are always safe, ordered source offsets. */
+    private var selectionStart = -1
+    private var selectionEnd = -1
     private var draggedHandle: DraggedHandle? = null
-    private var actionMode: ActionMode? = null
+    private val endpointResolver = CjkSelectionEndpointResolver(density)
     private var magnifier: Magnifier? = null
     private var pressedLink: CjkTextView.LinkHit? = null
     private var handledGesture = false
+    private var wordDrag: WordDragState? = null
+    private var documentOwner: CjkDocumentSelectionController? = null
+    private var documentProjection: CjkDocumentSelectionProjection? = null
     private var cachedBoxes: List<org.tiqian.core.Rect> = emptyList()
-    private var startHandlePopupInstance: SelectionHandlePopup? = null
-    private var endHandlePopupInstance: SelectionHandlePopup? = null
-    private var handleRepositionerInstalled = false
-    private val handleRepositioner = ViewTreeObserver.OnPreDrawListener {
-        updateHandles()
-        true
-    }
+    private val handles = CjkStandaloneSelectionHandles(
+        host = host,
+        listener = this,
+        selection = { range },
+        isSuppressed = { documentOwner != null || wordDrag != null },
+    )
+    private val selectionActionMode = CjkTextSelectionActionMode(
+        host = host,
+        customCallback = { host.customSelectionActionModeCallback },
+        delegate = object : CjkTextSelectionActionMode.Delegate {
+            override val hasSelection: Boolean
+                get() = this@CjkTextSelectionController.hasSelection
+
+            override val canSelectAll: Boolean
+                get() = this@CjkTextSelectionController.canSelectAll
+
+            override fun copySelection(): Boolean = this@CjkTextSelectionController.copySelection()
+
+            override fun selectAll(): Boolean =
+                this@CjkTextSelectionController.selectAll(showToolbar = false)
+
+            override fun selectedText(): String? = this@CjkTextSelectionController.selectedText()
+
+            override fun selectionContentRect(outRect: Rect) =
+                this@CjkTextSelectionController.selectionContentRect(outRect)
+
+            override fun onActionModeCreationRejected() {
+                this@CjkTextSelectionController.clearSelection()
+            }
+
+            override fun onActionModeDestroyed(preserveSelection: Boolean) {
+                if (!preserveSelection) this@CjkTextSelectionController.clearSelection()
+            }
+
+            override fun performAssistAction(item: MenuItem): Boolean {
+                // TextClassifier smart actions need a real platform classifier/session bridge;
+                // do not fabricate assist items or claim support until that capability exists.
+                return false
+            }
+        },
+    )
 
     private val gestures = GestureDetector(
         host.context,
@@ -84,98 +130,160 @@ internal class CjkTextSelectionController(
             }
 
             override fun onDoubleTap(event: MotionEvent): Boolean =
-                selectWordAt(event.x, event.y, showToolbar = true)
+                beginWordDrag(event.x, event.y)
 
             override fun onLongPress(event: MotionEvent) {
-                if (host.textIsSelectable && selectWordAt(event.x, event.y, showToolbar = true)) {
+                if (host.textIsSelectable && beginWordDrag(event.x, event.y)) {
                     host.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 }
             }
         },
     )
 
-    val hasSelection: Boolean get() = anchor >= 0 && extent >= 0 && anchor != extent
+    val hasSelection: Boolean
+        get() = selectionStart >= 0 && selectionEnd > selectionStart
 
     val range: TextRange?
-        get() = if (hasSelection) TextRange(min(anchor, extent), max(anchor, extent)) else null
+        get() = if (hasSelection) TextRange(selectionStart, selectionEnd) else null
 
-    val boxes: List<org.tiqian.core.Rect> get() = cachedBoxes
+    private val canSelectAll: Boolean
+        get() = hasSelection && (
+            selectionStart > 0 || selectionEnd < host.content.content.text.length
+        )
 
+    val boxes: List<org.tiqian.core.Rect>
+        get() = cachedBoxes
+
+    val shouldDrawSelection: Boolean
+        get() = (hasSelection || cachedBoxes.isNotEmpty()) &&
+            (documentOwner != null || host.isFocused || host.isPressed)
+
+    /** Focus belongs to the logical document owner when this paragraph is attached to one. */
+    internal val selectionOwnerHasFocus: Boolean
+        get() = documentOwner?.selectionOwnerHasFocus ?: host.isFocused
+
+    internal val hasDocumentOwner: Boolean
+        get() = documentOwner != null
+
+    internal val documentCustomSelectionActionModeCallback: android.view.ActionMode.Callback?
+        get() = documentOwner?.customSelectionActionModeCallback
+
+    internal fun setDocumentCustomSelectionActionModeCallback(
+        value: android.view.ActionMode.Callback?,
+    ) {
+        documentOwner?.setCustomSelectionActionModeCallback(value)
+    }
+
+    /**
+     * Sets a source selection using the same ordered, safe-boundary contract as the engine's
+     * selection queries. Public callers may provide reversed or cluster-interior offsets; neither
+     * representation is retained by the controller.
+     */
     fun setSelection(start: Int, end: Int, showToolbar: Boolean = false): Boolean {
+        documentOwner?.let { return it.setSelection(host, start, end, showToolbar) }
+        return setStandaloneSelection(start, end, showToolbar)
+    }
+
+    private fun setStandaloneSelection(start: Int, end: Int, showToolbar: Boolean): Boolean {
         val result = host.layoutSnapshot?.result ?: return false
-        val newAnchor = result.coerceSelectionOffset(start, SourceBoundaryBias.Nearest)
-        val newExtent = result.coerceSelectionOffset(end, SourceBoundaryBias.Nearest)
-        if (newAnchor == newExtent) {
+        val lower = min(start, end)
+        val upper = max(start, end)
+        val safeStart = result.coerceSelectionOffset(lower, SourceBoundaryBias.Backward)
+        val safeEnd = result.coerceSelectionOffset(upper, SourceBoundaryBias.Forward)
+        if (safeStart >= safeEnd) {
             clearSelection()
             return false
         }
-        val changed = anchor != newAnchor || extent != newExtent
-        anchor = newAnchor
-        extent = newExtent
-        if (changed) {
-            updateCachedBoxes()
-            host.onSelectionGeometryChanged()
-        }
-        if (showToolbar) showActionMode() else actionMode?.invalidateContentRect()
+        val changed = publishSelection(safeStart, safeEnd)
+        if (showToolbar) selectionActionMode.show()
+        else if (changed) selectionActionMode.invalidateContentRect()
         return true
     }
 
     fun selectAll(showToolbar: Boolean = true): Boolean {
+        documentOwner?.let { return it.selectAll(showToolbar) }
         val textLength = host.content.content.text.length
         if (textLength == 0) return false
         return setSelection(0, textLength, showToolbar)
     }
 
     fun clearSelection() {
-        if (!hasSelection && anchor < 0 && extent < 0) return
-        anchor = -1
-        extent = -1
+        documentOwner?.let {
+            it.clearSelection()
+            return
+        }
+        clearLocalSelection()
+    }
+
+    private fun clearLocalSelection() {
+        if (
+            !hasSelection && selectionStart < 0 && selectionEnd < 0 &&
+            documentProjection == null && cachedBoxes.isEmpty()
+        ) {
+            selectionActionMode.onSelectionCleared()
+            return
+        }
+        selectionStart = -1
+        selectionEnd = -1
+        documentProjection = null
         cachedBoxes = emptyList()
+        wordDrag = null
         draggedHandle = null
+        endpointResolver.reset()
+        host.parent?.requestDisallowInterceptTouchEvent(false)
         dismissMagnifier()
-        actionMode?.finish()
-        actionMode = null
+        handles.dismiss()
+        selectionActionMode.finish()
+        selectionActionMode.onSelectionCleared()
         host.onSelectionGeometryChanged()
     }
 
-    fun onContentOrLayoutChanged() {
+    fun onTextOrGeometryChanged(textChanged: Boolean = false) {
+        documentOwner?.let {
+            it.onSelectableTextOrGeometryChanged(host, textChanged)
+            return
+        }
+        if (textChanged) {
+            clearLocalSelection()
+            return
+        }
         if (!hasSelection) return
-        val length = host.content.content.text.length
+        val result = host.layoutSnapshot?.result ?: return
+        val length = result.input.content.text.length
         if (length == 0) {
             clearSelection()
             return
         }
-        val currentAnchor = anchor.coerceIn(0, length)
-        val currentExtent = extent.coerceIn(0, length)
-        if (currentAnchor == currentExtent) clearSelection() else {
-            anchor = currentAnchor
-            extent = currentExtent
+        val currentStart = result.coerceSelectionOffset(
+            selectionStart.coerceIn(0, length),
+            SourceBoundaryBias.Backward,
+        )
+        val currentEnd = result.coerceSelectionOffset(
+            selectionEnd.coerceIn(0, length),
+            SourceBoundaryBias.Forward,
+        )
+        if (currentStart >= currentEnd) {
+            clearSelection()
+            return
+        }
+        if (currentStart != selectionStart || currentEnd != selectionEnd) {
+            publishSelection(currentStart, currentEnd)
+            selectionActionMode.invalidateContentRect()
+        } else {
+            val previousBoxes = cachedBoxes
             updateCachedBoxes()
-            actionMode?.invalidateContentRect()
-            host.onSelectionGeometryChanged()
+            if (previousBoxes != cachedBoxes) {
+                host.onSelectionGeometryChanged()
+                selectionActionMode.invalidateContentRect()
+            }
         }
     }
 
+    /** Receives text/link gestures; selection-handle streams belong only to their popup Views. */
     fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && hasSelection && host.textIsSelectable) {
-            draggedHandle = handleAt(event.x, event.y)
-            if (draggedHandle != null) {
-                host.parent?.requestDisallowInterceptTouchEvent(true)
-                actionMode?.finish()
-                actionMode = null
-                updateDraggedHandle(event)
-                return true
-            }
-        }
-        if (draggedHandle != null) {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_MOVE -> updateDraggedHandle(event)
-                MotionEvent.ACTION_UP -> {
-                    updateDraggedHandle(event)
-                    finishHandleDrag()
-                }
-                MotionEvent.ACTION_CANCEL -> finishHandleDrag()
-            }
+        documentOwner?.let { return it.onSelectableTouchEvent(host, event) }
+        if (wordDrag != null) {
+            dispatchWordDragEvent(event)
             return true
         }
         val handled = gestures.onTouchEvent(event)
@@ -183,154 +291,532 @@ internal class CjkTextSelectionController(
         return handled || handledGesture
     }
 
-    /**
-     * Selection handles are window-level popups, like the platform text stack's: drawn above every
-     * sibling and never clipped by host container bounds. The popups are visual only; drag
-     * hit-testing stays in [onTouchEvent].
-     */
-    fun updateHandles() {
-        val snapshot = host.layoutSnapshot
-        if (!hasSelection || !host.textIsSelectable || !host.isAttachedToWindow || snapshot == null) {
-            dismissHandles()
-            return
-        }
-        val origin = IntArray(2)
-        host.getLocationInWindow(origin)
-        positionHandle(startHandlePopup(), min(anchor, extent), isStart = true, origin, snapshot)
-        positionHandle(endHandlePopup(), max(anchor, extent), isStart = false, origin, snapshot)
-        if (!handleRepositionerInstalled) {
-            host.viewTreeObserver.addOnPreDrawListener(handleRepositioner)
-            handleRepositionerInstalled = true
-        }
-    }
+    /** Replays standalone handles from the current engine caret geometry. */
+    fun updateHandles() = handles.update()
 
     internal val handlesShowing: Boolean
-        get() = startHandlePopupInstance?.isShowing == true && endHandlePopupInstance?.isShowing == true
+        get() = handles.isShowing
 
-    private fun positionHandle(
-        popup: SelectionHandlePopup,
-        offset: Int,
-        isStart: Boolean,
-        origin: IntArray,
-        snapshot: CjkTextView.LayoutSnapshot,
-    ) {
-        val cursor = snapshot.replayIndex.cursorRect(snapshot.result, offset)
-        val x = origin[0] + host.toVisibleX(cursor.left).toInt()
-        val y = origin[1] + host.toVisibleY(cursor.bottom).toInt()
-        popup.showAt(selectionHandleLeft(x, popup.width, isStart), y)
+    /** Exposes popup bounds to the host for platform-level tests and accessibility hit routing. */
+    internal fun handleBoundsOnScreen(handle: CjkSelectionHandle, outBounds: Rect): Boolean =
+        handles.boundsOnScreen(handle, outBounds)
+
+    /**
+     * Mirrors TextView's focus/visibility lifecycle: preserve the logical range, hide transient
+     * surfaces while the host cannot present them, and recreate the floating toolbar/handles when
+     * the host becomes visible and focused again.
+     */
+    internal fun onHostVisibilityOrFocusChanged() {
+        documentOwner?.let {
+            handles.dismiss()
+            dismissMagnifier()
+            it.onSelectableGeometryChanged(host)
+            return
+        }
+        val visible = host.isAttachedToWindow && host.isShown &&
+            host.visibility == View.VISIBLE && host.windowVisibility == View.VISIBLE
+        if (!visible || !host.hasWindowFocus() || !host.isFocused) {
+            handles.dismiss()
+            dismissMagnifier()
+            selectionActionMode.onHostVisibilityOrFocusChanged()
+            return
+        }
+        if (hasSelection && draggedHandle == null && wordDrag == null) {
+            updateHandles()
+            selectionActionMode.onHostVisibilityOrFocusChanged()
+            selectionActionMode.invalidateContentRect()
+            selectionActionMode.show()
+        }
     }
 
-    private fun dismissHandles() {
-        startHandlePopupInstance?.dismiss()
-        endHandlePopupInstance?.dismiss()
-        if (handleRepositionerInstalled) {
-            host.viewTreeObserver.removeOnPreDrawListener(handleRepositioner)
-            handleRepositionerInstalled = false
+    /**
+     * Mirrors TextView.Editor's View-focus ownership rather than treating window focus as enough.
+     * Losing window focus only hides transient surfaces; losing View focus ends active selection
+     * UI and suppresses the highlight until this View owns focus again.
+     */
+    internal fun onHostFocusChanged(focused: Boolean) {
+        if (documentOwner != null) {
+            handles.dismiss()
+            dismissMagnifier()
+            host.invalidate()
+            return
+        }
+        if (focused) {
+            onHostVisibilityOrFocusChanged()
+        } else {
+            handles.dismiss()
+            dismissMagnifier()
+            // Editor.onFocusChanged(false) stops the current text ActionMode. Its destruction
+            // collapses an interactive selection, while a programmatic range with no ActionMode
+            // remains stored and merely stops drawing until this View owns focus again.
+            selectionActionMode.finish()
+            host.invalidate()
+        }
+    }
+
+    override fun currentPosition(handle: CjkSelectionHandle): CjkSelectionHandlePosition =
+        CjkStandaloneHandlePosition(
+            when (handle) {
+                CjkSelectionHandle.Start -> selectionStart
+                CjkSelectionHandle.End -> selectionEnd
+            },
+        )
+
+    override fun onHandleDragStarted(handle: CjkSelectionHandle) {
+        if (!host.textIsSelectable || !hasSelection) return
+        draggedHandle = handle.toDraggedHandle()
+        val offset = currentOffset(draggedHandle!!)
+        endpointResolver.begin(
+            CjkSelectionEndpointPosition(STANDALONE_KEY, 0, offset),
+            currentLineForEndpoint(draggedHandle!!),
+        )
+        wordDrag = null
+        selectionActionMode.hide()
+        dismissMagnifier()
+        host.parent?.requestDisallowInterceptTouchEvent(true)
+    }
+
+    override fun onHandleDragMoved(
+        handle: CjkSelectionHandle,
+        viewX: Float,
+        viewY: Float,
+        rawX: Float,
+        rawY: Float,
+        fromTouchScreen: Boolean,
+    ): CjkSelectionHandlePosition {
+        val snapshot = host.layoutSnapshot ?: return currentPosition(handle)
+        if (!hasSelection || !viewX.isFinite() || !viewY.isFinite()) {
+            return currentPosition(handle)
+        }
+        val dragged = handle.toDraggedHandle()
+        if (draggedHandle != dragged) onHandleDragStarted(handle)
+        selectionActionMode.hide()
+
+        val contentX = host.toContentX(viewX)
+        val contentY = host.toContentY(viewY)
+        var queryY = endpointResolver.lineSlopAdjustedY(
+            STANDALONE_KEY,
+            0,
+            snapshot.result,
+            contentY,
+        )
+        var rawOffset = snapshot.replayIndex.selectionOffsetForPosition(
+            snapshot.result,
+            contentX,
+            queryY,
+        )
+        val fixedOffset = when (dragged) {
+            DraggedHandle.Start -> selectionEnd
+            DraggedHandle.End -> selectionStart
+        }
+        val crossedFixedEndpoint = when (dragged) {
+            DraggedHandle.Start -> rawOffset >= fixedOffset
+            DraggedHandle.End -> rawOffset <= fixedOffset
+        }
+        if (crossedFixedEndpoint && snapshot.result.lines.isNotEmpty()) {
+            // Editor.SelectionHandleView does not keep resolving a crossed pointer on the line
+            // under the finger. It projects x onto the fixed endpoint's line first, then applies
+            // normal word/character adjustment and the one-unit crossing guard. Without this
+            // step a handle feels frozen as soon as the finger enters an earlier/later line.
+            val fixedLineIndex = snapshot.result.getLineForOffset(fixedOffset)
+                .coerceIn(0, snapshot.result.lines.lastIndex)
+            endpointResolver.forceLine(STANDALONE_KEY, 0, fixedLineIndex)
+            val fixedLine = snapshot.result.lines[fixedLineIndex]
+            queryY = (fixedLine.top + fixedLine.bottom) / 2f
+            rawOffset = snapshot.replayIndex.selectionOffsetForPosition(
+                snapshot.result,
+                contentX,
+                queryY,
+            )
+        }
+        val accepted = endpointResolver.resolve(
+            snapshot = snapshot,
+            isStart = dragged == DraggedHandle.Start,
+            candidatePosition = CjkSelectionEndpointPosition(STANDALONE_KEY, 0, rawOffset),
+            currentPosition = CjkSelectionEndpointPosition(
+                STANDALONE_KEY,
+                0,
+                currentOffset(dragged),
+            ),
+            rawOffset = rawOffset,
+            contentX = contentX,
+            queryY = queryY,
+        ).let { constrainEndpoint(snapshot.result, dragged, it) }
+        val previous = currentOffset(dragged)
+        val actual = applyHandleOffset(snapshot.result, dragged, accepted)
+        endpointResolver.commit(
+            CjkSelectionEndpointPosition(STANDALONE_KEY, 0, actual),
+            snapshot.result.getLineForOffset(actual),
+            contentX,
+        )
+        if (fromTouchScreen && actual != previous) {
+            host.performHapticFeedback(HapticFeedbackConstants.TEXT_HANDLE_MOVE)
+        }
+        if (fromTouchScreen) showMagnifier(snapshot, dragged, actual, rawX, rawY)
+        return CjkStandaloneHandlePosition(actual)
+    }
+
+    override fun onHandleDragFinished(
+        handle: CjkSelectionHandle,
+        filteredPosition: CjkSelectionHandlePosition?,
+        cancelled: Boolean,
+    ) {
+        val dragged = handle.toDraggedHandle()
+        val filteredOffset = (filteredPosition as? CjkStandaloneHandlePosition)?.offset
+        if (!cancelled && filteredOffset != null) {
+            host.layoutSnapshot?.result?.let { result ->
+                applyHandleOffset(result, dragged, filteredOffset)
+            }
+        }
+        if (draggedHandle == dragged) {
+            draggedHandle = null
+            endpointResolver.reset()
+        }
+        host.parent?.requestDisallowInterceptTouchEvent(false)
+        dismissMagnifier()
+        if (!cancelled && hasSelection) {
+            selectionActionMode.showAfterSelectionGesture()
         }
     }
 
     fun copySelection(): Boolean {
-        val range = range ?: return false
+        documentOwner?.let { return it.copySelection() }
+        val currentRange = range ?: return false
         val result = host.layoutSnapshot?.result ?: return false
-        val selected = result.getTextForCopy(range)
+        val selected = result.getTextForCopy(currentRange)
         if (selected.isEmpty()) return false
-        (host.context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
-            ?.setPrimaryClip(ClipData.newPlainText(null, selected))
-        return true
+        val clipboard = host.context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return false
+        return runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText(null, selected))
+        }.isSuccess
     }
 
     fun dispose() {
-        actionMode?.finish()
-        actionMode = null
+        wordDrag = null
+        draggedHandle = null
+        endpointResolver.reset()
+        host.parent?.requestDisallowInterceptTouchEvent(false)
+        selectionActionMode.dispose()
         dismissMagnifier()
-        dismissHandles()
+        handles.dismiss()
     }
 
-    private fun selectWordAt(x: Float, y: Float, showToolbar: Boolean): Boolean {
+    internal fun attachDocumentOwner(owner: CjkDocumentSelectionController) {
+        if (documentOwner === owner) return
+        check(documentOwner == null) { "CjkTextView is already attached to another selection container" }
+        clearLocalSelection()
+        documentOwner = owner
+    }
+
+    internal fun detachDocumentOwner(owner: CjkDocumentSelectionController) {
+        if (documentOwner !== owner) return
+        documentOwner = null
+        clearLocalSelection()
+    }
+
+    /** Applies one visible projection of a document selection without starting local interaction UI. */
+    internal fun applyDocumentSelection(projection: CjkDocumentSelectionProjection?) {
+        check(documentOwner != null) { "document selection requires an attached owner" }
+        selectionActionMode.finish(preserveSelection = true)
+        handles.dismiss()
+        dismissMagnifier()
+        if (projection == null || projection.isEmpty) {
+            if (selectionStart >= 0 || selectionEnd >= 0 || cachedBoxes.isNotEmpty()) {
+                selectionStart = -1
+                selectionEnd = -1
+                documentProjection = null
+                cachedBoxes = emptyList()
+                host.onSelectionGeometryChanged()
+            }
+            return
+        }
+        val result = host.layoutSnapshot?.result
+        if (result == null) {
+            val changed = documentProjection != projection ||
+                selectionStart >= 0 || selectionEnd >= 0 || cachedBoxes.isNotEmpty()
+            // Keep the logical projection so the next completed layout can restore it, but do not
+            // expose its offsets against a holder whose old LayoutResult has just been discarded.
+            // The new layout calls onTextOrGeometryChanged(), which asks the document owner to
+            // publish this projection again against the matching paragraph geometry.
+            documentProjection = projection
+            selectionStart = -1
+            selectionEnd = -1
+            cachedBoxes = emptyList()
+            if (changed) host.onSelectionGeometryChanged()
+            return
+        }
+        val safeRange = projection.range?.let { range ->
+            val safeStart = result.coerceSelectionOffset(range.start, SourceBoundaryBias.Backward)
+            val safeEnd = result.coerceSelectionOffset(range.end, SourceBoundaryBias.Forward)
+            TextRange(safeStart, safeEnd).takeUnless(TextRange::isEmpty)
+        }
+        val next = projection.copy(range = safeRange)
+        val changed = documentProjection != next ||
+            selectionStart != (safeRange?.start ?: -1) ||
+            selectionEnd != (safeRange?.end ?: -1)
+        documentProjection = next
+        selectionStart = safeRange?.start ?: -1
+        selectionEnd = safeRange?.end ?: -1
+        updateCachedBoxes()
+        if (changed) host.onSelectionGeometryChanged()
+    }
+
+    internal fun onViewportSizeChanged() {
+        if (documentProjection == null && !hasSelection) return
+        val previous = cachedBoxes
+        updateCachedBoxes()
+        if (previous != cachedBoxes) host.onSelectionGeometryChanged()
+    }
+
+    internal fun onHostLayoutChanged() {
+        documentOwner?.onSelectableGeometryChanged(host)
+    }
+
+    private fun beginWordDrag(x: Float, y: Float): Boolean {
         if (!host.textIsSelectable) return false
+        // TextView.Editor#checkField claims View focus before starting a user selection. Focus is
+        // the window-local ownership mechanism: the previously focused selectable View receives
+        // onFocusChanged(false), finishes its ActionMode, and collapses its old selection.
+        if (!host.requestFocus()) return false
         val snapshot = host.layoutSnapshot ?: return false
-        val range = snapshot.replayIndex.selectionWordRangeForPosition(
+        val word = snapshot.replayIndex.selectionWordRangeForPosition(
             snapshot.result,
             host.toContentX(x),
             host.toContentY(y),
         ) ?: return false
-        return setSelection(range.start, range.end, showToolbar)
+        val start = snapshot.result.coerceSelectionOffset(word.start, SourceBoundaryBias.Backward)
+        val end = snapshot.result.coerceSelectionOffset(word.end, SourceBoundaryBias.Forward)
+        if (start >= end) return false
+
+        // Publish the gesture state before the range so onSelectionGeometryChanged cannot flash
+        // handles between the long-press callback and its first selection frame.
+        wordDrag = WordDragState(TextRange(start, end))
+        // This is an internal selection transition, not a user-requested ActionMode dismissal;
+        // retain the range until the new word range is published below.
+        selectionActionMode.finish(preserveSelection = true)
+        handles.dismiss()
+        dismissMagnifier()
+        host.parent?.requestDisallowInterceptTouchEvent(true)
+        publishSelection(start, end)
+        return true
     }
 
-    private fun handleAt(x: Float, y: Float): DraggedHandle? {
-        val snapshot = host.layoutSnapshot ?: return null
-        val anchorRect = snapshot.replayIndex.cursorRect(snapshot.result, anchor)
-        val extentRect = snapshot.replayIndex.cursorRect(snapshot.result, extent)
-        val anchorDistance = distanceSquared(
-            x, y,
-            host.toVisibleX(anchorRect.left), host.toVisibleY(anchorRect.bottom),
-        )
-        val extentDistance = distanceSquared(
-            x, y,
-            host.toVisibleX(extentRect.left), host.toVisibleY(extentRect.bottom),
-        )
-        val hitDistance = handleHitRadius * handleHitRadius
-        return when {
-            anchorDistance > hitDistance && extentDistance > hitDistance -> null
-            anchorDistance <= extentDistance -> DraggedHandle.Anchor
-            else -> DraggedHandle.Extent
-        }
+    fun onCustomSelectionActionModeCallbackChanged() {
+        selectionActionMode.onCustomCallbackChanged()
     }
 
-    private fun updateDraggedHandle(event: MotionEvent) {
-        val snapshot = host.layoutSnapshot ?: return
-        val offset = snapshot.replayIndex.selectionOffsetForPosition(
-            snapshot.result,
-            host.toContentX(event.x),
-            host.toContentY(event.y - handleHitRadius * HANDLE_DRAG_TOUCH_LIFT_FACTOR),
-        )
-        when (draggedHandle) {
-            DraggedHandle.Anchor -> anchor = offset
-            DraggedHandle.Extent -> extent = offset
-            null -> return
-        }
-        if (anchor == extent) {
-            val length = snapshot.result.input.content.text.length
-            when {
-                extent < length -> extent = snapshot.result.coerceSelectionOffset(
-                    extent + 1, SourceBoundaryBias.Forward,
-                )
-                anchor > 0 -> anchor = snapshot.result.coerceSelectionOffset(
-                    anchor - 1, SourceBoundaryBias.Backward,
-                )
+    private fun dispatchWordDragEvent(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> updateWordDrag(event.x, event.y)
+            MotionEvent.ACTION_UP -> {
+                updateWordDrag(event.x, event.y)
+                finishWordDrag()
             }
+            MotionEvent.ACTION_CANCEL -> cancelWordDrag()
+        }
+    }
+
+    private fun updateWordDrag(x: Float, y: Float) {
+        val state = wordDrag ?: return
+        val snapshot = host.layoutSnapshot ?: return
+        val target = snapshot.replayIndex.selectionWordRangeForPosition(
+            snapshot.result,
+            host.toContentX(x),
+            host.toContentY(y),
+        ) ?: return
+        val initial = state.initialRange
+        val next = when {
+            target.end <= initial.start -> TextRange(target.start, initial.end)
+            target.start >= initial.end -> TextRange(initial.start, target.end)
+            else -> initial
+        }
+        if (next.start != selectionStart || next.end != selectionEnd) {
+            publishSelection(
+                snapshot.result.coerceSelectionOffset(next.start, SourceBoundaryBias.Backward),
+                snapshot.result.coerceSelectionOffset(next.end, SourceBoundaryBias.Forward),
+            )
+        }
+    }
+
+    private fun finishWordDrag() {
+        wordDrag = null
+        host.parent?.requestDisallowInterceptTouchEvent(false)
+        if (hasSelection) {
+            updateHandles()
+            selectionActionMode.showAfterSelectionGesture()
+        }
+    }
+
+    private fun cancelWordDrag() {
+        wordDrag = null
+        host.parent?.requestDisallowInterceptTouchEvent(false)
+        if (hasSelection) updateHandles()
+    }
+
+    private fun applyHandleOffset(
+        result: org.tiqian.core.LayoutResult,
+        handle: DraggedHandle,
+        candidate: Int,
+    ): Int {
+        if (!hasSelection) return currentOffset(handle)
+        val safeCandidate = constrainEndpoint(
+            result,
+            handle,
+            result.coerceSelectionOffset(candidate, SourceBoundaryBias.Nearest),
+        )
+        val current = currentOffset(handle)
+        if (safeCandidate == current) return current
+        when (handle) {
+            DraggedHandle.Start -> selectionStart = safeCandidate
+            DraggedHandle.End -> selectionEnd = safeCandidate
+        }
+        check(selectionStart < selectionEnd) {
+            "selection endpoint update must preserve a non-empty ordered range"
         }
         updateCachedBoxes()
         host.onSelectionGeometryChanged()
-        showMagnifier(event.x, event.y)
+        return safeCandidate
     }
 
-    private fun finishHandleDrag() {
-        draggedHandle = null
-        host.parent?.requestDisallowInterceptTouchEvent(false)
-        dismissMagnifier()
-        if (hasSelection) showActionMode()
+    /**
+     * Prevents the moving endpoint from crossing its fixed counterpart. The minimum distance is
+     * one engine interaction unit, not one UTF-16 code unit, so surrogate pairs/inline objects
+     * cannot leave an invalid or empty native-looking selection behind.
+     */
+    private fun constrainEndpoint(
+        result: org.tiqian.core.LayoutResult,
+        handle: DraggedHandle,
+        candidate: Int,
+    ): Int {
+        val safe = result.coerceSelectionOffset(
+            candidate,
+            when (handle) {
+                DraggedHandle.Start -> SourceBoundaryBias.Backward
+                DraggedHandle.End -> SourceBoundaryBias.Forward
+            },
+        )
+        return when (handle) {
+            DraggedHandle.Start -> {
+                val maximum = previousInteractionBoundary(result, selectionEnd)
+                safe.coerceAtMost(maximum)
+            }
+            DraggedHandle.End -> {
+                val minimum = nextInteractionBoundary(result, selectionStart)
+                safe.coerceAtLeast(minimum)
+            }
+        }
     }
 
-    private fun startHandlePopup(): SelectionHandlePopup =
-        startHandlePopupInstance ?: SelectionHandlePopup(host, startHandle ?: fallbackHandleDrawable())
-            .also { startHandlePopupInstance = it }
-
-    private fun endHandlePopup(): SelectionHandlePopup =
-        endHandlePopupInstance ?: SelectionHandlePopup(host, endHandle ?: fallbackHandleDrawable())
-            .also { endHandlePopupInstance = it }
-
-    private fun fallbackHandleDrawable(): Drawable = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(host.selectionColor)
-        setSize((22f * density).toInt(), (24f * density).toInt())
+    private fun previousInteractionBoundary(
+        result: org.tiqian.core.LayoutResult,
+        offset: Int,
+    ): Int {
+        if (offset <= 0) return offset
+        val previous = result.coerceSelectionOffset(offset - 1, SourceBoundaryBias.Backward)
+        return if (previous < offset) previous else offset
     }
 
+    private fun nextInteractionBoundary(
+        result: org.tiqian.core.LayoutResult,
+        offset: Int,
+    ): Int {
+        val length = result.input.content.text.length
+        if (offset >= length) return offset
+        val next = result.coerceSelectionOffset(offset + 1, SourceBoundaryBias.Forward)
+        return if (next > offset) next else offset
+    }
+
+    private fun currentLineForEndpoint(handle: DraggedHandle): Int {
+        val result = host.layoutSnapshot?.result ?: return -1
+        return result.getLineForOffset(currentOffset(handle))
+    }
+
+    private fun publishSelection(start: Int, end: Int): Boolean {
+        if (start < 0 || end <= start) return false
+        val changed = selectionStart != start || selectionEnd != end
+        selectionStart = start
+        selectionEnd = end
+        if (changed) {
+            updateCachedBoxes()
+            host.onSelectionGeometryChanged()
+        }
+        return changed
+    }
+
+    /**
+     * Magnifier x follows the finger smoothly but is clamped to the accepted caret's engine line
+     * and stationary endpoint; y stays on that line's center, as in Editor.HandleView.
+     */
     @SuppressLint("NewApi")
-    private fun showMagnifier(x: Float, y: Float) {
-        if (Build.VERSION.SDK_INT < 28) return
-        val value = magnifier ?: Magnifier.Builder(host).build().also { magnifier = it }
-        value.show(x.coerceIn(0f, host.width.toFloat()), y.coerceIn(0f, host.height.toFloat()))
+    private fun showMagnifier(
+        snapshot: CjkTextView.LayoutSnapshot,
+        handle: DraggedHandle,
+        offset: Int,
+        rawX: Float,
+        rawY: Float,
+    ) {
+        if (Build.VERSION.SDK_INT < 28 || snapshot.result.lines.isEmpty()) return
+        val scale = unrotatedAncestorScale() ?: run {
+            dismissMagnifier()
+            return
+        }
+        val lineIndex = snapshot.result.getLineForOffset(offset).coerceIn(0, snapshot.result.lines.lastIndex)
+        val line = snapshot.result.lines[lineIndex]
+        val positioned = snapshot.replayIndex.positionedClustersByLine
+            .getOrElse(lineIndex) { emptyList() }
+        val lineLeft = positioned.firstOrNull()?.left ?: line.indent
+        val lineRight = positioned.lastOrNull()?.right ?: line.indent
+        val hostOnScreen = IntArray(2)
+        host.getLocationOnScreen(hostOnScreen)
+        val touchViewX = rawX - hostOnScreen[0]
+        val touchViewY = rawY - hostOnScreen[1]
+        var leftBound = host.toVisibleX(lineLeft)
+        var rightBound = host.toVisibleX(lineRight)
+        val fixed = when (handle) {
+            DraggedHandle.Start -> selectionEnd
+            DraggedHandle.End -> selectionStart
+        }
+        if (fixed >= 0 && snapshot.result.getLineForOffset(fixed) == lineIndex) {
+            val fixedX = host.toVisibleX(snapshot.replayIndex.cursorRect(snapshot.result, fixed).left)
+            when (handle) {
+                DraggedHandle.Start -> rightBound = min(rightBound, fixedX)
+                DraggedHandle.End -> leftBound = max(leftBound, fixedX)
+            }
+        }
+        if (leftBound > rightBound) return
+        val lineHeight = line.bottom - line.top
+        val lineTop = host.toVisibleY(line.top)
+        val lineBottom = host.toVisibleY(line.bottom)
+        if (touchViewY < lineTop - lineHeight || touchViewY > lineBottom + lineHeight) {
+            dismissMagnifier()
+            return
+        }
+        val value = magnifier ?: createTextDefaultMagnifier(host).also { magnifier = it }
+        val magnifierContentWidth = value.width / value.zoom
+        if (
+            touchViewX < leftBound - magnifierContentWidth / 2f ||
+            touchViewX > rightBound + magnifierContentWidth / 2f ||
+            lineHeight * scale.second > value.height / value.zoom
+        ) {
+            dismissMagnifier()
+            return
+        }
+        value.show(touchViewX.coerceIn(leftBound, rightBound), (lineTop + lineBottom) / 2f)
+    }
+
+    private fun unrotatedAncestorScale(): Pair<Float, Float>? {
+        if (host.rotation != 0f || host.rotationX != 0f || host.rotationY != 0f) return null
+        var scaleX = host.scaleX
+        var scaleY = host.scaleY
+        var parent = host.parent
+        while (parent is View) {
+            if (parent.rotation != 0f || parent.rotationX != 0f || parent.rotationY != 0f) return null
+            scaleX *= parent.scaleX
+            scaleY *= parent.scaleY
+            parent = parent.parent
+        }
+        return scaleX to scaleY
     }
 
     private fun dismissMagnifier() {
@@ -338,174 +824,78 @@ internal class CjkTextSelectionController(
         magnifier = null
     }
 
-    private fun showActionMode() {
-        if (!hasSelection || !host.isAttachedToWindow) return
-        actionMode?.invalidate()
-        if (actionMode == null) {
-            actionMode = host.startActionMode(ActionModeCallback(), ActionMode.TYPE_FLOATING)
+    /** Projects engine selection boxes into the host-local ActionMode content rectangle. */
+    private fun selectionContentRect(outRect: Rect) {
+        val geometry = boxes
+        if (geometry.isEmpty()) {
+            outRect.set(0, 0, host.width, host.height)
+            return
         }
+        val left = geometry.minOf { host.toVisibleX(it.left) }
+        val top = geometry.minOf { host.toVisibleY(it.top) }
+        val right = geometry.maxOf { host.toVisibleX(it.right) }
+        val bottom = geometry.maxOf { host.toVisibleY(it.bottom) } + handles.height
+        outRect.set(
+            floor(left).toInt(),
+            floor(top).toInt(),
+            ceil(right).toInt(),
+            ceil(bottom).toInt(),
+        )
     }
 
-    private inner class ActionModeCallback : ActionMode.Callback2() {
-        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-            menu.add(Menu.NONE, MENU_COPY, 10, R.string.tiqian_copy)
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-            menu.add(Menu.NONE, MENU_SELECT_ALL, 20, R.string.tiqian_select_all)
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-            menu.add(Menu.NONE, MENU_SHARE, 30, R.string.tiqian_share)
-            addProcessTextItems(menu)
-            return true
-        }
-
-        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            menu.findItem(MENU_SELECT_ALL)?.isVisible = range?.let {
-                it.start > 0 || it.end < host.content.content.text.length
-            } ?: false
-            return true
-        }
-
-        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean = when (item.itemId) {
-            MENU_COPY -> copySelection().also { if (it) mode.finish() }
-            MENU_SELECT_ALL -> selectAll(showToolbar = false).also { mode.invalidateContentRect() }
-            MENU_SHARE -> shareSelection().also { if (it) mode.finish() }
-            else -> item.intent?.let { launchProcessText(it).also { launched -> if (launched) mode.finish() } }
-                ?: false
-        }
-
-        override fun onDestroyActionMode(mode: ActionMode) {
-            if (actionMode === mode) actionMode = null
-        }
-
-        override fun onGetContentRect(mode: ActionMode, view: android.view.View, outRect: Rect) {
-            val geometry = boxes
-            if (geometry.isEmpty()) {
-                outRect.set(0, 0, host.width, host.height)
-                return
-            }
-            val left = geometry.minOf { host.toVisibleX(it.left) }
-            val top = geometry.minOf { host.toVisibleY(it.top) }
-            val right = geometry.maxOf { host.toVisibleX(it.right) }
-            val bottom = geometry.maxOf { host.toVisibleY(it.bottom) }
-            outRect.set(left.toInt(), top.toInt(), ceil(right).toInt(), ceil(bottom).toInt())
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun addProcessTextItems(menu: Menu) {
-        val intent = Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
-        host.context.packageManager.queryIntentActivities(intent, 0).forEachIndexed { index, info ->
-            val activityInfo = info.activityInfo ?: return@forEachIndexed
-            val samePackage = activityInfo.packageName == host.context.packageName
-            val permissionGranted = activityInfo.permission?.let { permission ->
-                host.context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-            } ?: true
-            if (!samePackage && (!activityInfo.exported || !permissionGranted)) return@forEachIndexed
-            val processIntent = Intent(intent)
-                .setClassName(activityInfo.packageName, activityInfo.name)
-                .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
-            menu.add(PROCESS_TEXT_GROUP, PROCESS_TEXT_ID_START + index, 100 + index, info.loadLabel(host.context.packageManager))
-                .setIntent(processIntent)
-                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-        }
-    }
-
-    private fun launchProcessText(intent: Intent): Boolean {
-        val selected = selectedText() ?: return false
-        return runCatching {
-            host.context.startActivity(
-                Intent(intent)
-                    .putExtra(Intent.EXTRA_PROCESS_TEXT, selected)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }.isSuccess
-    }
-
-    private fun shareSelection(): Boolean {
-        val selected = selectedText() ?: return false
-        return runCatching {
-            val send = Intent(Intent.ACTION_SEND)
-                .setType("text/plain")
-                .putExtra(Intent.EXTRA_TEXT, selected)
-            host.context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.isSuccess
-    }
-
-    private fun selectedText(): String? {
+    fun selectedText(): String? {
+        documentOwner?.let { return it.selectedSourceText }
         val currentRange = range ?: return null
         return host.layoutSnapshot?.result?.getTextForCopy(currentRange)?.takeIf { it.isNotEmpty() }
-    }
-
-    private fun themedDrawable(attribute: Int): Drawable? {
-        val values = host.context.obtainStyledAttributes(intArrayOf(attribute))
-        return try {
-            values.getDrawable(0)?.mutate()
-        } finally {
-            values.recycle()
-        }
-    }
-
-    private fun distanceSquared(x1: Float, y1: Float, x2: Float, y2: Float): Float {
-        val dx = x1 - x2
-        val dy = y1 - y2
-        return dx * dx + dy * dy
     }
 
     private fun updateCachedBoxes() {
         val snapshot = host.layoutSnapshot
         val currentRange = range
-        cachedBoxes = if (snapshot != null && currentRange != null) {
-            snapshot.replayIndex.selectionBoxes(snapshot.result, currentRange)
-        } else {
-            emptyList()
+        cachedBoxes = when {
+            snapshot == null -> emptyList()
+            documentOwner != null && documentProjection != null -> nativeSelectionBoxes(
+                result = snapshot.result,
+                replayIndex = snapshot.replayIndex,
+                projection = documentProjection!!,
+                viewportWidth = (host.width - host.paddingLeft - host.paddingRight).toFloat(),
+            )
+            currentRange != null -> nativeSelectionBoxes(
+                result = snapshot.result,
+                replayIndex = snapshot.replayIndex,
+                projection = CjkDocumentSelectionProjection(range = currentRange),
+                viewportWidth = (host.width - host.paddingLeft - host.paddingRight).toFloat(),
+            )
+            else -> emptyList()
         }
+    }
+
+    private fun currentOffset(handle: DraggedHandle): Int = when (handle) {
+        DraggedHandle.Start -> selectionStart
+        DraggedHandle.End -> selectionEnd
+    }
+
+    private fun CjkSelectionHandle.toDraggedHandle(): DraggedHandle = when (this) {
+        CjkSelectionHandle.Start -> DraggedHandle.Start
+        CjkSelectionHandle.End -> DraggedHandle.End
+    }
+
+    private fun DraggedHandle.toPublicHandle(): CjkSelectionHandle = when (this) {
+        DraggedHandle.Start -> CjkSelectionHandle.Start
+        DraggedHandle.End -> CjkSelectionHandle.End
     }
 
     private companion object {
-        const val MENU_COPY = 1
-        const val MENU_SELECT_ALL = 2
-        const val MENU_SHARE = 3
-        const val PROCESS_TEXT_GROUP = 100
-        const val PROCESS_TEXT_ID_START = 1_000
+        val STANDALONE_KEY = Any()
 
-        /**
-         * Lifts a handle-drag touch sample above the finger, as a fraction of [handleHitRadius],
-         * so the sampled offset stays on the handle's own text line instead of the line below.
-         */
-        const val HANDLE_DRAG_TOUCH_LIFT_FACTOR = 0.35f
     }
-}
-
-private class SelectionHandlePopup(private val anchor: CjkTextView, drawable: Drawable) {
-    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: drawable.minimumWidth
-    private val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: drawable.minimumHeight
-    private val popup = PopupWindow(
-        ImageView(anchor.context).apply { setImageDrawable(drawable) },
-        width,
-        height,
-    ).apply {
-        isTouchable = false
-        animationStyle = 0
-    }
-
-    val isShowing: Boolean get() = popup.isShowing
-
-    fun showAt(x: Int, y: Int) {
-        if (popup.isShowing) {
-            popup.update(x, y, -1, -1)
-        } else {
-            popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
-        }
-    }
-
-    fun dismiss() = popup.dismiss()
 }
 
 /**
- * Aligns the actual hotspot used by Android's horizontal selection-handle assets with the caret.
- * The transparent drawable bounds extend past that hotspot, so anchoring either outer edge makes
- * both handles visibly drift away from the selected text.
+ * Uses Android's public text-magnifier preset. Despite being deprecated, this constructor is still
+ * the only public API which applies the platform text shape; a bare [Magnifier.Builder] creates the
+ * generic rectangular magnifier instead. Compose's `useTextDefault` path makes the same choice.
  */
-internal fun selectionHandleLeft(cursorX: Int, drawableWidth: Int, isStart: Boolean): Int {
-    val hotspotX = if (isStart) drawableWidth * 3 / 4 else drawableWidth / 4
-    return cursorX - hotspotX
-}
+@Suppress("DEPRECATION")
+@RequiresApi(28)
+internal fun createTextDefaultMagnifier(host: View): Magnifier = Magnifier(host)
