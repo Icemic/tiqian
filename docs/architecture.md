@@ -242,36 +242,27 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 
 `platforms/android/rendering` 持有 Android 原生测量与 Canvas 重放实现；它只依赖 engine 与
 Android shaping，不依赖 Compose 或 View。Compose Android 和 `platforms/android/view` 都消费这里的
-`AndroidParagraphRenderer`，因此 glyph、富文本背景/线、ruby、注音与装饰没有两套 renderer。
-平台无关的 replay index、rich-text lowering projection、line-pattern geometry 与合法 paint overhang
-留在 engine，两个前端只负责各自宿主生命周期。
+`AndroidParagraphRenderer`，glyph、富文本背景/线、ruby、注音与装饰只有一套画法。replay index、
+rich-text lowering projection、line-pattern geometry 与合法 paint overhang 留在 engine，两个前端只
+负责各自宿主生命周期。
 
-`platforms/android/view` 提供 Android API 23+ 的 `CjkTextView`。它是原生 `ViewGroup`，
-`onMeasure` 通过 `AndroidParagraphMeasurer` 产生 `LayoutResult`，`onDraw` 只重放该结果；
-不创建 `TextView`、`StaticLayout` 或第二份字符几何。不可变 `CjkTextContent` 把 source、
-layout-affecting style 与 render-only spans 原子提交；平台 `Spanned` 的常用 span 词汇由前端
-lower 进同一契约，`cjkSpannedCompatibility` 报告未保真的 span，与 Compose 前端 lower
-`AnnotatedString` 的边界同构。layout contract 变化才 `requestLayout()`，
-纯颜色/paint 变化保留结果 identity 并只 `invalidate()`。renderer 与 draw-plan cache 跟随 attach/detach，
-clip bounds 与 selection box 在 measure/interaction 变化时缓存，不在 `onDraw` 临时重算。
+`platforms/android/view` 提供 API 23+ 的 `CjkTextView` 与 `CjkTextSurface`。`CjkTextView` 是原生
+`ViewGroup`，`onMeasure` 调用 engine，`onDraw` 只重放 `LayoutResult`；不创建 `TextView`、
+`StaticLayout` 或第二份字符几何。不可变 `CjkTextContent` 原子提交 source、layout-affecting style 与
+render-only span；平台 `Spanned` 的常用 span 由前端 lower 进同一契约，`cjkSpannedCompatibility`
+报告未保真的部分，与 Compose 前端 lower `AnnotatedString` 的边界同构。选择、链接与无障碍都按
+`LayoutResult` 的 UTF-16 boundary、word range、caret 与 occupied box 命中；Android 侧只接手手势、
+手柄、系统 `ActionMode`、`Magnifier` 与 a11y node，并沿用 `TextView` 的手势与焦点归属语义。
 
-行外墨迹仍以 engine 的 legal paint bounds 为唯一范围；遇到 ViewGroup 裁切时，
-`CjkTextSurface` 把缓存的越界 recording 登记到自身边界内最近裁切祖先的 `ViewGroupOverlay`，使正文与
-越界墨迹在同一个滚动 DisplayList 中提交。段落 item 边界可以越过，实际滚动 viewport 仍裁切离屏
-内容；前端不扩大测量结果、添加 padding/margin 或改变行高与断行几何。选择使用 engine 的 UTF-16 boundary、word
-range、caret 与 occupied box；Android 侧只接手长按/拖柄、
-系统浮动 `ActionMode`、复制/分享/`PROCESS_TEXT`、硬键盘 Ctrl+C / Ctrl+A 和 API 28+ `Magnifier`。无障碍 host node 暴露
-source text、set-selection/copy action、ClickableSpan 链接以及 API 26+ character-location extra data。
-链接与 selection 都按 `LayoutResult` 命中，不让平台文本栈重排。inline object 由
-`CjkInlineViewAdapter` 提供真实 child View，使用调用方已经提交给 engine 的
-advance/ascent/descent 与最终 draw origin 定位；View 测量结果不能反向篡改段落几何。
+`CjkTextSurface` 是页面容器。它持有跨段的逻辑选区（ADR 0049 的 View 实现），并把段落越出自身
+边界的合法墨迹交给 surface 内最近的裁切祖先重放（ADR 0058）；前端不为此扩大测量、增加间距或改变
+engine 的行高与断行。虚拟化宿主通过 `CjkSelectionDocument` 与窄的滚动/保活 capability 接入；分页、
+数据加载、编辑与 IME 属于宿主。
 
-`AndroidParagraphMeasurementSession` 可在 RecyclerView / 文档 surface 间共享已完成的 shaping 与
-font metrics；单个 measurer 仍按线程约束持有 backend。后台结果用
-`AndroidPrecomputedParagraph` 同时保留具体 `ClreqProfile` provenance，View 只接受 profile、完整
-`LayoutInput` 与当前宽度/maxLines 全部一致的结果。多段跨 item 选区由
-`CjkSelectionDocument` 的稳定逻辑锚点与宿主滚动/保活 capability 处理；分页策略、数据加载、编辑与
-IME 仍属于宿主，renderer 不得依赖应用模型。
+`AndroidParagraphMeasurementSession` 在多个 surface 间共享 shaping 与 metrics；后台预排结果
+`AndroidPrecomputedParagraph` 携带 `ClreqProfile`，View 只接受 profile 与完整 `LayoutInput` 一致的
+结果。inline object 由 `CjkInlineViewAdapter` 提供 child View，放在 engine 的最终 draw origin，
+child 的测量不能反向改变段落几何。
 
 ### Apple
 
