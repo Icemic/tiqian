@@ -69,6 +69,9 @@ user-managed Central Portal deployment。Central token 与 PGP 签名密钥由 G
   **`tiqian-android-shaping`**、`tiqian-shaping-android-native-font` →
   **`tiqian-android-native-font`**。
 - `tiqian-compose` / `tiqian-compose-material3` 不变。
+- Android 原生 renderer 与 View 一级前端分别发布为 **`tiqian-android-rendering`** 与
+  **`tiqian-android-view`**；前者供 Compose/View 共享而不依赖任一 UI framework，后者只承载
+  `org.tiqian.android.view` 的 Android View API。
 
 artifactId 仍由根 `build.gradle.kts` 的 `publishedModules` 显式映射、不绑 Gradle 路径。下游
 tiqian-math / tiqian-markdown 与 zhplus 的依赖声明需相应改指新坐标。

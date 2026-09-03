@@ -24,8 +24,6 @@ import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
-import org.tiqian.core.LineBreakPolicy
-import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.LinkAddressDisplay
 import org.tiqian.core.InlineAttachment
 import org.tiqian.core.ParagraphStyle
@@ -38,6 +36,9 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
+import org.tiqian.core.layoutAutoSpaceSuppressedRanges
+import org.tiqian.core.layoutInlineBoxes
+import org.tiqian.core.layoutLineBreakSpans
 
 // Annotation tags + extractors are the AnnotatedString WIRE PROTOCOL between the
 // public builders (emphasis/ruby/bopomofo/…) and the engine. INTERNAL on purpose —
@@ -239,33 +240,6 @@ internal fun AnnotatedString.cjkRichTextSpans(
  * address itself ([LinkAddressDisplay]) share one break policy. Other link text keeps prose
  * line breaking.
  */
-internal fun List<RichTextSpan>.cjkLineBreakSpans(text: String): List<LineBreakSpan> =
-    asSequence()
-        .filter { span ->
-            when (val role = span.role) {
-                is RichTextRole.Link -> LinkAddressDisplay.displaysAddress(
-                    display = text.substring(span.range.start, span.range.end),
-                    target = role.target,
-                )
-
-                RichTextRole.InlineCode, RichTextRole.TechnicalInline -> true
-                else -> false
-            }
-        }
-        .map { LineBreakSpan(it.range, LineBreakPolicy.ProgressiveTechnical) }
-        .distinctBy { it.range to it.policy }
-        .sortedWith(compareBy<LineBreakSpan>({ it.range.start }, { it.range.end }))
-        .toList()
-
-/** `VerbatimRangeAutoSpace`: inline code and technical ranges suppress internal CJK↔Western auto spacing. */
-internal fun List<RichTextSpan>.cjkAutoSpaceSuppressedRanges(): List<TextRange> =
-    asSequence()
-        .filter { it.role == RichTextRole.InlineCode || it.role == RichTextRole.TechnicalInline }
-        .map { it.range }
-        .distinct()
-        .sortedWith(compareBy({ it.start }, { it.end }))
-        .toList()
-
 /**
  * Source range edges that should be exact cluster boundaries for geometry queries.
  * Render-only ranges (color, underline, links) still need boxes that end at the
@@ -393,10 +367,10 @@ fun ParagraphMeasurer.measure(
         decorations = renderText.cjkDecorations(),
         spans = renderText.cjkStyleSpans(core, density),
         rubySpans = renderText.cjkRubySpans(),
-        inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+        inlineBoxes = richTextSpans.layoutInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
-        lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
-        autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
+        lineBreakSpans = richTextSpans.layoutLineBreakSpans(renderText.text),
+        autoSpaceSuppressedRanges = richTextSpans.layoutAutoSpaceSuppressedRanges(),
     )
 }
 
@@ -434,15 +408,15 @@ fun ParagraphMeasurer.measureWithInlineContent(
                 text = renderText.text,
                 spans = renderText.cjkStyleSpans(core, density),
                 sourceBoundaries = sourceBoundaries,
-                lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
-                autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
+                lineBreakSpans = richTextSpans.layoutLineBreakSpans(renderText.text),
+                autoSpaceSuppressedRanges = richTextSpans.layoutAutoSpaceSuppressedRanges(),
             ),
             textStyle = core,
             paragraphStyle = lowered.paragraphStyle.withCjkTextStyleLineHeight(lowered.textStyle, density),
             constraints = constraints,
             decorations = renderText.cjkDecorations(),
             rubySpans = renderText.cjkRubySpans(),
-            inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+            inlineBoxes = richTextSpans.layoutInlineBoxes(),
             inlineObjects = inlineObjects.map { it.toCore(density) },
         ),
     )
@@ -473,10 +447,10 @@ fun ParagraphMeasurer.measure(
         decorations = renderText.cjkDecorations(),
         spans = renderText.cjkStyleSpans(core, density),
         rubySpans = renderText.cjkRubySpans(),
-        inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+        inlineBoxes = richTextSpans.layoutInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
-        lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
-        autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
+        lineBreakSpans = richTextSpans.layoutLineBreakSpans(renderText.text),
+        autoSpaceSuppressedRanges = richTextSpans.layoutAutoSpaceSuppressedRanges(),
     )
 }
 

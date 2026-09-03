@@ -50,6 +50,16 @@ val publishedModules = mapOf(
         "Tiqian Android Native Font",
         "Native Android font discovery and shaping support for Tiqian.",
     ),
+    ":platforms:android:rendering" to PublishedModule(
+        "tiqian-android-rendering",
+        "Tiqian Android Rendering",
+        "Android Canvas glyph replay and drawing support for Tiqian.",
+    ),
+    ":platforms:android:view" to PublishedModule(
+        "tiqian-android-view",
+        "Tiqian Android View",
+        "Android View frontend for the Tiqian CJK paragraph layout engine.",
+    ),
     ":platforms:compose:compose" to PublishedModule("tiqian-compose", "Tiqian Compose", "Compose frontend for the Tiqian CJK paragraph layout engine."),
     ":platforms:compose:material3" to PublishedModule(
         "tiqian-compose-material3",

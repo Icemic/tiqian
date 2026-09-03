@@ -25,6 +25,9 @@ import org.tiqian.core.RichTextSpan
 import org.tiqian.core.RubyKind
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
+import org.tiqian.core.layoutAutoSpaceSuppressedRanges
+import org.tiqian.core.layoutInlineBoxes
+import org.tiqian.core.layoutLineBreakSpans
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -204,7 +207,7 @@ class CjkAnnotatedTextTest {
 
         // LinkAddressDisplayGate: "链接" is not the address, so only the code range
         // takes the technical break policy.
-        val breakSpans = rich.cjkLineBreakSpans(text.text)
+        val breakSpans = rich.layoutLineBreakSpans(text.text)
         assertEquals(listOf(code.range), breakSpans.map { it.range })
         assertTrue(breakSpans.all { it.policy == LineBreakPolicy.ProgressiveTechnical })
     }
@@ -221,7 +224,7 @@ class CjkAnnotatedTextTest {
         }
 
         val rich = text.cjkRichTextSpans()
-        val breakSpans = rich.cjkLineBreakSpans(text.text)
+        val breakSpans = rich.layoutLineBreakSpans(text.text)
         assertEquals(
             listOf(TextRange(1, 22), TextRange(23, 36)),
             breakSpans.map { it.range },
@@ -244,7 +247,7 @@ class CjkAnnotatedTextTest {
         val rich = text.cjkRichTextSpans()
         assertEquals(
             listOf(TextRange(1, 8), TextRange(9, 13)),
-            rich.cjkAutoSpaceSuppressedRanges(),
+            rich.layoutAutoSpaceSuppressedRanges(),
         )
     }
 
@@ -275,14 +278,14 @@ class CjkAnnotatedTextTest {
         assertEquals(TextRange(10, 16), link.range)
         assertEquals(RichTextRole.Link("generic"), link.role)
         assertTrue(technical.paint.background.horizontalPadding == 0f)
-        assertTrue(rich.backgroundInlineBoxes().isEmpty())
+        assertTrue(rich.layoutInlineBoxes().isEmpty())
         // LinkAddressDisplayGate: the clickable's tag is not its visible text, so only
         // the technical range takes the break policy.
         assertEquals(
             listOf(TextRange(1, 5)),
-            rich.cjkLineBreakSpans(text.text).map { it.range },
+            rich.layoutLineBreakSpans(text.text).map { it.range },
         )
-        assertTrue(TextRange(6, 9) !in rich.cjkLineBreakSpans(text.text).map { it.range })
+        assertTrue(TextRange(6, 9) !in rich.layoutLineBreakSpans(text.text).map { it.range })
     }
 
     @Test
@@ -362,7 +365,7 @@ class CjkAnnotatedTextTest {
         )
         assertEquals(
             org.tiqian.core.InlineBoxSpan(TextRange(1, 5), inlineStart = 8f, inlineEnd = 8f),
-            listOf(span).backgroundInlineBoxes().single(),
+            listOf(span).layoutInlineBoxes().single(),
         )
     }
 

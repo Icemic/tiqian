@@ -114,8 +114,30 @@ fun RichTextLineSegment.resolvedBackgroundCornerRadii(inset: Float = 0f): RichTe
  * contract by appending a fully-selected ruby / 注音 reading in full-width parentheses after its
  * base. A partial selection of a multi-character base does not invent a detached reading.
  */
-fun LayoutResult.getTextForCopy(range: TextRange): String {
-    val source = input.content.text
+fun projectTextForCopy(
+    source: String,
+    range: TextRange,
+    rubySpans: List<RubySpan>,
+): String = projectAnnotatedTextForCopy(
+    source = source,
+    range = range,
+    annotations = rubySpans.map { it.baseRange to it.text },
+)
+
+fun LayoutResult.getTextForCopy(range: TextRange): String = projectAnnotatedTextForCopy(
+    source = input.content.text,
+    range = range,
+    annotations = buildList {
+        debug.rubyDecisions.forEach { add(it.baseRange to it.text) }
+        debug.bopomofoDecisions.forEach { add(it.baseRange to it.text) }
+    },
+)
+
+private fun projectAnnotatedTextForCopy(
+    source: String,
+    range: TextRange,
+    annotations: List<Pair<TextRange, String>>,
+): String {
     val start = range.start.coerceIn(0, source.length)
     val end = range.end.coerceIn(start, source.length)
     if (start == end) return ""
@@ -125,8 +147,7 @@ fun LayoutResult.getTextForCopy(range: TextRange): String {
         if (baseRange.start < start || baseRange.end > end) return
         annotationsByEnd.getOrPut(baseRange.end) { mutableListOf() } += "（$text）"
     }
-    debug.rubyDecisions.forEach { addAnnotation(it.baseRange, it.text) }
-    debug.bopomofoDecisions.forEach { addAnnotation(it.baseRange, it.text) }
+    annotations.forEach { (baseRange, text) -> addAnnotation(baseRange, text) }
 
     return buildString {
         var cursor = start
@@ -633,9 +654,18 @@ fun LayoutResult.getSelectionOffsetForPosition(x: Float, y: Float): Int {
 
 /** Coerces an external UTF-16 offset to a safe selection/caret boundary. */
 fun LayoutResult.coerceSelectionOffset(offset: Int, bias: SourceBoundaryBias): Int {
-    val text = input.content.text
+    return coerceTextSelectionOffset(input.content.text, input.inlineObjects, offset, bias)
+}
+
+/** Safe source-boundary coercion for logical documents that outlive their attached layout. */
+fun coerceTextSelectionOffset(
+    text: String,
+    inlineObjects: List<InlineObjectSpan>,
+    offset: Int,
+    bias: SourceBoundaryBias,
+): Int {
     val clamped = offset.coerceIn(0, text.length)
-    input.inlineObjects.firstOrNull { clamped > it.range.start && clamped < it.range.end }?.let { inlineObject ->
+    inlineObjects.firstOrNull { clamped > it.range.start && clamped < it.range.end }?.let { inlineObject ->
         return when (bias) {
             SourceBoundaryBias.Backward -> inlineObject.range.start
             SourceBoundaryBias.Forward -> inlineObject.range.end

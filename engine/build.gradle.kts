@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     kotlin("multiplatform")
@@ -124,12 +125,23 @@ val generateLayoutDumpGoldens = tasks.register("generateLayoutDumpGoldens") {
     }
 }
 
+// commonTest is shared with the Android host-test compilation. AGP's lint model tasks do not
+// infer the generated-source task dependency from Kotlin's source-set provider, so declare it.
+tasks.matching {
+    it.name == "generateAndroidHostTestLintModel" || it.name == "lintAnalyzeAndroidHostTest"
+}.configureEach {
+    dependsOn(generateLayoutDumpGoldens)
+}
+
 kotlin {
     jvm()
     android {
         namespace = "org.tiqian.engine"
         compileSdk = 36
         minSdk = 23
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
         withHostTest {}
     }
     js {

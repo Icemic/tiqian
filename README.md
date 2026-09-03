@@ -25,8 +25,7 @@
 - [ ] 日文排版（JLREQ）
 - [ ] 韩文排版（KLREQ）
 
-目前可以通过 Compose 和 Web 两种前端使用提椠。Android View 模块只保留了接入接口，
-还不是可直接使用的完整前端。
+目前可以通过 Compose、Android View 和 Web 三种前端使用提椠。
 
 ## Compose
 
@@ -63,6 +62,35 @@ CjkText(
 
 整篇 Markdown 正文可以使用基于提椠的[提椠 Markdown](https://github.com/tiqian-cjk/tiqian-markdown)，
 段落排版之上，还可以统一处理代码、表格、公式、图片与脚注等。
+
+## Android View
+
+使用 View 体系的 Android 应用可以直接依赖原生前端，支持 Android 6.0 (API 23) 及以上版本：
+
+```kotlin
+implementation("org.tiqian:tiqian-android-view:<version>")
+```
+
+`CjkTextView` 可以在代码或 XML 布局中使用，段落交给提椠排版；选择与复制、
+系统文本菜单、链接点击和 TalkBack 朗读都和系统控件一致。粗体、颜色、链接这类
+富文本样式和行间注按正文的字符区间提交：
+
+```kotlin
+val paragraph = CjkTextView(context).apply {
+    content = CjkTextContent(
+        content = TiqianTextContent("编号 A-17 的青铜盉仍一并保留。"),
+        textStyle = TextStyle(fontSize = textSizePx),
+        paragraphStyle = ParagraphStyle(lineHeight = lineHeightPx),
+        rubySpans = listOf(RubySpan(TextRange(11, 12), "hé")),
+        decorations = listOf(DecorationSpan(TextRange(13, 17), DecorationKind.Emphasis)),
+    )
+}
+```
+
+已有的 `Spanned` 富文本可以直接提交，还不能保真的 span 可以用 `cjkSpannedCompatibility()`
+检查。多段正文放进 `CjkTextSurface`，选择与复制跨段工作；把 `overflow` 设为可见后，注音和
+悬挂标点可以避免被滚动容器裁切。长文列表可以共享字体测量并在后台预排段落，行内插图可以作为原生子 View
+参与排版。 具体接入方式参见 [Android View 接入指南](platforms/android/view/README.md)。
 
 ## Web
 

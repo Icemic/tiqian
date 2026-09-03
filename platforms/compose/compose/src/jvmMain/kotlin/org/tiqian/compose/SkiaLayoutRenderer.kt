@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.skiaCanvas
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LayoutResultReplayIndex
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.RichTextBackgroundDrawStyle
 import org.tiqian.core.RichTextLinePattern
@@ -12,6 +13,8 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.richTextDecorationLineY
 import org.tiqian.core.resolvedBackgroundCornerRadii
+import org.tiqian.core.fittedDashedLineSegments
+import org.tiqian.core.fittedDottedLineCenters
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
 import org.tiqian.shaping.skia.drawTiqianGlyphsWithPositions
 import org.tiqian.shaping.skia.lineInkSkipIntervalsWithPositions

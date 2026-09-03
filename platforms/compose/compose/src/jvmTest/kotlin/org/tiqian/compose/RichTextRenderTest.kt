@@ -30,6 +30,7 @@ import org.tiqian.core.getCursorRect
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
 import org.tiqian.core.resolvedBackgroundCornerRadii
+import org.tiqian.core.toReplayIndex
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import java.io.File
 import kotlin.math.roundToInt

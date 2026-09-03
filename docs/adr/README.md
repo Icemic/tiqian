@@ -75,6 +75,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0055 Maven Central 文件配额：native 发布过滤与 SNAPSHOT 通道](0055-maven-central-file-quota.md)
 - [0056 engine 单模块合并与按平台的仓库重组](0056-engine-module-and-platform-reorg.md)
 - [0057 纵轴退出缓存与装饰层 em 化](0057-vertical-axis-exits-cache.md)
+- [0058 Android View 一级前端与共享原生 renderer](0058-android-view-frontend.md)
 
 ## 早期状态说明
 
@@ -93,5 +94,6 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
   快照失配但证据仍有效时继续走回放，证据不可用时才保留原生正文或回到 0039 的具名降级路径。
 - 0042 把 0040 的字体证据与固定版心几何拆成两个公共输入：字体回放不要求宿主宽度，只有显式快照
   继续使用 `maxWidthPx`；SvelteKit / Astro 生命周期由同仓库独立 npm adapter 持有。
+- 0049 的逻辑文档选区模型由 0058 在 Android View 前端复用。
 - 0039 / 0040 的 Node precompute 运行时由 0050 迁往 Kotlin/Native 静态库加 Rust 绑定，precompute
   迁入独立的 `@tiqian/precompute` 包；迁移完成前两文中的 WASM 依赖与 npm 结构描述仍有效。

@@ -240,7 +240,29 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 
 ### Android View
 
-`platforms/android/view` 目前只保留前端接口，还不是与 Compose / Web 同等完整的可用入口。
+`platforms/android/rendering` 持有 Android 原生测量与 Canvas 重放实现；它只依赖 engine 与
+Android shaping，不依赖 Compose 或 View。Compose Android 和 `platforms/android/view` 都消费这里的
+`AndroidParagraphRenderer`，glyph、富文本背景/线、ruby、注音与装饰只有一套画法。replay index、
+rich-text lowering projection、line-pattern geometry 与合法 paint overhang 留在 engine，两个前端只
+负责各自宿主生命周期。
+
+`platforms/android/view` 提供 API 23+ 的 `CjkTextView` 与 `CjkTextSurface`。`CjkTextView` 是原生
+`ViewGroup`，`onMeasure` 调用 engine，`onDraw` 只重放 `LayoutResult`；不创建 `TextView`、
+`StaticLayout` 或第二份字符几何。不可变 `CjkTextContent` 原子提交 source、layout-affecting style 与
+render-only span；平台 `Spanned` 的常用 span 由前端 lower 进同一契约，`cjkSpannedCompatibility`
+报告未保真的部分，与 Compose 前端 lower `AnnotatedString` 的边界同构。选择、链接与无障碍都按
+`LayoutResult` 的 UTF-16 boundary、word range、caret 与 occupied box 命中；Android 侧只接手手势、
+手柄、系统 `ActionMode`、`Magnifier` 与 a11y node，并沿用 `TextView` 的手势与焦点归属语义。
+
+`CjkTextSurface` 是页面容器。它持有跨段的逻辑选区（ADR 0049 的 View 实现），并把段落越出自身
+边界的合法墨迹交给 surface 内最近的裁切祖先重放（ADR 0058）；前端不为此扩大测量、增加间距或改变
+engine 的行高与断行。虚拟化宿主通过 `CjkSelectionDocument` 与窄的滚动/保活 capability 接入；分页、
+数据加载、编辑与 IME 属于宿主。
+
+`AndroidParagraphMeasurementSession` 在多个 surface 间共享 shaping 与 metrics；后台预排结果
+`AndroidPrecomputedParagraph` 携带 `ClreqProfile`，View 只接受 profile 与完整 `LayoutInput` 一致的
+结果。inline object 由 `CjkInlineViewAdapter` 提供 child View，放在 engine 的最终 draw origin，
+child 的测量不能反向改变段落几何。
 
 ### Apple
 
@@ -275,11 +297,12 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
   数据结构与 layout contract、字体角色 / fallback / 度量策略、平台无关的 shaping / replayable
   font contract、断行机会与西文断词、中文 profile / 标点分类 / 禁则 / 空间策略、段落布局 / 修复 /
   行调整与结构化 decision。
-- `platforms/jvm/{shaping,skia}`、`platforms/android/{shaping,native-font}`、
+- `platforms/jvm/{shaping,skia}`、`platforms/android/{shaping,native-font,rendering}`、
   `platforms/apple/shaping`：各宿主的 shaping / replayable font 实现；
   `platforms/android/shaping` 是 Compose Android 默认的公开平台 run 后端，
   `platforms/android/native-font` 持有宿主可显式选择的共享字体源、受控 face、
-  HarfBuzz / FreeType 与同源 outline replay。
+  HarfBuzz / FreeType 与同源 outline replay；`platforms/android/rendering` 是 Compose 与 View
+  共用的 Android Canvas replay 和 paragraph measurement backend。
 - `platforms/compose/compose`、`platforms/web/client`、`platforms/android/view`：前端
   lowering 与呈现。
 - `platforms/apple/frontend/coretext-render`：Apple 内部 Core Text renderer 与 paragraph backend。
@@ -292,7 +315,8 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 - `platforms/web/client/astro`、`platforms/web/client/sveltekit`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
   HTML prepare 与 snapshot contract，不拥有排版或字体 policy。
 - `demo`：Desktop / Android 共用的 Compose 示例界面与 Desktop 启动入口。
-- `demo/android`：只负责 Android 应用打包和启动的薄外壳。
+- `demo/android`：Android 应用壳、Compose 启动入口、原生 View 的 RecyclerView dogfood surface
+  与富文本 showcase 页。
 - `demo/apple`：一个 Xcode project 内的 macOS / iOS targets，共享 Swift 样例内容并消费
   `platforms/apple/frontend`。
 - `engine` 的报告任务与 `commonTest` 共享语料：布局诊断、文档样张生成，

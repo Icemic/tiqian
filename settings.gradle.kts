@@ -50,6 +50,7 @@ include(
     ":platforms:jvm:skia",
     ":platforms:android:shaping",
     ":platforms:android:native-font",
+    ":platforms:android:rendering",
     ":platforms:android:view",
     ":platforms:android:benchmark",
     ":platforms:apple:shaping",
