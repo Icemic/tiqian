@@ -49,6 +49,17 @@ class LayoutQueriesTest {
         assertEquals("提", result.getTextForCopy(TextRange(0, 1)))
         assertEquals("提椠（tíqiàn）", result.getTextForCopy(TextRange(0, 2)))
         assertEquals("您（ㄋㄧㄣˊ）", result.getTextForCopy(TextRange(3, 4)))
+        assertEquals(
+            result.getTextForCopy(TextRange(0, 4)),
+            projectTextForCopy(
+                source = "提椠与您",
+                range = TextRange(0, 4),
+                rubySpans = listOf(
+                    RubySpan(TextRange(0, 2), "tíqiàn"),
+                    RubySpan(TextRange(3, 4), "ㄋㄧㄣˊ", kind = RubyKind.Bopomofo),
+                ),
+            ),
+        )
     }
 
     @Test
