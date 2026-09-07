@@ -35,8 +35,8 @@ internal class OpticalSizeInstancer(
     val sourceHandle: Long,
     val sourceDigestHex: String,
 ) {
-    /** Guarded by the backend lock; keyed by the whole-unit `opsz` value. */
-    val instances = HashMap<Int, Pair<ReplayableFontFaceDescriptor, NativeFontFace>>()
+    /** Guarded by the backend lock; keyed by the clamped `opsz` value. */
+    val instances = HashMap<Float, Pair<ReplayableFontFaceDescriptor, NativeFontFace>>()
 }
 
 /** One retained face as the renderer needs it: outline source, style provenance and platform Font. */
@@ -202,7 +202,7 @@ object TiqianAndroidFontBackend {
         AndroidGlyphReplayRegistry.register(AndroidNativeGlyphReplay)
     }
 
-    /** The whole-unit `opsz` instance of [face] for [fontSize]; created once per size and retained. */
+    /** The `opsz` instance of [face] for [fontSize]: whole units clamped to the axis range, retained per value. */
     internal fun opticalSizeInstance(
         face: LoadedFace,
         instancer: OpticalSizeInstancer,
@@ -210,12 +210,12 @@ object TiqianAndroidFontBackend {
     ): Pair<ReplayableFontFaceDescriptor, NativeFontFace> {
         val opsz = (fontSize * instancer.rule.pointsPerPixel).roundToInt().toFloat().coerceIn(instancer.range)
         synchronized(lock) {
-            instancer.instances[opsz.toInt()]?.let { return it }
+            instancer.instances[opsz]?.let { return it }
             val axes = face.descriptor.variationAxes.toSortedMap().apply { this["opsz"] = opsz }
             val id = stableFaceId(instancer.sourceDigestHex, face.descriptor.collectionIndex, axes)
             val native = createOrGetFaceLocked(id, instancer.sourceHandle, face.descriptor.collectionIndex, axes)
             val descriptor = descriptorById.getOrPut(id) { face.descriptor.copy(id = id, variationAxes = axes) }
-            return (descriptor to native).also { instancer.instances[opsz.toInt()] = it }
+            return (descriptor to native).also { instancer.instances[opsz] = it }
         }
     }
 

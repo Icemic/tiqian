@@ -6,7 +6,7 @@ import org.tiqian.shaping.FontBackendCapabilityIssue
 /**
  * `OpticalSizeFollowsFontSize`: the face's `opsz` axis is set per request to
  * `fontSize × pointsPerPixel`, clamped to the axis range the font declares and quantised to
- * quarter units, instead of staying at the declared instance. Off unless a face declares it.
+ * whole units, instead of staying at the declared instance. Off unless a face declares it.
  */
 data class AndroidOpticalSizeRule(
     val pointsPerPixel: Float = 1f,
