@@ -4,6 +4,19 @@ import org.tiqian.font.FontRole
 import org.tiqian.shaping.FontBackendCapabilityIssue
 
 /**
+ * `OpticalSizeFollowsFontSize`: the face's `opsz` axis is set per request to
+ * `fontSize × pointsPerPixel`, clamped to the axis range the font declares and quantised to
+ * quarter units, instead of staying at the declared instance. Off unless a face declares it.
+ */
+data class AndroidOpticalSizeRule(
+    val pointsPerPixel: Float = 1f,
+) {
+    init {
+        require(pointsPerPixel > 0f && pointsPerPixel.isFinite()) { "pointsPerPixel must be positive and finite" }
+    }
+}
+
+/**
  * One concrete host/system face instance. [familyKey] groups regular, bold and italic faces into
  * one fallback family; [roles] says which role chains may reference it. [variationAxes] must be
  * the effective coordinates used for replay, including a platform weight/italic override after
@@ -19,6 +32,8 @@ data class AndroidFontFaceSpec(
     val italic: Boolean = false,
     /** OpenType variation coordinates that identify the concrete face instance. */
     val variationAxes: Map<String, Float> = emptyMap(),
+    /** Per-request `opsz` derivation; null keeps the declared instance. */
+    val opticalSize: AndroidOpticalSizeRule? = null,
 ) {
     init {
         require(collectionIndex >= 0) { "collectionIndex must be non-negative" }

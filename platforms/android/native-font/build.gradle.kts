@@ -39,10 +39,16 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    androidResources {
+        // Keeps the instrumentation probe asset stored, so the region-mapping path is exercised.
+        noCompress.add("tiqianprobe")
+    }
 }
 
 dependencies {
     api(project(":engine"))
+    implementation(project(":platforms:android:shaping"))
 
     testImplementation(kotlin("test-junit"))
     androidTestImplementation(project(":platforms:android:shaping"))

@@ -10,6 +10,7 @@ internal object NativeFontBridge {
 
     external fun nativeRegisterFileSource(path: String): Long
     external fun nativeRegisterBufferSource(buffer: ByteBuffer, size: Long): Long
+    external fun nativeRegisterDescriptorRegionSource(fd: Int, offset: Long, length: Long): Long
     external fun nativeReleaseSource(handle: Long)
     external fun nativeCreateFace(
         sourceHandle: Long,
@@ -20,6 +21,7 @@ internal object NativeFontBridge {
     external fun nativeReleaseFace(handle: Long)
     external fun nativeResourceStats(): LongArray
     external fun nativeUnitsPerEm(handle: Long): Int
+    external fun nativeVariationAxisRange(handle: Long, tag: Int): FloatArray?
     external fun nativeHasGlyphs(handle: Long, text: String): Boolean
 
     external fun nativeShape(
@@ -151,6 +153,13 @@ internal class NativeFontFace(
     }
 
     fun outline(glyphId: UInt): FloatArray? = NativeFontBridge.nativeOutline(handle, glyphId.toInt())
+
+    /** Declared min..max of a variation axis, or null when the face lacks it. */
+    fun axisRange(tag: String): ClosedFloatingPointRange<Float>? {
+        val values = NativeFontBridge.nativeVariationAxisRange(handle, variationTag(tag)) ?: return null
+        if (values[0] > values[2]) return null
+        return values[0]..values[2]
+    }
 
     private data class ShapeKey(
         val text: String,
