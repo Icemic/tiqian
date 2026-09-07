@@ -1,5 +1,6 @@
 package org.tiqian.shaping.android
 
+import android.text.TextPaint
 import org.tiqian.font.FontRole
 
 /**
@@ -20,4 +21,19 @@ fun requiresHanShapingContext(displayText: String, role: FontRole): Boolean {
         offset += Character.charCount(codePoint)
     }
     return true
+}
+
+/**
+ * The advance the platform string draw consumes for [text] under [role] with [paint]: measured in
+ * the same `中…中` buffer the draw uses when the text needs Han context, so measure equals draw.
+ */
+fun platformRunAdvance(paint: TextPaint, text: String, role: FontRole): Float {
+    if (text.isEmpty()) return 0f
+    if (!requiresHanShapingContext(text, role)) {
+        return paint.getRunAdvance(text, 0, text.length, 0, text.length, false, text.length)
+    }
+    val buffer = "中${text}中"
+    val penStart = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1)
+    val penEnd = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1 + text.length)
+    return penEnd - penStart
 }
