@@ -56,6 +56,43 @@
   API 26–30 的既有路径。单次 400 探测曾把可变字体设备的全部字重锚死在常规实例上，
   中间字重静默落回 400、粗体只剩假粗体，故探测必须携带请求样式。标点归面与
   `LatinVsCjkFaceSelection` 的角色模型不变，改变的只是锚定证据来源。
+- Amendment 2026-09-06：Android 共享 renderer（`platforms/android/rendering`，Compose 与 View 前端共用）
+  新增宿主字形回放钩子 `HostGlyphReplay`
+  （`org.tiqian.shaping.android.AndroidGlyphReplay` 与 `AndroidGlyphReplayRegistry`）。
+  注册表可挂多个回放，按 render font key 的归属（`ownsFont`）选择；renderer 先查平台
+  `AndroidPositionedGlyphFontRegistry`，查不到的 key 才问回放，答案按 key 缓存在段落 draw cache
+  里。API 31+ 优先取回放给出的平台 `Font` 走 `Canvas.drawGlyphs`，该 `Font` 连同平台选它时的
+  假粗与斜切一起交回（`AndroidReplayPlatformFont`），renderer 画前设进 paint；否则按
+  `LayoutResult` 的 glyph id 与 placement 绘制 outline。API 23–30 的 `NaturalRunCoalescedDraw`
+  计划把这类 cluster 记为独立的 outline 命令，不参与合并；连字符 glyph 走同一路径。
+  `paint.textSkewX` 不为零时 renderer 以基线为轴对 canvas 做同样的斜切，回放报告 face 已是
+  真斜体或已自行斜切（`providesItalic`）时不再加。native 后端在 `install()` 与默认目录
+  装载时注册 `AndroidNativeGlyphReplay`，宿主不再自己绘制。此前 native shaping 产出的 glyph
+  在 Compose 里会退回平台字符串绘制，测量与绘制不同源。
+- Amendment 2026-09-06（二）：`AndroidFontFaceSpec.opticalSize` 声明 `OpticalSizeFollowsFontSize`：
+  该 face 的 `opsz` 轴按每次请求取 `fontSize × pointsPerPixel`，夹在字体声明的轴范围内并量化到
+  整数（`opsz` 是以磅计的设计尺寸，整数档之间看不出差别）。实例与声明 face 共享源、TTC index
+  与其他轴，只多出一个 FreeType / HarfBuzz face，按整数值缓存在该 face 上；metrics、shaping 与
+  outline 回放取同一实例，`FontFaceId` 带上实际 `opsz`；无覆盖退化的段不建实例。字体没有
+  `opsz` 轴时报告 `OpticalSizeAxisUnavailable` 并沿用声明实例。像素到 opsz 的换算比例由宿主
+  给出，后端不猜屏幕密度。
+- Amendment 2026-09-06（三）：`AndroidFontSource.asset` 对未压缩存放的 asset 改为
+  `UncompressedAssetRegionMapping`：按 `AssetFileDescriptor` 的偏移与长度只读 mmap APK 文件区间，
+  不再复制进 direct buffer；压缩存放的 asset 仍走复制。宿主目录里没有任何 family 覆盖请求文本时，
+  `NoCoveringFacePlatformDegrade` 沿用多 face 退化的同一条路：该段由平台文字栈用 renderer 字符串
+  绘制所用的同一 typeface 测量并绘制（测量走 `platforms/android/shaping` 里与 renderer 共用的
+  `platformRunAdvance`），链尾 family 只提供行高度量，decision 记录 `AndroidPaint` 来源、该
+  reason 与 capability issue `NoCoveringFaceStringDraw`；此前这种情况直接抛
+  `MissingControlledFontFace`，一个 emoji 就会让整段布局失败。未安装目录时的报错不变。
+- Amendment 2026-09-07：平台路径补上宿主字体入口 `HostTypefaceResolver`。
+  `AndroidTypefaceResolverRegistry` 持有一个进程内共用的 `AndroidTypefaceResolver`，默认仍是
+  `SystemAndroidTypefaceResolver`；`createAndroidTextShaper`、`AndroidFontMetricsResolver`、两个平台
+  shaper 的默认参数、共享 renderer
+  `AndroidParagraphRenderer` 与 `AndroidParagraphMeasurer`（含 measurement session）的默认 typeface，以及
+  native 后端的退化测量都从它取值，测量与绘制共用同一实例；显式传入的解析器仍优先。宿主用自带文件造 `Typeface`（含 `fontVariationSettings`）时在第一个 `CjkText`
+  之前安装。它只解决「用什么字体」：API 29 以下拼不出自定义回退链、API 28 以下没有连续字重、
+  平台不按字号设 `opsz`、API 31 以下没有逐 glyph 字体读回，这些仍是平台文字栈的边界，宿主受控
+  字体的完整能力仍在 native 后端。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
