@@ -5,15 +5,54 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.fonts.Font
+import android.os.Build
 import org.tiqian.core.Glyph
 import org.tiqian.core.Rect
+import org.tiqian.shaping.android.AndroidGlyphReplay
+import org.tiqian.shaping.android.AndroidReplayPlatformFont
 import java.util.LinkedHashMap
 
 /** FreeType outline replay for API 23+, consuming only glyph ids/origins emitted by LayoutResult. */
-object AndroidNativeGlyphReplay {
+object AndroidNativeGlyphReplay : AndroidGlyphReplay {
     private const val MaxCachedScaledOutlines = 4096
     private val cacheLock = Any()
     private val scaledOutlineCache = object : LinkedHashMap<OutlineKey, Path>(128, 0.75f, true) {}
+
+    override fun ownsFont(renderFontKey: String): Boolean =
+        TiqianAndroidFontBackend.replayFace(renderFontKey) != null
+
+    override fun providesItalic(renderFontKey: String): Boolean =
+        TiqianAndroidFontBackend.replayFace(renderFontKey)?.let { it.syntheticItalic || it.italic } == true
+
+    /** API 31+ only; the retained platform Font carries the synthesis the platform selected it with. */
+    override fun platformFont(renderFontKey: String): AndroidReplayPlatformFont? {
+        if (Build.VERSION.SDK_INT < 31) return null
+        val face = TiqianAndroidFontBackend.replayFace(renderFontKey) ?: return null
+        val font = face.platformFont ?: return null
+        return AndroidReplayPlatformFont(
+            font = font,
+            fakeBold = face.syntheticBold,
+            textSkewX = when {
+                face.syntheticItalic -> SyntheticItalicSkewX
+                face.italic -> 0f
+                else -> null
+            },
+        )
+    }
+
+    override fun drawGlyphs(
+        canvas: Canvas,
+        glyphs: List<Glyph>,
+        originX: Float,
+        originY: Float,
+        fontSize: Float,
+        paint: Paint,
+        scratch: Path,
+    ): Boolean {
+        val path = glyphPath(glyphs, originX, originY, fontSize, scratch) ?: return false
+        if (!path.isEmpty) canvas.drawPath(path, paint)
+        return true
+    }
 
     fun drawGlyphs(
         canvas: Canvas,
@@ -22,34 +61,30 @@ object AndroidNativeGlyphReplay {
         originY: Float,
         fontSize: Float,
         paint: Paint,
-        reusablePath: Path? = null,
-    ): Boolean {
-        if (requiresPlatformSyntheticBold(glyphs)) return false
-        val path = glyphPath(glyphs, originX, originY, fontSize, reusablePath) ?: return false
-        if (!path.isEmpty) canvas.drawPath(path, paint)
-        return true
-    }
+    ): Boolean = drawGlyphs(canvas, glyphs, originX, originY, fontSize, paint, Path())
 
     /** True when these glyph ids were produced by faces retained by this backend. */
     fun ownsGlyphs(glyphs: List<Glyph>): Boolean =
-        glyphs.isNotEmpty() && glyphs.all { glyph ->
-            glyph.renderFontKey?.let(TiqianAndroidFontBackend::faceFor) != null
-        }
+        glyphs.isNotEmpty() && glyphs.all { glyph -> glyph.renderFontKey?.let(::ownsFont) == true }
 
     fun requiresPlatformSyntheticBold(glyphs: List<Glyph>): Boolean =
         glyphs.any { glyph ->
-            glyph.renderFontKey?.let(TiqianAndroidFontBackend::isSyntheticBoldFace) == true
+            glyph.renderFontKey?.let(TiqianAndroidFontBackend::replayFace)?.syntheticBold == true
         }
 
     fun usesSyntheticItalic(glyphs: List<Glyph>): Boolean =
         glyphs.any { glyph ->
-            glyph.renderFontKey?.let(TiqianAndroidFontBackend::isSyntheticItalicFace) == true
+            glyph.renderFontKey?.let(TiqianAndroidFontBackend::replayFace)?.syntheticItalic == true
         }
 
+    /** API 31+: the retained platform Font behind a render key, or null. */
     fun platformFontFor(renderFontKey: String): Font? =
-        TiqianAndroidFontBackend.platformFontFor(renderFontKey)
+        if (Build.VERSION.SDK_INT >= 31) TiqianAndroidFontBackend.platformFontFor(renderFontKey) else null
 
-    /** Absolute path used by both paint and decoration skip-ink interception. */
+    /**
+     * Absolute path used by both paint and decoration skip-ink interception. Faces are resolved
+     * once per distinct render key; a platform synthetic-bold face has no outline replay.
+     */
     fun glyphPath(
         glyphs: List<Glyph>,
         originX: Float,
@@ -58,20 +93,26 @@ object AndroidNativeGlyphReplay {
         reusablePath: Path? = null,
     ): Path? {
         if (glyphs.isEmpty()) return null
-        if (requiresPlatformSyntheticBold(glyphs)) return null
         val result = (reusablePath ?: Path()).apply {
             reset()
             fillType = Path.FillType.WINDING
         }
+        var lastKey: String? = null
+        var lastFace: ReplayFace? = null
         for (glyph in glyphs) {
             val key = glyph.renderFontKey ?: return null
-            val face = TiqianAndroidFontBackend.faceFor(key) ?: return null
+            if (key != lastKey) {
+                lastKey = key
+                lastFace = TiqianAndroidFontBackend.replayFace(key) ?: return null
+            }
+            val face = checkNotNull(lastFace)
+            if (face.syntheticBold) return null
             val outline = scaledOutline(
                 faceId = key,
-                face = face,
+                face = face.face,
                 glyphId = glyph.id,
                 fontSize = fontSize,
-                syntheticItalic = TiqianAndroidFontBackend.isSyntheticItalicFace(key),
+                syntheticItalic = face.syntheticItalic,
             ) ?: return null
             result.addPath(outline, originX + glyph.x, originY + glyph.y)
         }

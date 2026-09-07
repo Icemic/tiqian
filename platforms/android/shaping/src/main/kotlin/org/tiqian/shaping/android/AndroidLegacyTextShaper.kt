@@ -25,7 +25,7 @@ import java.util.Locale
  * renderer replays the same display text, typeface, locale and OpenType features with drawTextRun.
  */
 class AndroidLegacyTextShaper(
-    private val typefaceResolver: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
+    private val typefaceResolver: AndroidTypefaceResolver = AndroidTypefaceResolverRegistry.current,
     private val paintConfigurator: (TextPaint, ShapingInput) -> Unit = { _, _ -> },
 ) : TextShaper {
     private val measurementCache = BoundedLegacyPlatformRunMeasurementCache()

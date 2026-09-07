@@ -4,12 +4,14 @@ import android.graphics.Typeface
 import android.text.TextPaint
 import org.tiqian.core.Cluster
 import org.tiqian.core.ColorSpan
+import org.tiqian.core.Glyph
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LayoutResultReplayIndex
 import org.tiqian.core.TextSpan
 import org.tiqian.font.FontRole
+import org.tiqian.shaping.android.AndroidGlyphReplayRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
-import org.tiqian.shaping.android.requiresHanShapingContext
+import org.tiqian.shaping.android.platformRunAdvance
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -66,6 +68,17 @@ internal class AndroidSingleClusterCommand(
     override val typeface: Typeface,
 ) : AndroidDrawCommand
 
+/** A cluster whose glyph ids a registered host glyph replay owns; drawn as outlines. */
+internal class AndroidReplayGlyphCommand(
+    val glyphs: List<Glyph>,
+    val fallback: AndroidSingleClusterCommand,
+) : AndroidDrawCommand {
+    override val paint: AndroidRunPaintKey
+        get() = fallback.paint
+    override val typeface: Typeface
+        get() = fallback.typeface
+}
+
 private class AndroidPlanCluster(
     val cluster: Cluster,
     val drawX: Float,
@@ -77,6 +90,8 @@ private class AndroidPlanCluster(
     val mergeEligible: Boolean,
     /** Identity of the owning line; a merged run never crosses a line break. */
     val line: Any,
+    /** Glyphs owned by a registered host glyph replay; null when the platform draws the cluster. */
+    val replayGlyphs: List<Glyph>?,
 )
 
 /**
@@ -125,6 +140,9 @@ private fun buildAndroidDrawPlanTraced(
             run.style.fontWeight,
             run.style.italic && !synthesizeCjkItalic(run.role, run.style.italic),
         )
+        val replayGlyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty().takeIf { glyphs ->
+            glyphs.isNotEmpty() && glyphs.all { glyph -> glyph.renderFontKey?.let(AndroidGlyphReplayRegistry::replayFor) != null }
+        }
         planClusters += AndroidPlanCluster(
             cluster = cluster,
             drawX = drawX,
@@ -132,8 +150,9 @@ private fun buildAndroidDrawPlanTraced(
             run = run,
             paintKey = paintKey,
             typeface = typeface,
-            mergeEligible = isAndroidMergeEligible(cluster, run, replayIndex),
+            mergeEligible = replayGlyphs == null && isAndroidMergeEligible(cluster, run, replayIndex),
             line = line,
+            replayGlyphs = replayGlyphs,
         )
     }
 
@@ -142,7 +161,7 @@ private fun buildAndroidDrawPlanTraced(
     while (i < planClusters.size) {
         val anchor = planClusters[i]
         if (!anchor.mergeEligible) {
-            commands += anchor.toSingleCommand()
+            commands += anchor.toCommand()
             i += 1
             continue
         }
@@ -153,7 +172,7 @@ private fun buildAndroidDrawPlanTraced(
         if (j - i >= 2 && isNaturalAndroidRun(planClusters, i, j, paint)) {
             commands += mergedAndroidRunCommand(planClusters, i, j)
         } else {
-            for (k in i until j) commands += planClusters[k].toSingleCommand()
+            for (k in i until j) commands += planClusters[k].toCommand()
         }
         i = j
     }
@@ -165,6 +184,7 @@ internal fun replayAndroidDrawPlan(
     canvas: android.graphics.Canvas,
     plan: List<AndroidDrawCommand>,
     paint: TextPaint,
+    drawCache: AndroidParagraphDrawCache,
 ) = tiqianTraceSection("AndroidDrawPlan.replay") {
     var appliedKey: AndroidRunPaintKey? = null
     for (command in plan) {
@@ -177,6 +197,15 @@ internal fun replayAndroidDrawPlan(
                 drawContextShapedText(canvas, command.text, command.startX, command.baselineY, command.role, paint)
             is AndroidSingleClusterCommand ->
                 drawAndroidClusterRun(canvas, command.cluster, command.drawX, command.baselineY, command.run, paint)
+            is AndroidReplayGlyphCommand -> {
+                val fallback = command.fallback
+                val replayed = drawAndroidReplayGlyphs(
+                    canvas, command.glyphs, fallback.drawX, fallback.baselineY, fallback.run.style.fontSize, paint, drawCache,
+                )
+                if (!replayed) {
+                    drawAndroidClusterRun(canvas, fallback.cluster, fallback.drawX, fallback.baselineY, fallback.run, paint)
+                }
+            }
         }
     }
 }
@@ -316,16 +345,8 @@ private fun memoizedNaturalAdvance(paint: TextPaint, text: String, role: FontRol
  * The advance [drawContextShapedText] will consume for [text] under [role], measured with the same
  * paint that draws it. Mirrors the Han-context buffer the draw uses so measurement equals draw.
  */
-private fun measuredAndroidRunAdvance(paint: TextPaint, text: String, role: FontRole): Float {
-    if (text.isEmpty()) return 0f
-    if (!requiresHanShapingContext(text, role)) {
-        return paint.getRunAdvance(text, 0, text.length, 0, text.length, false, text.length)
-    }
-    val buffer = "中${text}中"
-    val penStart = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1)
-    val penEnd = paint.getRunAdvance(buffer, 0, buffer.length, 0, buffer.length, false, 1 + text.length)
-    return penEnd - penStart
-}
+private fun measuredAndroidRunAdvance(paint: TextPaint, text: String, role: FontRole): Float =
+    platformRunAdvance(paint, text, role)
 
 private fun mergedAndroidRunCommand(
     clusters: List<AndroidPlanCluster>,
@@ -344,5 +365,7 @@ private fun mergedAndroidRunCommand(
     )
 }
 
-private fun AndroidPlanCluster.toSingleCommand(): AndroidSingleClusterCommand =
-    AndroidSingleClusterCommand(cluster, drawX, baselineY, run, paintKey, typeface)
+private fun AndroidPlanCluster.toCommand(): AndroidDrawCommand {
+    val single = AndroidSingleClusterCommand(cluster, drawX, baselineY, run, paintKey, typeface)
+    return replayGlyphs?.let { AndroidReplayGlyphCommand(it, single) } ?: single
+}

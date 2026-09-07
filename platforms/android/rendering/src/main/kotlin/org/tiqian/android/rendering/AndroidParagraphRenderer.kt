@@ -30,7 +30,7 @@ import org.tiqian.core.fittedDottedLineCenters
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
-import org.tiqian.shaping.android.SystemAndroidTypefaceResolver
+import org.tiqian.shaping.android.AndroidTypefaceResolverRegistry
 import org.tiqian.shaping.android.requiresHanShapingContext
 import java.util.Locale
 import kotlin.math.max
@@ -57,6 +57,8 @@ internal class AndroidParagraphDrawCache {
     // Kept as Any so loading the cache itself remains safe on API 23-30, where Canvas.drawGlyphs
     // is unavailable. The API 31 helper creates and owns the typed batch lazily.
     internal var glyphBatch31: Any? = null
+    internal val hostReplayFaces = HashMap<String, HostReplayFace?>()
+    internal val hostReplayPath = Path()
 
     // NaturalRunCoalescedDraw (ADR 0050): the API<31 draw plan, built once per geometry and
     // replayed each frame. Cleared with the geometry, and also rebuilt when the paint context
@@ -75,6 +77,7 @@ internal class AndroidParagraphDrawCache {
         skipInkIntervals.clear()
         dashEffects.clear()
         platformFonts31.clear()
+        hostReplayFaces.clear()
         glyphBatch31 = null
         androidDrawPlan = null
         androidDrawPlanColorSpans = null
@@ -90,7 +93,7 @@ internal class AndroidParagraphDrawCache {
  * in [LayoutResult]; this class never re-breaks text or adjusts glyph geometry.
  */
 class AndroidParagraphRenderer(
-    private val typefaces: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
+    private val typefaces: AndroidTypefaceResolver = AndroidTypefaceResolverRegistry.current,
 ) : AutoCloseable {
     private val drawCache = AndroidParagraphDrawCache()
     private var geometry: LayoutResultReplayIndex? = null
@@ -331,6 +334,9 @@ private fun drawAndroidGlyphs(
                     canvas, line.hyphenGlyphs, originX, line.baseline, hyphenPaint, drawCache,
                 )
             if (platformDrawn) continue
+            if (drawAndroidReplayGlyphs(canvas, line.hyphenGlyphs, originX, line.baseline, hyphenPaint.textSize, hyphenPaint, drawCache)) {
+                continue
+            }
 
             drawContextShapedText(canvas, "-", originX, line.baseline, FontRole.LatinText, hyphenPaint)
         }
@@ -359,7 +365,7 @@ private fun drawAndroidPlatformClusters(
         drawCache.androidDrawPlanColor = color
         drawCache.androidDrawPlanColorSpans = colorSpans
     }
-    replayAndroidDrawPlan(canvas, plan, paint)
+    replayAndroidDrawPlan(canvas, plan, paint, drawCache)
 }
 
 /**
@@ -391,10 +397,12 @@ private fun drawAndroidPositionedClusters31(
         }
         if (canUsePlatformGlyphs) {
             for (glyph in glyphs) {
+                val platformFont = checkNotNull(platformFontFor(glyph, drawCache))
+                platformFont.applyTo(paint)
                 batch.append(
                     canvas = canvas,
                     paint = paint,
-                    font = checkNotNull(platformFontFor(glyph, drawCache)),
+                    font = platformFont.font,
                     glyphId = glyph.id.toInt(),
                     x = drawX + glyph.x,
                     y = baselineY + glyph.y,
@@ -404,6 +412,9 @@ private fun drawAndroidPositionedClusters31(
         }
 
         batch.flush(canvas, paint)
+        if (drawAndroidReplayGlyphs(canvas, glyphs, drawX, baselineY, run.style.fontSize, paint, drawCache)) {
+            return@forEachAndroidPositionedCluster
+        }
         drawAndroidClusterRun(canvas, cluster, drawX, baselineY, run, paint)
     }
     batch.flush(canvas, paint)
@@ -462,12 +473,15 @@ internal fun drawAndroidClusterRun(
 private fun platformFontFor(
     glyph: Glyph,
     drawCache: AndroidParagraphDrawCache,
-): android.graphics.fonts.Font? {
+): AndroidPlatformGlyphFont? {
     val key = glyph.renderFontKey ?: return null
     if (drawCache.platformFonts31.containsKey(key)) {
-        return drawCache.platformFonts31[key] as? android.graphics.fonts.Font
+        return drawCache.platformFonts31[key] as? AndroidPlatformGlyphFont
     }
-    val font = AndroidPositionedGlyphFontRegistry.fontFor(key)
+    val font = AndroidPositionedGlyphFontRegistry.fontFor(key)?.let { AndroidPlatformGlyphFont(it, fakeBold = false, textSkewX = null) }
+        ?: hostReplayFaceFor(key, drawCache)?.replay?.platformFont(key)?.let { replayed ->
+            AndroidPlatformGlyphFont(replayed.font as android.graphics.fonts.Font, replayed.fakeBold, replayed.textSkewX)
+        }
     drawCache.platformFonts31[key] = font
     return font
 }
@@ -558,22 +572,29 @@ private fun drawPositionedGlyphs31(
     val fonts = glyphs.map { glyph ->
         platformFontFor(glyph, drawCache) ?: return false
     }
-
-    var start = 0
-    while (start < glyphs.size) {
-        val font = fonts[start]
-        var end = start + 1
-        while (end < glyphs.size && fonts[end] === font) {
-            end += 1
+    val pendingFakeBold = paint.isFakeBoldText
+    val pendingSkew = paint.textSkewX
+    try {
+        var start = 0
+        while (start < glyphs.size) {
+            val font = fonts[start]
+            var end = start + 1
+            while (end < glyphs.size && fonts[end] === font) {
+                end += 1
+            }
+            val count = end - start
+            val ids = IntArray(count) { index -> glyphs[start + index].id.toInt() }
+            val positions = FloatArray(count * 2) { index ->
+                val glyph = glyphs[start + index / 2]
+                if (index % 2 == 0) originX + glyph.x else originY + glyph.y
+            }
+            font.applyTo(paint)
+            canvas.drawGlyphs(ids, 0, positions, 0, count, font.font, paint)
+            start = end
         }
-        val count = end - start
-        val ids = IntArray(count) { index -> glyphs[start + index].id.toInt() }
-        val positions = FloatArray(count * 2) { index ->
-            val glyph = glyphs[start + index / 2]
-            if (index % 2 == 0) originX + glyph.x else originY + glyph.y
-        }
-        canvas.drawGlyphs(ids, 0, positions, 0, count, font, paint)
-        start = end
+    } finally {
+        paint.isFakeBoldText = pendingFakeBold
+        paint.textSkewX = pendingSkew
     }
     return true
 }

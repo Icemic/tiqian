@@ -45,7 +45,7 @@ import kotlin.math.max
  */
 @TargetApi(31)
 class AndroidPaintTextShaper(
-    private val typefaceResolver: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
+    private val typefaceResolver: AndroidTypefaceResolver = AndroidTypefaceResolverRegistry.current,
     private val paintConfigurator: (TextPaint, ShapingInput) -> Unit = { _, _ -> },
 ) : TextShaper {
 

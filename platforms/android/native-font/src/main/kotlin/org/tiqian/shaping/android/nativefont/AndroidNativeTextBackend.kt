@@ -19,6 +19,9 @@ import org.tiqian.shaping.ShapingSource
 import org.tiqian.shaping.TextShaper
 import kotlin.math.abs
 
+/** No controlled face covers the segment; the platform text stack measures and draws it. */
+const val NO_COVERING_FACE_STRING_DRAW_ISSUE = "NoCoveringFaceStringDraw"
+
 /** API 23+ correctness backend: one controlled byte face feeds HB shape, FT metrics/ink and outline replay. */
 class AndroidNativeTextShaper(
     context: Context,
@@ -46,7 +49,12 @@ class AndroidNativeTextShaper(
             selectionText = displayText,
         )
         if (!face.replayable) {
-            return platformStringDrawResult(input, sourceText, displayText, face)
+            return when (face.stringDrawCause) {
+                PlatformStringDrawCause.NoCoveringFace ->
+                    platformStringDrawResult(input, sourceText, displayText, face, "NoCoveringFacePlatformDegrade", NO_COVERING_FACE_STRING_DRAW_ISSUE)
+                else ->
+                    platformStringDrawResult(input, sourceText, displayText, face, "PlatformMultiFaceStringDrawDegrade", PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE)
+            }
         }
         val shaped = face.nativeFace.shape(
             text = displayText,
@@ -144,6 +152,8 @@ class AndroidNativeTextShaper(
         sourceText: String,
         displayText: String,
         face: ResolvedNativeFontFace,
+        reason: String,
+        capabilityIssue: String,
     ): ShapingResult {
         val advance = face.degradedRunAdvance
         val faceKey = face.descriptor.id.value
@@ -180,14 +190,14 @@ class AndroidNativeTextShaper(
                     glyphCount = 1,
                     advance = advance,
                     source = ShapingSource.AndroidPaint.name,
-                    reason = "PlatformMultiFaceStringDrawDegrade",
+                    reason = reason,
                     glyphsWithoutInkBounds = 1,
                     missingGlyphs = 0,
                     resolvedFace = faceKey,
                     script = input.fontDecision.role.nativeScriptName(),
                     language = input.style.locale,
                     strategy = "PlatformDrawTextRunStringFallback",
-                    capabilityIssue = PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE,
+                    capabilityIssue = capabilityIssue,
                 ),
             ),
         )

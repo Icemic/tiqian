@@ -18,7 +18,11 @@ internal data class ResolvedNativeFontFace(
     val replayable: Boolean = true,
     /** Platform-measured run advance used by the non-replayable degrade path. */
     val degradedRunAdvance: Float = 0f,
+    /** Why the segment is drawn by the platform text stack; null when [replayable]. */
+    val stringDrawCause: PlatformStringDrawCause? = null,
 )
+
+internal enum class PlatformStringDrawCause { MultiFace, NoCoveringFace }
 
 internal data class OrderedFamilySelection<T>(
     val familyIndex: Int,

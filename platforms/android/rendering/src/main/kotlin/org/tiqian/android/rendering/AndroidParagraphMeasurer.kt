@@ -13,7 +13,7 @@ import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import org.tiqian.shaping.android.AndroidFontMetricsResolver
 import org.tiqian.shaping.android.AndroidTypefaceResolver
-import org.tiqian.shaping.android.SystemAndroidTypefaceResolver
+import org.tiqian.shaping.android.AndroidTypefaceResolverRegistry
 import org.tiqian.shaping.android.createAndroidTextShaper
 
 /**
@@ -26,7 +26,7 @@ import org.tiqian.shaping.android.createAndroidTextShaper
 class AndroidParagraphMeasurementSession @JvmOverloads constructor(
     shapingCacheEntries: Int = DEFAULT_SHARED_ANDROID_SHAPING_CACHE_ENTRIES,
     metricsCacheEntries: Int = DEFAULT_SHARED_ANDROID_METRICS_CACHE_ENTRIES,
-    val typefaceResolver: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
+    val typefaceResolver: AndroidTypefaceResolver = AndroidTypefaceResolverRegistry.current,
 ) {
     internal val shapingCache = SynchronizedBoundedCache<ShapingInput, ShapingResult>(shapingCacheEntries)
     internal val metricsCache = SynchronizedBoundedCache<FontMetricsRequest, RawFontMetrics>(metricsCacheEntries)
@@ -48,7 +48,7 @@ class AndroidParagraphMeasurer @JvmOverloads constructor(
     private val profile: ClreqProfile = ClreqProfile.MainlandHorizontal,
     session: AndroidParagraphMeasurementSession? = null,
     private val typefaceResolver: AndroidTypefaceResolver =
-        session?.typefaceResolver ?: SystemAndroidTypefaceResolver(),
+        session?.typefaceResolver ?: AndroidTypefaceResolverRegistry.current,
 ) {
     init {
         require(session == null || typefaceResolver === session.typefaceResolver) {

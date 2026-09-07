@@ -17,7 +17,7 @@ import java.util.Locale
  * (`0.88/0.12em`) while still recording raw platform metrics from [TextPaint].
  */
 class AndroidFontMetricsResolver(
-    private val typefaceResolver: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
+    private val typefaceResolver: AndroidTypefaceResolver = AndroidTypefaceResolverRegistry.current,
 ) : FontMetricsResolver {
 
     override fun resolve(request: FontMetricsRequest): RawFontMetrics {

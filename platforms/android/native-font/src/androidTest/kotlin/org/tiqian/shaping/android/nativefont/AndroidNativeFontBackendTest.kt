@@ -184,6 +184,8 @@ class AndroidNativeFontBackendTest {
         assertTrue(resolved.descriptor.italic)
         assertTrue(resolved.descriptor.id.value.endsWith(":syntheticItalic=-0.25"))
         assertTrue(TiqianAndroidFontBackend.isSyntheticItalicFace(resolved.descriptor.id.value))
+        assertTrue(AndroidNativeGlyphReplay.providesItalic(resolved.descriptor.id.value))
+        assertEquals(-0.25f, AndroidNativeGlyphReplay.platformFont(resolved.descriptor.id.value)?.textSkewX)
 
         val regular = AndroidNativeTextShaper(context).shape(
             input("拉", FontRole.CjkText, 32f, italic = false),
@@ -225,6 +227,7 @@ class AndroidNativeFontBackendTest {
         assertTrue(resolved.descriptor.id.value.contains(":syntheticBold=platform"))
         assertTrue(TiqianAndroidFontBackend.isSyntheticBoldFace(resolved.descriptor.id.value))
         assertNotNull(AndroidNativeGlyphReplay.platformFontFor(resolved.descriptor.id.value))
+        assertTrue(checkNotNull(AndroidNativeGlyphReplay.platformFont(resolved.descriptor.id.value)).fakeBold)
 
         val shaped = AndroidNativeTextShaper(context).shape(
             input("\\aleph_0", FontRole.LatinText, 32f, fontWeight = 700),
@@ -700,10 +703,11 @@ class AndroidNativeFontBackendTest {
         return pixels.count { pixel -> (pixel ushr 24) >= 0x40 }
     }
 
+    // `font` is typed as Any so reflection over this class loads below API 29.
     @android.annotation.TargetApi(31)
     private fun platformGlyphInkPixels(
         glyphs: List<org.tiqian.core.Glyph>,
-        font: android.graphics.fonts.Font,
+        font: Any,
         fontSize: Float,
         fakeBold: Boolean,
     ): Int {
@@ -718,7 +722,7 @@ class AndroidNativeFontBackendTest {
             textSize = fontSize
             isFakeBoldText = fakeBold
         }
-        Canvas(bitmap).drawGlyphs(ids, 0, positions, 0, glyphs.size, font, paint)
+        Canvas(bitmap).drawGlyphs(ids, 0, positions, 0, glyphs.size, font as android.graphics.fonts.Font, paint)
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         return pixels.count { pixel -> (pixel ushr 24) >= 0x40 }

@@ -1,7 +1,10 @@
 package org.tiqian.shaping.android.nativefont
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
+import android.os.ParcelFileDescriptor
 import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 
@@ -19,6 +22,14 @@ internal sealed interface PreparedAndroidFontSource {
         override val digestHex: String,
         override val sizeBytes: Long,
         val buffer: ByteBuffer,
+    ) : PreparedAndroidFontSource
+
+    /** A read-only region of an open descriptor; whoever registers it detaches the fd, otherwise it is closed. */
+    data class DescriptorRegion(
+        override val digestHex: String,
+        override val sizeBytes: Long,
+        val descriptor: ParcelFileDescriptor,
+        val offset: Long,
     ) : PreparedAndroidFontSource
 }
 
@@ -89,13 +100,31 @@ sealed class AndroidFontSource protected constructor(
     ) : AndroidFontSource(label) {
         override fun locatorKey(context: Context): String = "asset:${context.packageName}:$path"
 
+        /** `UncompressedAssetRegionMapping`: a stored asset maps its APK byte range; a compressed or empty one is copied. */
         override fun prepare(context: Context): PreparedAndroidFontSource {
+            val region = runCatching { context.assets.openFd(path) }.getOrNull()
+            region?.use { prepareRegion(context, it) }?.let { return it }
             val bytes = context.assets.open(path).use { it.readBytes() }
             val buffer = copyToDirectBuffer(bytes)
             return PreparedAndroidFontSource.DirectBuffer(
                 digestHex = sha256Hex(buffer),
                 sizeBytes = buffer.capacity().toLong(),
                 buffer = buffer,
+            )
+        }
+
+        // The digest stream closes its descriptor, so the mapped descriptor is opened afterwards.
+        private fun prepareRegion(context: Context, region: AssetFileDescriptor): PreparedAndroidFontSource? {
+            val length = region.length
+            val offset = region.startOffset
+            if (length <= 0L) return null
+            val digestHex = region.createInputStream().use(::sha256Hex)
+            val descriptor = context.assets.openFd(path).use { it.parcelFileDescriptor.dup() }
+            return PreparedAndroidFontSource.DescriptorRegion(
+                digestHex = digestHex,
+                sizeBytes = length,
+                descriptor = descriptor,
+                offset = offset,
             )
         }
     }
@@ -122,15 +151,15 @@ private fun sha256Hex(buffer: ByteBuffer): String =
         .digest()
         .toHex()
 
-private fun sha256Hex(file: File): String {
+private fun sha256Hex(file: File): String = file.inputStream().buffered().use(::sha256Hex)
+
+private fun sha256Hex(input: InputStream): String {
     val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().buffered().use { input ->
-        val chunk = ByteArray(DefaultDigestChunkBytes)
-        while (true) {
-            val count = input.read(chunk)
-            if (count < 0) break
-            if (count > 0) digest.update(chunk, 0, count)
-        }
+    val chunk = ByteArray(DefaultDigestChunkBytes)
+    while (true) {
+        val count = input.read(chunk)
+        if (count < 0) break
+        if (count > 0) digest.update(chunk, 0, count)
     }
     return digest.digest().toHex()
 }

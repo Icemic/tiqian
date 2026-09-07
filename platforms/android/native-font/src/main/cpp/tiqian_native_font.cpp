@@ -54,11 +54,13 @@ struct FontBlob {
     const unsigned char* data = nullptr;
     size_t size = 0;
     void* mapping = MAP_FAILED;
+    // Bytes covered by `mapping`; differs from `size` when the region starts mid-page.
+    size_t mapping_size = 0;
     JavaVM* java_vm = nullptr;
     jobject direct_buffer = nullptr;
 
     ~FontBlob() {
-        if (mapping != MAP_FAILED) munmap(mapping, size);
+        if (mapping != MAP_FAILED) munmap(mapping, mapping_size != 0 ? mapping_size : size);
         if (direct_buffer != nullptr && java_vm != nullptr) {
             JNIEnv* env = nullptr;
             bool attached = false;
@@ -340,8 +342,48 @@ Java_org_tiqian_shaping_android_nativefont_NativeFontBridge_nativeRegisterFileSo
     }
     auto source = std::make_shared<FontBlob>();
     source->mapping = mapping;
+    source->mapping_size = static_cast<size_t>(status.st_size);
     source->data = static_cast<const unsigned char*>(mapping);
     source->size = static_cast<size_t>(status.st_size);
+    g_live_source_count.fetch_add(1, std::memory_order_relaxed);
+    g_live_source_bytes.fetch_add(static_cast<jlong>(source->size), std::memory_order_relaxed);
+    return static_cast<jlong>(reinterpret_cast<intptr_t>(new FontBlobHandle(std::move(source))));
+}
+
+// Maps [offset, offset + length) of an open descriptor read-only and takes ownership of the fd.
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_tiqian_shaping_android_nativefont_NativeFontBridge_nativeRegisterDescriptorRegionSource(
+    JNIEnv* env,
+    jobject,
+    jint fd,
+    jlong offset,
+    jlong length
+) {
+    if (fd < 0) {
+        throw_java(env, "java/lang/IllegalArgumentException", "Font descriptor must be open");
+        return 0;
+    }
+    if (offset < 0 || length <= 0 || length > std::numeric_limits<FT_Long>::max()) {
+        close(fd);
+        throw_java(env, "java/lang/IllegalArgumentException", "Font descriptor region is invalid");
+        return 0;
+    }
+    const long page_size = sysconf(_SC_PAGESIZE);
+    const jlong aligned_offset = page_size > 0 ? offset - (offset % page_size) : offset;
+    const size_t delta = static_cast<size_t>(offset - aligned_offset);
+    const size_t mapping_size = static_cast<size_t>(length) + delta;
+    void* mapping = mmap(nullptr, mapping_size, PROT_READ, MAP_PRIVATE, fd, static_cast<off_t>(aligned_offset));
+    const int saved_errno = errno;
+    close(fd);
+    if (mapping == MAP_FAILED) {
+        throw_java(env, "java/io/IOException", "Could not map font descriptor region: " + std::string(std::strerror(saved_errno)));
+        return 0;
+    }
+    auto source = std::make_shared<FontBlob>();
+    source->mapping = mapping;
+    source->mapping_size = mapping_size;
+    source->data = static_cast<const unsigned char*>(mapping) + delta;
+    source->size = static_cast<size_t>(length);
     g_live_source_count.fetch_add(1, std::memory_order_relaxed);
     g_live_source_bytes.fetch_add(static_cast<jlong>(source->size), std::memory_order_relaxed);
     return static_cast<jlong>(reinterpret_cast<intptr_t>(new FontBlobHandle(std::move(source))));
@@ -465,6 +507,37 @@ Java_org_tiqian_shaping_android_nativefont_NativeFontBridge_nativeUnitsPerEm(
         return 0;
     }
     return static_cast<jint>(face->ft_face->units_per_EM);
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_org_tiqian_shaping_android_nativefont_NativeFontBridge_nativeVariationAxisRange(
+    JNIEnv* env,
+    jobject,
+    jlong handle,
+    jint tag
+) {
+    Face* face = face_from(handle);
+    if (face == nullptr || face->ft_face == nullptr) {
+        throw_java(env, "java/lang/IllegalStateException", "Font face is closed");
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> guard(face->mutex);
+    FT_MM_Var* mm_var = nullptr;
+    if (FT_Get_MM_Var(face->ft_face, &mm_var) != 0 || mm_var == nullptr) return nullptr;
+    const auto requested = static_cast<FT_ULong>(static_cast<uint32_t>(tag));
+    jfloatArray result = nullptr;
+    for (FT_UInt axis_index = 0; axis_index < mm_var->num_axis; ++axis_index) {
+        const FT_Var_Axis& axis = mm_var->axis[axis_index];
+        if (axis.tag != requested) continue;
+        result = float_array(env, {
+            static_cast<float>(axis.minimum / 65536.0),
+            static_cast<float>(axis.def / 65536.0),
+            static_cast<float>(axis.maximum / 65536.0),
+        });
+        break;
+    }
+    FT_Done_MM_Var(g_freetype, mm_var);
+    return result;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
