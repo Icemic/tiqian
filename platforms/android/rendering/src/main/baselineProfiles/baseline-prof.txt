@@ -14,7 +14,7 @@ HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->drawAndroidPositio
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->drawAndroidRichTextLines(Landroid/graphics/Canvas;Lorg/tiqian/core/LayoutResult;Lorg/tiqian/core/LayoutResultReplayIndex;ILjava/util/List;Ljava/util/List;Ljava/util/List;Lorg/tiqian/shaping/android/AndroidTypefaceResolver;Lorg/tiqian/android/rendering/AndroidParagraphDrawCache;)V
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->drawAndroidRuby(Landroid/graphics/Canvas;Lorg/tiqian/core/LayoutResult;ILorg/tiqian/shaping/android/AndroidTypefaceResolver;Landroid/text/TextPaint;)V
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->drawContextShapedText(Landroid/graphics/Canvas;Ljava/lang/String;FFLorg/tiqian/font/FontRole;Landroid/text/TextPaint;Z)V
-HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->platformFontFor(Lorg/tiqian/core/Glyph;Lorg/tiqian/android/rendering/AndroidParagraphDrawCache;)Landroid/graphics/fonts/Font;
+HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->platformFontFor(Lorg/tiqian/core/Glyph;Lorg/tiqian/android/rendering/AndroidParagraphDrawCache;)Lorg/tiqian/android/rendering/AndroidPlatformGlyphFont;
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->prepareAndroidGlyphPaint(Landroid/text/TextPaint;Lorg/tiqian/core/Cluster;Lorg/tiqian/android/rendering/AndroidClusterRun;ILjava/util/List;Lorg/tiqian/shaping/android/AndroidTypefaceResolver;)V
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->toAndroidFontFeatureSettings(Ljava/util/List;)Ljava/lang/String;
 HSPLorg/tiqian/android/rendering/AndroidParagraphRendererKt;->toFontRole(Ljava/lang/String;)Lorg/tiqian/font/FontRole;
