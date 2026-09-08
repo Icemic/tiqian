@@ -4,6 +4,7 @@ import org.tiqian.font.FontRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidFontCatalogContractTest {
@@ -82,17 +83,64 @@ class AndroidFontCatalogContractTest {
     }
 
     @Test
-    fun selectionFallsThroughOnlyWhenFamilyDoesNotCoverAndHonoursExplicitPreference() {
-        val primary = Candidate("primary", setOf("primary", "sans-serif"), 400, covers = false)
-        val fallback = Candidate("fallback", setOf("fallback", "sans-serif"), 400, covers = true)
-        assertEquals(
-            fallback,
-            select(listOf(listOf(primary), listOf(fallback)), requestedWeight = 400)?.face,
+    fun styleMatchedFaceDecidesCoverage() {
+        val familyA = listOf(
+            Candidate("a-regular", setOf("a"), 400, covers = false),
+            Candidate("a-bold", setOf("a"), 700, covers = true),
         )
+        val familyB = listOf(Candidate("b-regular", setOf("b"), 400, covers = true))
 
-        val coveringPrimary = primary.copy(covers = true)
+        val atRegular = select(listOf(familyA, familyB), requestedWeight = 400)
+        assertEquals(familyB.single(), atRegular?.face)
+        assertEquals(1, atRegular?.familyIndex)
+
+        val atBold = select(listOf(familyA, familyB), requestedWeight = 700)
+        assertEquals(familyA[1], atBold?.face)
+        assertEquals(0, atBold?.familyIndex)
+
+        // Family A's matched weight-400 face does not cover; its bold face is not consulted.
+        assertNull(select(listOf(familyA), requestedWeight = 400))
+    }
+
+    @Test
+    fun italicMatchPrecedesWeight() {
+        val family = listOf(
+            Candidate("regular", setOf("f"), 400, covers = true, italic = false),
+            Candidate("italic", setOf("f"), 400, covers = true, italic = true),
+            Candidate("bold", setOf("f"), 700, covers = true, italic = false),
+        )
+        assertEquals(
+            family[1],
+            select(listOf(family), requestedWeight = 400, requestedItalic = true)?.face,
+        )
+        assertEquals(
+            family[1],
+            select(listOf(family), requestedWeight = 700, requestedItalic = true)?.face,
+            "italic precedes weight: the italic 400 face wins over the upright bold",
+        )
+        assertEquals(
+            family[2],
+            select(listOf(family), requestedWeight = 700, requestedItalic = false)?.face,
+        )
+    }
+
+    @Test
+    fun cssWeightSearchOrderFollowsCssFontsLevel4() {
+        assertEquals(500, cssWeightSearchOrder(400, listOf(300, 500)))
+        assertEquals(300, cssWeightSearchOrder(400, listOf(300, 700)))
+        assertEquals(200, cssWeightSearchOrder(300, listOf(200, 600)))
+        assertEquals(400, cssWeightSearchOrder(300, listOf(400, 600)))
+        assertEquals(900, cssWeightSearchOrder(600, listOf(400, 900)))
+        assertEquals(500, cssWeightSearchOrder(600, listOf(400, 500)))
+        assertEquals(500, cssWeightSearchOrder(500, listOf(300, 500, 700)))
+    }
+
+    @Test
+    fun honoursExplicitFamilyPreferenceOverCoveringPrimary() {
+        val primary = Candidate("primary", setOf("primary", "sans-serif"), 400, covers = true)
+        val fallback = Candidate("fallback", setOf("fallback", "sans-serif"), 400, covers = true)
         val preferred = select(
-            families = listOf(listOf(coveringPrimary), listOf(fallback)),
+            families = listOf(listOf(primary), listOf(fallback)),
             requestedWeight = 400,
             preferredFamilies = listOf("fallback"),
         )
@@ -103,12 +151,13 @@ class AndroidFontCatalogContractTest {
     private fun select(
         families: List<List<Candidate>>,
         requestedWeight: Int,
+        requestedItalic: Boolean = false,
         preferredFamilies: List<String> = emptyList(),
     ): OrderedFamilySelection<Candidate>? = selectOrderedFamilyFace(
         families = families,
         preferredFamilies = preferredFamilies,
         requestedWeight = requestedWeight,
-        requestedItalic = false,
+        requestedItalic = requestedItalic,
         aliases = Candidate::aliases,
         covers = Candidate::covers,
         weight = Candidate::weight,

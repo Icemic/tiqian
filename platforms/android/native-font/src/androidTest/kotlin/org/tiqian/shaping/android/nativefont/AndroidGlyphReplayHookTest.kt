@@ -57,6 +57,75 @@ class AndroidGlyphReplayHookTest {
     }
 
     @Test
+    fun mixedCoverageFamilyFallsToNextFamilyAtTheMatchedStyle() {
+        val cjk = cjkFontFile()
+        val roboto = File("/system/fonts/Roboto-Regular.ttf")
+        assumeTrue("No system CJK font", cjk != null)
+        assumeTrue("No Roboto", roboto.isFile)
+        // Same file, index and axes share one FontFaceId; the two CJK faces use different indices.
+        assumeTrue("System CJK font is not a collection", cjk!!.name.endsWith(".ttc"))
+        val bodyIndex = 2
+        val fallbackIndex = 0
+        val allRoles = FontRole.entries.toSet()
+        try {
+            val report = TiqianAndroidFontBackend.install(
+                context,
+                AndroidFontCatalog.host(
+                    faceSpecs = listOf(
+                        AndroidFontFaceSpec(
+                            source = AndroidFontSource.file(roboto),
+                            familyKey = "body",
+                            familyAliases = setOf("body"),
+                            roles = allRoles,
+                            weight = 400,
+                        ),
+                        AndroidFontFaceSpec(
+                            source = AndroidFontSource.file(cjk),
+                            collectionIndex = bodyIndex,
+                            familyKey = "body",
+                            familyAliases = setOf("body"),
+                            roles = allRoles,
+                            weight = 700,
+                        ),
+                        AndroidFontFaceSpec(
+                            source = AndroidFontSource.file(cjk),
+                            collectionIndex = fallbackIndex,
+                            familyKey = "fallback",
+                            familyAliases = setOf("fallback"),
+                            roles = allRoles,
+                            weight = 400,
+                        ),
+                    ),
+                    fallbackChains = FontRole.entries.associateWith { listOf("body", "fallback") },
+                ),
+            )
+            val bodyBoldId = report.faces
+                .first { it.sourceLabel == cjk.absolutePath && it.collectionIndex == bodyIndex && it.weight == 700 }
+                .id.value
+            val fallbackId = report.faces
+                .first { it.sourceLabel == cjk.absolutePath && it.collectionIndex == fallbackIndex && it.weight == 400 }
+                .id.value
+            assertNotEquals(bodyBoldId, fallbackId, "the two CJK faces must be distinguishable")
+
+            val shaper = AndroidNativeTextShaper(context)
+            val atRegular = shaper.shape(input("中", FontRole.CjkText, 32f, fontWeight = 400)).glyphRuns.single().glyphs
+            assertEquals(
+                fallbackId,
+                checkNotNull(atRegular.first().renderFontKey),
+                "the body's weight-400 matched face (Latin) does not cover Han, so the fallback family wins",
+            )
+            val atBold = shaper.shape(input("中", FontRole.CjkText, 32f, fontWeight = 700)).glyphRuns.single().glyphs
+            assertEquals(
+                bodyBoldId,
+                checkNotNull(atBold.first().renderFontKey),
+                "the body's weight-700 matched face covers Han, so the body family wins",
+            )
+        } finally {
+            TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        }
+    }
+
+    @Test
     fun opticalSizeFollowsFontSizeWithinTheDeclaredAxisRange() {
         val cjk = cjkFontFile()
         val flex = File("/system/fonts/RobotoFlex-Regular.ttf")
@@ -255,11 +324,17 @@ class AndroidGlyphReplayHookTest {
             ),
         )
 
-    private fun input(text: String, role: FontRole, fontSize: Float, italic: Boolean = false): ShapingInput =
+    private fun input(
+        text: String,
+        role: FontRole,
+        fontSize: Float,
+        italic: Boolean = false,
+        fontWeight: Int = 400,
+    ): ShapingInput =
         ShapingInput(
             text = text,
             range = TextRange(0, text.length),
-            style = TextStyle(fontSize = fontSize, locale = "zh-Hans", italic = italic),
+            style = TextStyle(fontSize = fontSize, locale = "zh-Hans", fontWeight = fontWeight, italic = italic),
             fontDecision = FontDecision(
                 range = TextRange(0, text.length),
                 candidate = FontCandidate("test-$role", "sans-serif", role),
