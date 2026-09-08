@@ -49,17 +49,19 @@ object AndroidNativeGlyphReplay : AndroidGlyphReplay {
         paint: Paint,
         scratch: Path,
     ): Boolean {
-        val (stroked, plain) = glyphs.partition { glyph ->
-            glyph.renderFontKey?.let(TiqianAndroidFontBackend::replayFace)?.syntheticBold == true
+        // Faces are resolved once per distinct key, and nothing is drawn until every glyph is
+        // known to have an outline: a platform fake-bold face (API 31+ Font) has none here.
+        val faces = HashMap<String, ReplayFace>()
+        for (glyph in glyphs) {
+            val key = glyph.renderFontKey ?: return false
+            val face = faces.getOrPut(key) { TiqianAndroidFontBackend.replayFace(key) ?: return false }
+            if (face.syntheticBold && face.platformFont != null) return false
         }
-        if (plain.isNotEmpty()) {
-            val path = glyphPath(plain, originX, originY, fontSize, scratch) ?: return false
-            if (!path.isEmpty) canvas.drawPath(path, paint)
-        }
-        if (stroked.isNotEmpty()) {
-            val path = glyphPath(stroked, originX, originY, fontSize, scratch) ?: return false
-            if (!path.isEmpty) canvas.drawPath(path, strokeSyntheticBoldPaint(paint, fontSize))
-        }
+        val (stroked, plain) = glyphs.partition { glyph -> faces.getValue(glyph.renderFontKey!!).syntheticBold }
+        val plainPath = if (plain.isEmpty()) null else glyphPath(plain, originX, originY, fontSize, scratch) ?: return false
+        val strokedPath = if (stroked.isEmpty()) null else glyphPath(stroked, originX, originY, fontSize) ?: return false
+        if (plainPath != null && !plainPath.isEmpty) canvas.drawPath(plainPath, paint)
+        if (strokedPath != null && !strokedPath.isEmpty) canvas.drawPath(strokedPath, strokeSyntheticBoldPaint(paint, fontSize))
         return true
     }
 
