@@ -226,6 +226,20 @@ class AndroidFontCatalogContractTest {
     }
 
     @Test
+    fun catalogWithoutFacesIsAllowedWhenEveryChainDelegatesToThePlatform() {
+        val marker = AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY
+        val catalog = AndroidFontCatalog.host(
+            faceSpecs = emptyList(),
+            fallbackChains = mapOf(FontRole.CjkText to listOf(marker), FontRole.LatinText to listOf(marker)),
+        )
+        assertTrue(catalog.referencesPlatformDefault)
+        assertTrue(catalog.faceSpecs.isEmpty())
+        assertFailsWith<IllegalArgumentException> {
+            AndroidFontCatalog.host(faceSpecs = emptyList(), fallbackChains = emptyMap())
+        }
+    }
+
+    @Test
     fun requiresSyntheticBoldFollowsMinikin() {
         assertTrue(requiresSyntheticBold(700, 400))
         assertTrue(requiresSyntheticBold(700, 500))

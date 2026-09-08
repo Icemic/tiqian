@@ -59,7 +59,9 @@ data class AndroidFontCatalog(
     val declaredIssues: List<FontBackendCapabilityIssue> = emptyList(),
 ) {
     init {
-        require(faceSpecs.isNotEmpty()) { "AndroidFontCatalog must declare at least one face" }
+        require(faceSpecs.isNotEmpty() || referencesPlatformDefault) {
+            "AndroidFontCatalog must declare at least one face or delegate to $PLATFORM_DEFAULT_FAMILY"
+        }
         require(faceSpecs.none { it.familyKey == PLATFORM_DEFAULT_FAMILY }) {
             "$PLATFORM_DEFAULT_FAMILY is reserved for fallback chains; it cannot declare faces"
         }
