@@ -19,7 +19,13 @@ internal data class ResolvedNativeFontFace(
     val degradedRunAdvance: Float = 0f,
     /** Why the segment is drawn by the platform text stack; null when [replayable]. */
     val stringDrawCause: PlatformStringDrawCause? = null,
+    /** FakeBoldWhenNoBoldFace: the family had no bold face, so the outline is stroked at replay. */
+    val syntheticBold: Boolean = false,
 )
+
+/** Minikin's rule for synthesising bold: a request of 600+ that the matched face undershoots by 200+. */
+internal fun requiresSyntheticBold(requestedWeight: Int, faceWeight: Int): Boolean =
+    requestedWeight >= 600 && requestedWeight - faceWeight >= 200
 
 internal enum class PlatformStringDrawCause { MultiFace, NoCoveringFace }
 
@@ -45,28 +51,47 @@ internal fun <T> selectOrderedFamilyFace(
     italic: (T) -> Boolean,
     stableId: (T) -> String,
 ): OrderedFamilySelection<T>? {
-    val preferred = preferredFamilies.map(::normaliseFamily).filter(String::isNotEmpty)
-    val exactFamilyIndices = if (preferred.isEmpty()) {
-        families.indices.toList()
-    } else {
-        families.indices.filter { familyIndex ->
-            families[familyIndex].any { face ->
-                aliases(face).any { normaliseFamily(it) in preferred }
-            }
-        }
-    }
-    val familyPool = exactFamilyIndices.ifEmpty { families.indices.toList() }
-    return familyPool.firstNotNullOfOrNull { familyIndex ->
+    val pool = orderedFamilyPool(families, preferredFamilies) { family -> family.flatMapTo(linkedSetOf(), aliases) }
+    return pool.indices.firstNotNullOfOrNull { familyIndex ->
         matchStyle(families[familyIndex], requestedWeight, requestedItalic, weight, italic, stableId)
             ?.takeIf(covers)
             ?.let { face ->
                 OrderedFamilySelection(
                     familyIndex = familyIndex,
                     face = face,
-                    exactFamily = preferred.isEmpty() || familyIndex in exactFamilyIndices,
+                    exactFamily = pool.isExact(familyIndex),
                 )
             }
     }
+}
+
+/** Chain positions to try, in chain order; an explicit preference narrows to the families it names. */
+internal class OrderedFamilyPool(
+    val indices: List<Int>,
+    private val exact: Set<Int>,
+    private val hasPreference: Boolean,
+) {
+    fun isExact(familyIndex: Int): Boolean = !hasPreference || familyIndex in exact
+}
+
+internal fun <F> orderedFamilyPool(
+    families: List<F>,
+    preferredFamilies: List<String>,
+    aliases: (F) -> Set<String>,
+): OrderedFamilyPool {
+    val preferred = preferredFamilies.map(::normaliseFamily).filter(String::isNotEmpty)
+    val exact = if (preferred.isEmpty()) {
+        families.indices.toSet()
+    } else {
+        families.indices.filterTo(linkedSetOf()) { familyIndex ->
+            aliases(families[familyIndex]).any { normaliseFamily(it) in preferred }
+        }
+    }
+    return OrderedFamilyPool(
+        indices = exact.ifEmpty { families.indices.toSet() }.toList(),
+        exact = exact,
+        hasPreference = preferred.isNotEmpty(),
+    )
 }
 
 /** Italic first, then the CSS weight search order; declaration order and stable id break ties. */

@@ -1,9 +1,11 @@
 package org.tiqian.shaping.android.nativefont
 
 import org.tiqian.font.FontRole
+import org.tiqian.shaping.FontBackendCapabilityIssue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -146,6 +148,92 @@ class AndroidFontCatalogContractTest {
         )
         assertEquals(fallback, preferred?.face)
         assertTrue(preferred?.exactFamily == true)
+    }
+
+    @Test
+    fun platformDefaultMarkerIsAllowedInChainsButNotAsAFamily() {
+        val marker = AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY
+        val catalog = AndroidFontCatalog(
+            faceSpecs = listOf(face("latin", weight = 400, FontRole.LatinText)),
+            fallbackChains = mapOf(
+                FontRole.CjkText to listOf(marker),
+                FontRole.LatinText to listOf("latin", marker),
+            ),
+        )
+        assertTrue(catalog.referencesPlatformDefault)
+
+        assertFailsWith<IllegalArgumentException> {
+            AndroidFontCatalog(
+                faceSpecs = listOf(face(marker, weight = 400, FontRole.LatinText)),
+                fallbackChains = mapOf(FontRole.LatinText to listOf(marker)),
+            )
+        }
+
+        val withoutMarker = AndroidFontCatalog.host(listOf(face("latin", weight = 400, FontRole.LatinText)))
+        assertFalse(withoutMarker.referencesPlatformDefault)
+    }
+
+    @Test
+    fun expandPlatformDefaultSplicesSystemFamiliesAndNarrowsRoles() {
+        val marker = AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY
+        val host = AndroidFontCatalog(
+            faceSpecs = listOf(face("latin", weight = 400, FontRole.LatinText, FontRole.Symbol)),
+            fallbackChains = mapOf(
+                FontRole.CjkText to listOf(marker),
+                FontRole.CjkPunctuation to listOf(marker),
+                FontRole.LatinText to listOf("latin", marker),
+                FontRole.Symbol to listOf("latin"),
+                FontRole.Emoji to listOf(marker),
+            ),
+        )
+        val system = AndroidFontCatalog(
+            faceSpecs = listOf(
+                face("cjk", weight = 400, FontRole.CjkText, FontRole.CjkPunctuation, FontRole.Symbol),
+                face("sans", weight = 400, FontRole.CjkPunctuation, FontRole.LatinText, FontRole.Symbol),
+            ),
+            fallbackChains = mapOf(
+                FontRole.CjkText to listOf("cjk"),
+                FontRole.CjkPunctuation to listOf("cjk", "sans"),
+                FontRole.LatinText to listOf("sans"),
+                FontRole.Symbol to listOf("sans", "cjk"),
+            ),
+            sourceKind = "sys",
+            declaredIssues = listOf(FontBackendCapabilityIssue("X", "y")),
+        )
+
+        val expanded = host.expandPlatformDefault(system)
+
+        assertEquals(listOf("platform-default:cjk"), expanded.fallbackChains.getValue(FontRole.CjkText))
+        assertEquals(
+            listOf("platform-default:cjk", "platform-default:sans"),
+            expanded.fallbackChains.getValue(FontRole.CjkPunctuation),
+        )
+        assertEquals(listOf("latin", "platform-default:sans"), expanded.fallbackChains.getValue(FontRole.LatinText))
+        assertEquals(listOf("latin"), expanded.fallbackChains.getValue(FontRole.Symbol))
+        assertFalse(expanded.fallbackChains.containsKey(FontRole.Emoji), "system had no Emoji chain")
+
+        assertEquals(
+            setOf(FontRole.CjkText, FontRole.CjkPunctuation),
+            expanded.faceSpecs.first { it.familyKey == "platform-default:cjk" }.roles,
+        )
+        assertEquals(
+            setOf(FontRole.CjkPunctuation, FontRole.LatinText),
+            expanded.faceSpecs.first { it.familyKey == "platform-default:sans" }.roles,
+        )
+        assertTrue(expanded.sourceKind.contains(host.sourceKind), expanded.sourceKind)
+        assertTrue(expanded.sourceKind.contains("sys"), expanded.sourceKind)
+        assertTrue(expanded.declaredIssues.any { it.code == "X" }, expanded.declaredIssues.toString())
+    }
+
+    @Test
+    fun requiresSyntheticBoldFollowsMinikin() {
+        assertTrue(requiresSyntheticBold(700, 400))
+        assertTrue(requiresSyntheticBold(700, 500))
+        assertTrue(requiresSyntheticBold(600, 400))
+        assertFalse(requiresSyntheticBold(600, 500))
+        assertFalse(requiresSyntheticBold(500, 300))
+        assertFalse(requiresSyntheticBold(700, 700))
+        assertTrue(requiresSyntheticBold(900, 700))
     }
 
     private fun select(

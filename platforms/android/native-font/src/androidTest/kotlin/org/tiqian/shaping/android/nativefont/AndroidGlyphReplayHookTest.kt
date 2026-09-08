@@ -5,11 +5,13 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.tiqian.core.Glyph
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
 import org.tiqian.font.FontCandidate
@@ -21,7 +23,9 @@ import org.tiqian.shaping.android.AndroidGlyphReplayRegistry
 import java.io.File
 import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -296,6 +300,177 @@ class AndroidGlyphReplayHookTest {
         } finally {
             TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
         }
+    }
+
+    @Test
+    fun platformDefaultChainShapesHanWithSystemFacesAndKeepsHostLatin() {
+        val roboto = File("/system/fonts/Roboto-Regular.ttf")
+        assumeTrue("No Roboto", roboto.isFile)
+        try {
+            TiqianAndroidFontBackend.install(context, platformDefaultHostCatalog(roboto))
+            val shaper = AndroidNativeTextShaper(context)
+
+            val han = shaper.shape(input("中", FontRole.CjkText, 32f)).glyphRuns.single()
+            assertTrue(han.glyphs.isNotEmpty(), "Han run must not be empty")
+            val hanKey = checkNotNull(han.glyphs.first().renderFontKey) { "Han glyph must carry a render key" }
+            val hanLabel = checkNotNull(TiqianAndroidFontBackend.replayFaceDescriptor(hanKey)).sourceLabel
+            assertTrue(
+                hanLabel.contains("NotoSansCJK") || !hanLabel.endsWith("Roboto-Regular.ttf"),
+                "Han must be shaped with a system CJK face, not the host Roboto: $hanLabel",
+            )
+            assertTrue(AndroidNativeGlyphReplay.ownsGlyphs(han.glyphs), "system CJK glyphs must be replayable")
+
+            val latin = shaper.shape(input("A", FontRole.LatinText, 32f)).glyphRuns.single()
+            val latinKey = checkNotNull(latin.glyphs.first().renderFontKey)
+            assertTrue(
+                checkNotNull(TiqianAndroidFontBackend.replayFaceDescriptor(latinKey)).sourceLabel.endsWith("Roboto-Regular.ttf"),
+                "Latin must stay on the host family",
+            )
+
+            val punct = shaper.shape(input("。", FontRole.CjkPunctuation, 32f)).glyphRuns.single()
+            assertNotNull(punct.glyphs.first().renderFontKey, "CJK punctuation must resolve to a face")
+
+            val emoji = shaper.shape(input("😀", FontRole.Emoji, 32f))
+            assertEquals(1, emoji.glyphRuns.size, "emoji must produce exactly one run")
+
+            val issues = TiqianAndroidFontBackend.capabilityReport(context).issues
+            assertTrue(issues.none { it.code == "MissingControlledFontFace" }, issues.toString())
+        } finally {
+            TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        }
+    }
+
+    @Test
+    fun platformDefaultChainOnApi31UsesTheOracle() {
+        assumeTrue("Requires API 31+ platform read-back", Build.VERSION.SDK_INT >= 31)
+        val roboto = File("/system/fonts/Roboto-Regular.ttf")
+        assumeTrue("No Roboto", roboto.isFile)
+        try {
+            TiqianAndroidFontBackend.install(context, platformDefaultHostCatalog(roboto))
+            val revisionBefore = TiqianAndroidFontBackend.catalogRevision(context)
+            val key = checkNotNull(
+                AndroidNativeTextShaper(context).shape(input("中", FontRole.CjkText, 32f))
+                    .glyphRuns.single().glyphs.first().renderFontKey,
+            )
+            val label = checkNotNull(TiqianAndroidFontBackend.replayFaceDescriptor(key)).sourceLabel
+            assertFalse(label.startsWith("platform-default:"), label)
+            assertFalse(label.startsWith("DeclaredFontConfig:"), label)
+            assertEquals(
+                revisionBefore,
+                TiqianAndroidFontBackend.catalogRevision(context),
+                "shaping must not install a new catalog",
+            )
+        } finally {
+            TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        }
+    }
+
+    @Test
+    fun platformDefaultChainBelowApi31ExpandsDeclaredFamilies() {
+        assumeTrue("Requires API < 31 declared-config expansion", Build.VERSION.SDK_INT < 31)
+        val roboto = File("/system/fonts/Roboto-Regular.ttf")
+        assumeTrue("No Roboto", roboto.isFile)
+        try {
+            val report = TiqianAndroidFontBackend.install(context, platformDefaultHostCatalog(roboto))
+            val key = checkNotNull(
+                AndroidNativeTextShaper(context).shape(input("中", FontRole.CjkText, 32f))
+                    .glyphRuns.single().glyphs.first().renderFontKey,
+            )
+            val label = checkNotNull(TiqianAndroidFontBackend.replayFaceDescriptor(key)).sourceLabel
+            assertTrue(label.startsWith("DeclaredFontConfig:"), label)
+            assertTrue(
+                report.issues.any { it.code == "RuntimeFontSelectionUnobservableBelowApi31" },
+                report.issues.toString(),
+            )
+        } finally {
+            TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        }
+    }
+
+    @Test
+    fun strokeSyntheticBoldWhenTheFamilyHasNoBoldFace() {
+        val cjk = cjkFontFile()
+        assumeTrue("No system CJK font", cjk != null)
+        try {
+            TiqianAndroidFontBackend.install(
+                context,
+                AndroidFontCatalog.host(
+                    faceSpecs = listOf(
+                        AndroidFontFaceSpec(
+                            source = AndroidFontSource.file(cjk!!),
+                            collectionIndex = if (cjk.name.endsWith(".ttc")) 2 else 0,
+                            familyKey = "cjk",
+                            familyAliases = setOf("sans-serif", "noto sans cjk sc"),
+                            roles = FontRole.entries.toSet(),
+                            weight = 400,
+                        ),
+                    ),
+                    fallbackChains = FontRole.entries.associateWith { listOf("cjk") },
+                ),
+            )
+            val shaper = AndroidNativeTextShaper(context)
+
+            val bold = shaper.shape(input("中", FontRole.CjkText, 40f, fontWeight = 700))
+            val boldRun = bold.glyphRuns.single()
+            val boldKey = checkNotNull(boldRun.glyphs.first().renderFontKey)
+            val regular = shaper.shape(input("中", FontRole.CjkText, 40f, fontWeight = 400))
+            val regularRun = regular.glyphRuns.single()
+            val regularKey = checkNotNull(regularRun.glyphs.first().renderFontKey)
+
+            assertTrue(boldKey.endsWith(":syntheticBold=stroke"), boldKey)
+            assertTrue(
+                checkNotNull(TiqianAndroidFontBackend.replayFaceDescriptor(boldKey))
+                    .sourceLabel.endsWith(":syntheticBold=stroke"),
+            )
+            assertTrue(TiqianAndroidFontBackend.isSyntheticBoldFace(boldKey))
+            assertFalse(regularKey.endsWith(":syntheticBold=stroke"), regularKey)
+            assertEquals(regularKey + ":syntheticBold=stroke", boldKey, "keys differ only by the stroke suffix")
+            assertEquals(regularRun.advance, boldRun.advance, "synthetic bold keeps the same native advance")
+            assertTrue(
+                bold.decisions.single().reason.contains("FakeBoldWhenNoBoldFace"),
+                bold.decisions.single().reason,
+            )
+
+            val boldInk = drawnInkPixels(boldRun.glyphs)
+            val regularInk = drawnInkPixels(regularRun.glyphs)
+            assertTrue(
+                boldInk > regularInk,
+                "stroke synthetic bold must ink more pixels: bold=$boldInk regular=$regularInk",
+            )
+        } finally {
+            TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        }
+    }
+
+    /** Host declares only a Latin family; every other role delegates to the platform default. */
+    private fun platformDefaultHostCatalog(roboto: File): AndroidFontCatalog {
+        val marker = AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY
+        return AndroidFontCatalog(
+            faceSpecs = listOf(
+                AndroidFontFaceSpec(
+                    source = AndroidFontSource.file(roboto),
+                    familyKey = "host-latin",
+                    familyAliases = setOf("host-latin", "roboto"),
+                    roles = setOf(FontRole.LatinText, FontRole.Symbol, FontRole.Unknown),
+                    weight = 400,
+                ),
+            ),
+            fallbackChains = mapOf(
+                FontRole.CjkText to listOf(marker),
+                FontRole.CjkPunctuation to listOf(marker),
+                FontRole.LatinText to listOf("host-latin", marker),
+                FontRole.Symbol to listOf(marker, "host-latin"),
+                FontRole.Emoji to listOf(marker),
+                FontRole.Unknown to listOf(marker, "host-latin"),
+            ),
+        )
+    }
+
+    private fun drawnInkPixels(glyphs: List<Glyph>): Int {
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF000000.toInt() }
+        AndroidNativeGlyphReplay.drawGlyphs(Canvas(bitmap), glyphs, 4f, 48f, 40f, paint)
+        return inkPixels(bitmap)
     }
 
     private fun cjkSpecId(file: File): String =

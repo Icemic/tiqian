@@ -49,9 +49,33 @@ object AndroidNativeGlyphReplay : AndroidGlyphReplay {
         paint: Paint,
         scratch: Path,
     ): Boolean {
-        val path = glyphPath(glyphs, originX, originY, fontSize, scratch) ?: return false
-        if (!path.isEmpty) canvas.drawPath(path, paint)
+        val (stroked, plain) = glyphs.partition { glyph ->
+            glyph.renderFontKey?.let(TiqianAndroidFontBackend::replayFace)?.syntheticBold == true
+        }
+        if (plain.isNotEmpty()) {
+            val path = glyphPath(plain, originX, originY, fontSize, scratch) ?: return false
+            if (!path.isEmpty) canvas.drawPath(path, paint)
+        }
+        if (stroked.isNotEmpty()) {
+            val path = glyphPath(stroked, originX, originY, fontSize, scratch) ?: return false
+            if (!path.isEmpty) canvas.drawPath(path, strokeSyntheticBoldPaint(paint, fontSize))
+        }
         return true
+    }
+
+    /** StrokeSyntheticBold: fill plus a stroke of Skia's fake-bold width (1/24 em at 9 px to 1/32 em at 36 px). */
+    private fun strokeSyntheticBoldPaint(paint: Paint, fontSize: Float): Paint {
+        val ratio = when {
+            fontSize <= 9f -> 1f / 24f
+            fontSize >= 36f -> 1f / 32f
+            else -> 1f / 24f + (1f / 32f - 1f / 24f) * (fontSize - 9f) / 27f
+        }
+        return Paint(paint).apply {
+            style = Paint.Style.FILL_AND_STROKE
+            strokeWidth = fontSize * ratio
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
     }
 
     fun drawGlyphs(
@@ -83,7 +107,8 @@ object AndroidNativeGlyphReplay : AndroidGlyphReplay {
 
     /**
      * Absolute path used by both paint and decoration skip-ink interception. Faces are resolved
-     * once per distinct render key; a platform synthetic-bold face has no outline replay.
+     * once per distinct render key; a platform synthetic-bold face (API 31+ Font) has no outline
+     * replay, a stroke synthetic-bold face replays its unstroked outline.
      */
     fun glyphPath(
         glyphs: List<Glyph>,
@@ -106,7 +131,7 @@ object AndroidNativeGlyphReplay : AndroidGlyphReplay {
                 lastFace = TiqianAndroidFontBackend.replayFace(key) ?: return null
             }
             val face = checkNotNull(lastFace)
-            if (face.syntheticBold) return null
+            if (face.syntheticBold && face.platformFont != null) return null
             val outline = scaledOutline(
                 faceId = key,
                 face = face.face,

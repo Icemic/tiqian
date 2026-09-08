@@ -124,6 +124,7 @@ class AndroidNativeTextShaper(
                         }
                         if (!face.exactFamily) append(":RequestedFamilyUnavailable")
                         if (!face.exactStyle) append(":RequestedStyleFaceUnavailable")
+                        if (face.syntheticBold) append(":FakeBoldWhenNoBoldFace")
                     },
                     glyphsWithoutInkBounds = glyphs.count { it.bounds == null },
                     missingGlyphs = shaped.missingGlyphs,
