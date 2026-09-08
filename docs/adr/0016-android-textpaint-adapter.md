@@ -117,6 +117,21 @@
   也不承诺系统主题运行中切换后自动刷新。记录但不在此决定的扩展：`TextStyle.fontFamilies` 从
   筛选链改为样式自带顺序（EPUB 每份文档自带 `font-family` 列表）；`WeightFollowsRequest` 按请求
   字重实例化可变字体，与 `OpticalSizeFollowsFontSize` 同构；样式缺失的显式策略（CSS 没有此项）。
+- Amendment 2026-09-08（三）：`PlatformDefaultFamily`。宿主目录的 fallback 链里可以写保留名
+  `AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY`（`platform-default`），表示「这一位交给平台自己
+  选字」，它不声明 face。API 31+ 在解析时走到这一位就按 2026-08-05（三）的平台读回逐请求问平台，
+  平台面覆盖文本即选用，不覆盖则继续下一位；链尾仍是这一位时由平台文字栈退化绘制，读回的面只
+  供度量。API 23 到 30 在安装时把这一位展开成 fonts.xml 声明目录里该角色的家族（key 加
+  `platform-default:` 前缀，角色只保留宿主链委托的那些角色，系统目录的 capability issue 一并
+  带入）。宿主由此可以只自带拉丁或标点字体、中文正文跟随系统，而不必在「整套跟随系统」与
+  「全部自带」之间二选一；(二) 的 `system(context)` 保留为发现入口。
+- Amendment 2026-09-08（四）：`FakeBoldWhenNoBoldFace` 与 `StrokeSyntheticBold`。宿主目录里按样式
+  挑出的面字重比请求低 200 以上、且请求不低于 600 时（Minikin 的假粗体条件），该面以
+  `:syntheticBold=stroke` 后缀的 `FontFaceId` 登记为合成粗体面，度量与 shaping 仍用同一
+  FreeType / HarfBuzz face，advance 不变；回放时 outline 以 fill 加 stroke 绘制，stroke 宽度取
+  Skia 假粗体的比例（9 px 处 1/24 em，36 px 处 1/32 em，之间线性）。decision reason 追加
+  `FakeBoldWhenNoBoldFace`。skip-ink 与 ink bounds 用未描边的 outline，偏差在 stroke 半宽以内。
+  平台读回的合成粗体（API 31+ `Font` 加 `fakeBoldText`）不变。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
