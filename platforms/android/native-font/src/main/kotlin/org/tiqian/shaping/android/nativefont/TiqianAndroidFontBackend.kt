@@ -344,6 +344,9 @@ object TiqianAndroidFontBackend {
         check(it > 0L) { "Android font catalog revision overflow" }
     }
 
+    /** Discovery only: the catalog [install] would fall back to, without loading or installing it. */
+    fun systemCatalog(context: Context): AndroidFontCatalog = defaultCatalog(context.applicationContext)
+
     private fun defaultCatalog(context: Context): AndroidFontCatalog {
         if (Build.VERSION.SDK_INT >= 31) {
             AndroidPlatformFontOracle.bootstrapCatalogOrNull()?.let { return it }

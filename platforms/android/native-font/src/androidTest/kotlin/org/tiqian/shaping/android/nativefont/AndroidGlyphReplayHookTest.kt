@@ -126,6 +126,21 @@ class AndroidGlyphReplayHookTest {
     }
 
     @Test
+    fun systemCatalogIsDiscoverableWithoutInstalling() {
+        val revisionBefore = TiqianAndroidFontBackend.catalogRevision(context)
+        val catalog = AndroidFontCatalog.system(context)
+        assertTrue(catalog.faceSpecs.isNotEmpty(), "system catalog must declare faces")
+        assertTrue(catalog.fallbackChains.containsKey(FontRole.CjkText), "system catalog must chain CjkText")
+        assertTrue(catalog.fallbackChains.containsKey(FontRole.LatinText), "system catalog must chain LatinText")
+        assertTrue(catalog.sourceKind.isNotBlank(), "system catalog must name its source kind")
+        assertEquals(
+            revisionBefore,
+            TiqianAndroidFontBackend.catalogRevision(context),
+            "discovery must not install a catalog",
+        )
+    }
+
+    @Test
     fun opticalSizeFollowsFontSizeWithinTheDeclaredAxisRange() {
         val cjk = cjkFontFile()
         val flex = File("/system/fonts/RobotoFlex-Regular.ttf")

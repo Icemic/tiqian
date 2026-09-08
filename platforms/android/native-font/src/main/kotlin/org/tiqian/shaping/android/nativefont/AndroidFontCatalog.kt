@@ -1,5 +1,6 @@
 package org.tiqian.shaping.android.nativefont
 
+import android.content.Context
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.FontBackendCapabilityIssue
 
@@ -97,6 +98,12 @@ data class AndroidFontCatalog(
             faceSpecs = faceSpecs,
             fallbackChains = fallbackChains,
         )
+
+        /**
+         * The system catalog the backend uses when no host catalog is installed; hosts merge its
+         * face specs and chains with their own before `install()`.
+         */
+        fun system(context: Context): AndroidFontCatalog = TiqianAndroidFontBackend.systemCatalog(context)
     }
 }
 
