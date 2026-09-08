@@ -1,7 +1,6 @@
 package org.tiqian.shaping.android.nativefont
 
 import org.tiqian.shaping.ReplayableFontFaceDescriptor
-import kotlin.math.abs
 
 /** Loaded face plus evidence about request matching; shared by shaping, metrics and replay. */
 internal data class ResolvedNativeFontFace(
@@ -20,7 +19,13 @@ internal data class ResolvedNativeFontFace(
     val degradedRunAdvance: Float = 0f,
     /** Why the segment is drawn by the platform text stack; null when [replayable]. */
     val stringDrawCause: PlatformStringDrawCause? = null,
+    /** FakeBoldWhenNoBoldFace: the family had no bold face, so the outline is stroked at replay. */
+    val syntheticBold: Boolean = false,
 )
+
+/** Minikin's rule for synthesising bold: a request of 600+ that the matched face undershoots by 200+. */
+internal fun requiresSyntheticBold(requestedWeight: Int, faceWeight: Int): Boolean =
+    requestedWeight >= 600 && requestedWeight - faceWeight >= 200
 
 internal enum class PlatformStringDrawCause { MultiFace, NoCoveringFace }
 
@@ -30,7 +35,11 @@ internal data class OrderedFamilySelection<T>(
     val exactFamily: Boolean,
 )
 
-/** Family order is authoritative; italic/weight matching happens only inside one covering family. */
+/**
+ * StyleMatchedFaceCoverage: family order is authoritative; inside a family the face is chosen by
+ * italic then weight (CSS Fonts Level 4 §5.2 search order), and only that face is checked for glyph
+ * coverage. A family whose matched face lacks the text is skipped; its other faces are not consulted.
+ */
 internal fun <T> selectOrderedFamilyFace(
     families: List<List<T>>,
     preferredFamilies: List<String>,
@@ -42,37 +51,82 @@ internal fun <T> selectOrderedFamilyFace(
     italic: (T) -> Boolean,
     stableId: (T) -> String,
 ): OrderedFamilySelection<T>? {
-    val preferred = preferredFamilies.map(::normaliseFamily).filter(String::isNotEmpty)
-    val exactFamilyIndices = if (preferred.isEmpty()) {
-        families.indices.toList()
-    } else {
-        families.indices.filter { familyIndex ->
-            families[familyIndex].any { face ->
-                aliases(face).any { normaliseFamily(it) in preferred }
-            }
-        }
-    }
-    val familyPool = exactFamilyIndices.ifEmpty { families.indices.toList() }
-    return familyPool.firstNotNullOfOrNull { familyIndex ->
-        families[familyIndex]
-            .withIndex()
-            .filter { covers(it.value) }
-            .minWithOrNull(
-                compareBy<IndexedValue<T>>(
-                    { if (italic(it.value) == requestedItalic) 0 else 1 },
-                    { abs(weight(it.value) - requestedWeight) },
-                    IndexedValue<T>::index,
-                    { stableId(it.value) },
-                ),
-            )
-            ?.value
+    val pool = orderedFamilyPool(families, preferredFamilies) { family -> family.flatMapTo(linkedSetOf(), aliases) }
+    return pool.indices.firstNotNullOfOrNull { familyIndex ->
+        matchStyle(families[familyIndex], requestedWeight, requestedItalic, weight, italic, stableId)
+            ?.takeIf(covers)
             ?.let { face ->
                 OrderedFamilySelection(
                     familyIndex = familyIndex,
                     face = face,
-                    exactFamily = preferred.isEmpty() || familyIndex in exactFamilyIndices,
+                    exactFamily = pool.isExact(familyIndex),
                 )
             }
+    }
+}
+
+/** Chain positions to try, in chain order; an explicit preference narrows to the families it names. */
+internal class OrderedFamilyPool(
+    val indices: List<Int>,
+    private val exact: Set<Int>,
+    private val hasPreference: Boolean,
+) {
+    fun isExact(familyIndex: Int): Boolean = !hasPreference || familyIndex in exact
+}
+
+internal fun <F> orderedFamilyPool(
+    families: List<F>,
+    preferredFamilies: List<String>,
+    aliases: (F) -> Set<String>,
+): OrderedFamilyPool {
+    val preferred = preferredFamilies.map(::normaliseFamily).filter(String::isNotEmpty)
+    val exact = if (preferred.isEmpty()) {
+        families.indices.toSet()
+    } else {
+        families.indices.filterTo(linkedSetOf()) { familyIndex ->
+            aliases(families[familyIndex]).any { normaliseFamily(it) in preferred }
+        }
+    }
+    return OrderedFamilyPool(
+        indices = exact.ifEmpty { families.indices.toSet() }.toList(),
+        exact = exact,
+        hasPreference = preferred.isNotEmpty(),
+    )
+}
+
+/** Italic first, then the CSS weight search order; declaration order and stable id break ties. */
+internal fun <T> matchStyle(
+    faces: List<T>,
+    requestedWeight: Int,
+    requestedItalic: Boolean,
+    weight: (T) -> Int,
+    italic: (T) -> Boolean,
+    stableId: (T) -> String,
+): T? {
+    if (faces.isEmpty()) return null
+    val styled = faces.withIndex().filter { italic(it.value) == requestedItalic }.ifEmpty { faces.withIndex() }
+    val chosenWeight = cssWeightSearchOrder(requestedWeight, styled.map { weight(it.value) }.toSortedSet())
+    return styled
+        .filter { weight(it.value) == chosenWeight }
+        .minWithOrNull(compareBy(IndexedValue<T>::index, { stableId(it.value) }))
+        ?.value
+}
+
+/** The weight CSS Fonts Level 4 §5.2 picks from [available] for [requested]. */
+internal fun cssWeightSearchOrder(
+    requested: Int,
+    available: Collection<Int>,
+): Int {
+    require(available.isNotEmpty()) { "At least one weight is required" }
+    if (requested in available) return requested
+    val below = available.filter { it < requested }.sortedDescending()
+    val above = available.filter { it > requested }.sorted()
+    return when {
+        requested in 400..500 -> {
+            above.firstOrNull { it <= 500 } ?: below.firstOrNull() ?: above.first()
+        }
+        requested < 400 -> below.firstOrNull() ?: above.first()
+        else -> above.firstOrNull() ?: below.first()
     }
 }
 

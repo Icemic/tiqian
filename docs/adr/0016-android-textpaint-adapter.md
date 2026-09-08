@@ -93,6 +93,45 @@
   之前安装。它只解决「用什么字体」：API 29 以下拼不出自定义回退链、API 28 以下没有连续字重、
   平台不按字号设 `opsz`、API 31 以下没有逐 glyph 字体读回，这些仍是平台文字栈的边界，宿主受控
   字体的完整能力仍在 native 后端。
+- Amendment 2026-09-08：`StyleMatchedFaceCoverage`。2026-08-05 修订写的「只有该 family 不覆盖
+  文本时才进入下一 family」没有说明按哪张面判断，实现选了「family 内任一面覆盖即不换 family」，
+  再在剩下的面里按样式就近挑。这隐含同一 family 各面字集相同的前提；这是系统字体打包的习惯，
+  不是排版事实。中文正文的样式分派常跨字体（正文一款字体只有一个字重、斜体换楷体、粗体换另一
+  款字体），CSS `@font-face` 也允许把不同来源的文件声明进同一 family。舒页把 U 明（正体 400 档）、
+  FandolKai（斜体）与思源宋 wght 700（粗体）声明进同一正文 family，回退 family 是思源宋 wght 250；
+  U 明没有「婳」时实现剔除 U 明后留在正文 family 内，常规正文被画成 700，回退 family 永远走不到。
+  自此改为 CSS Fonts Level 4 §5.2 的次序：family 内先按斜体、再按字重挑出一张面（字重按该节
+  规定的搜索方向，不再取绝对差最小：目标在 400 到 500 之间先向上到 500、再向下、再向上；小于
+  400 先向下再向上；大于 500 先向上再向下），只检查这张面是否覆盖请求文本，不覆盖就换下一
+  family，不考虑同 family 其他面；整条链都不覆盖时沿用 `NoCoveringFacePlatformDegrade`。样式缺失
+  仍只合成、不换 family；`preferredFamilies` 筛选、`exactFamily` / `exactStyle` 与 capability issue
+  不变。同 family 各面字集相同时结果与此前一致。否决的替代：维持覆盖优先并要求宿主声明伴随面
+  （把实现前提转嫁给每个宿主）；照 Minikin 用 family 默认样式那张面的字集代表整个 family（缺字
+  判断取决于哪张面算默认，与 CSS 不同）。
+- Amendment 2026-09-08（二）：公开系统字体发现 `AndroidFontCatalog.system(context)`。宿主要提供
+  「系统默认字体」时常只想让中文正文跟随系统，拉丁与标点仍用自带字体；此前系统目录的三条发现
+  路径都是 internal，宿主只能在整套跟随系统与全部自带之间二选一。新入口按 `defaultCatalog` 的
+  同一优先次序返回后端未安装宿主目录时会使用的那份目录，`faceSpecs` 带文件源、TTC index、字重、
+  斜体与轴实例，`fallbackChains`、`sourceKind` 与 `declaredIssues` 原样携带；宿主可把这些 face
+  spec 与自己的面合成新目录再 `install()`，目录构造时的链校验不变。只做发现，不改变默认路径，
+  也不承诺系统主题运行中切换后自动刷新。记录但不在此决定的扩展：`TextStyle.fontFamilies` 从
+  筛选链改为样式自带顺序（EPUB 每份文档自带 `font-family` 列表）；`WeightFollowsRequest` 按请求
+  字重实例化可变字体，与 `OpticalSizeFollowsFontSize` 同构；样式缺失的显式策略（CSS 没有此项）。
+- Amendment 2026-09-08（三）：`PlatformDefaultFamily`。宿主目录的 fallback 链里可以写保留名
+  `AndroidFontCatalog.PLATFORM_DEFAULT_FAMILY`（`platform-default`），表示「这一位交给平台自己
+  选字」，它不声明 face。API 31+ 在解析时走到这一位就按 2026-08-05（三）的平台读回逐请求问平台，
+  平台面覆盖文本即选用，不覆盖则继续下一位；链尾仍是这一位时由平台文字栈退化绘制，读回的面只
+  供度量。API 23 到 30 在安装时把这一位展开成 fonts.xml 声明目录里该角色的家族（key 加
+  `platform-default:` 前缀，角色只保留宿主链委托的那些角色，系统目录的 capability issue 一并
+  带入）。宿主由此可以只自带拉丁或标点字体、中文正文跟随系统，而不必在「整套跟随系统」与
+  「全部自带」之间二选一；(二) 的 `system(context)` 保留为发现入口。
+- Amendment 2026-09-08（四）：`FakeBoldWhenNoBoldFace` 与 `StrokeSyntheticBold`。宿主目录里按样式
+  挑出的面字重比请求低 200 以上、且请求不低于 600 时（Minikin 的假粗体条件），该面以
+  `:syntheticBold=stroke` 后缀的 `FontFaceId` 登记为合成粗体面，度量与 shaping 仍用同一
+  FreeType / HarfBuzz face，advance 不变；回放时 outline 以 fill 加 stroke 绘制，stroke 宽度取
+  Skia 假粗体的比例（9 px 处 1/24 em，36 px 处 1/32 em，之间线性）。decision reason 追加
+  `FakeBoldWhenNoBoldFace`。skip-ink 与 ink bounds 用未描边的 outline，偏差在 stroke 半宽以内。
+  平台读回的合成粗体（API 31+ `Font` 加 `fakeBoldText`）不变。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
